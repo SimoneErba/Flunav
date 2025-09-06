@@ -8,9 +8,11 @@ Imagine watching items flow along a complex conveyor belt system, seeing their s
 
 > ⚠️ **Work in Progress**
 >
-> This project is currently under active development. The core backend functionalities are nearing completion, but APIs are subject to change and features are still being added.
+> This project is currently under active development. The core backend functionalities are nearing completion, but the frontent still needs work.
 
 ---
+
+### AI Docs [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SimoneErba/Flumen)
 
 ## 💡 Core Concepts
 
