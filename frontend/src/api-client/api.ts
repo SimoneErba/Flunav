@@ -510,6 +510,45 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
                 options: localVarRequestOptions,
             };
         },
+        /**
+         * 
+         * @summary Restore the graph to a specific time
+         * @param {string} time 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        restoreGraph: async (time: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'time' is not null or undefined
+            assertParamExists('restoreGraph', 'time', time)
+            const localVarPath = `/api/graph`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (time !== undefined) {
+                localVarQueryParameter['time'] = (time as any instanceof Date) ?
+                    (time as any).toISOString() :
+                    time;
+            }
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
     }
 };
 
@@ -532,6 +571,19 @@ export const GraphApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['GraphApi.getGraphData']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
+        /**
+         * 
+         * @summary Restore the graph to a specific time
+         * @param {string} time 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async restoreGraph(time: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.restoreGraph(time, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['GraphApi.restoreGraph']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
     }
 };
 
@@ -550,6 +602,16 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
          */
         getGraphData(options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
             return localVarFp.getGraphData(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Restore the graph to a specific time
+         * @param {string} time 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        restoreGraph(time: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.restoreGraph(time, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -570,6 +632,18 @@ export class GraphApi extends BaseAPI {
      */
     public getGraphData(options?: RawAxiosRequestConfig) {
         return GraphApiFp(this.configuration).getGraphData(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Restore the graph to a specific time
+     * @param {string} time 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof GraphApi
+     */
+    public restoreGraph(time: string, options?: RawAxiosRequestConfig) {
+        return GraphApiFp(this.configuration).restoreGraph(time, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -762,7 +836,7 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async createItem(itemInput: ItemInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Item>> {
+        async createItem(itemInput: ItemInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.createItem(itemInput, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.createItem']?.[localVarOperationServerIndex]?.url;
@@ -774,7 +848,7 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteItem(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+        async deleteItem(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.deleteItem(id, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.deleteItem']?.[localVarOperationServerIndex]?.url;
@@ -809,7 +883,7 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Item>> {
+        async updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateItem(updateModel, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItem']?.[localVarOperationServerIndex]?.url;
@@ -831,7 +905,7 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createItem(itemInput: ItemInput, options?: RawAxiosRequestConfig): AxiosPromise<Item> {
+        createItem(itemInput: ItemInput, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.createItem(itemInput, options).then((request) => request(axios, basePath));
         },
         /**
@@ -840,7 +914,7 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteItem(id: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+        deleteItem(id: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.deleteItem(id, options).then((request) => request(axios, basePath));
         },
         /**
@@ -866,7 +940,7 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<Item> {
+        updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateItem(updateModel, options).then((request) => request(axios, basePath));
         },
     };
@@ -1020,74 +1094,6 @@ export const LocationConnectionControllerApiAxiosParamCreator = function (config
                 options: localVarRequestOptions,
             };
         },
-        /**
-         * 
-         * @param {string} locationId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        deleteConnections1: async (locationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'locationId' is not null or undefined
-            assertParamExists('deleteConnections1', 'locationId', locationId)
-            const localVarPath = `/api/connections/{locationId}`
-                .replace(`{${"locationId"}}`, encodeURIComponent(String(locationId)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        moveConnection1: async (connectionInput: ConnectionInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'connectionInput' is not null or undefined
-            assertParamExists('moveConnection1', 'connectionInput', connectionInput)
-            const localVarPath = `/api/connections`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(connectionInput, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
     }
 };
 
@@ -1117,34 +1123,10 @@ export const LocationConnectionControllerApiFp = function(configuration?: Config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+        async deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.deleteConnection(sourceId, targetId, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationConnectionControllerApi.deleteConnection']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @param {string} locationId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async deleteConnections1(locationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteConnections1(locationId, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationConnectionControllerApi.deleteConnections1']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async moveConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.moveConnection1(connectionInput, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationConnectionControllerApi.moveConnection1']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -1173,26 +1155,8 @@ export const LocationConnectionControllerApiFactory = function (configuration?: 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+        deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.deleteConnection(sourceId, targetId, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @param {string} locationId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        deleteConnections1(locationId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.deleteConnections1(locationId, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        moveConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.moveConnection1(connectionInput, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1225,28 +1189,6 @@ export class LocationConnectionControllerApi extends BaseAPI {
      */
     public deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig) {
         return LocationConnectionControllerApiFp(this.configuration).deleteConnection(sourceId, targetId, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @param {string} locationId 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof LocationConnectionControllerApi
-     */
-    public deleteConnections1(locationId: string, options?: RawAxiosRequestConfig) {
-        return LocationConnectionControllerApiFp(this.configuration).deleteConnections1(locationId, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @param {ConnectionInput} connectionInput 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof LocationConnectionControllerApi
-     */
-    public moveConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig) {
-        return LocationConnectionControllerApiFp(this.configuration).moveConnection1(connectionInput, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -1439,7 +1381,7 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async createLocation(locationInput: LocationInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Location>> {
+        async createLocation(locationInput: LocationInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.createLocation(locationInput, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.createLocation']?.[localVarOperationServerIndex]?.url;
@@ -1451,7 +1393,7 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteLocation(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+        async deleteLocation(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.deleteLocation(id, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.deleteLocation']?.[localVarOperationServerIndex]?.url;
@@ -1486,7 +1428,7 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Location>> {
+        async updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocation(updateModel, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocation']?.[localVarOperationServerIndex]?.url;
@@ -1508,7 +1450,7 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createLocation(locationInput: LocationInput, options?: RawAxiosRequestConfig): AxiosPromise<Location> {
+        createLocation(locationInput: LocationInput, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.createLocation(locationInput, options).then((request) => request(axios, basePath));
         },
         /**
@@ -1517,7 +1459,7 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteLocation(id: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+        deleteLocation(id: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.deleteLocation(id, options).then((request) => request(axios, basePath));
         },
         /**
@@ -1543,7 +1485,7 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<Location> {
+        updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateLocation(updateModel, options).then((request) => request(axios, basePath));
         },
     };

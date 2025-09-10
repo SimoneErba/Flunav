@@ -7,7 +7,7 @@ import lombok.Getter;
 import java.util.Map;
 
 @Getter
-public class LocationCreatedEvent extends DomainEvent {
+public class LocationCreatedEvent extends EntityEvent {
 
     private final String name;
     private final Boolean active;

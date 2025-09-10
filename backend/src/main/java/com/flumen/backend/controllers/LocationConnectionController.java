@@ -1,20 +1,27 @@
 package com.flumen.backend.controllers;
 
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.flumen.backend.models.input.ConnectionInput;
-import com.flumen.backend.services.ConnectedToService;
+import com.flumen.backend.utils.ControllerHelper;
+
+import flumen.events.ConnectionDeletedEvent;
+import flumen.events.LocationConnectionCreatedEvent;
 
 @RestController
 @RequestMapping("/api/connections")
 public class LocationConnectionController {
 
-    private final ConnectedToService connectedToService;
+    private final ControllerHelper eventProcessorHelper;
 
     @Autowired
-    public LocationConnectionController(ConnectedToService connectedToService) {
-        this.connectedToService = connectedToService;
+    public LocationConnectionController(ControllerHelper eventProcessorHelper) {
+        this.eventProcessorHelper = eventProcessorHelper;
     }
 
     /**
@@ -24,31 +31,24 @@ public class LocationConnectionController {
      */
     @PostMapping
     public void createConnection(@RequestBody ConnectionInput connectionInput) {
-        connectedToService.createConnection(connectionInput.getLocation1Id(), connectionInput.getLocation2Id());
-    }
+        var event = new LocationConnectionCreatedEvent(
+            connectionInput.getLocation1Id(),
+            connectionInput.getLocation2Id()
+        );
+        eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(connectionResult -> {
 
-    /**
-     * Moves a connection from one location to another.
-     * @param connectionInput The connection details (source location -> new target location).
-     * @return A response indicating success or failure.
-     */
-    @PutMapping
-    public void moveConnection(@RequestBody ConnectionInput connectionInput) {
-        connectedToService.moveConnection(connectionInput.getLocation1Id(), connectionInput.getLocation2Id());
-    }
-
-    /**
-     * Deletes all connections from a specific location.
-     * @param locationId The location ID whose connections need to be deleted.
-     * @return A response indicating success or failure.
-     */
-    @DeleteMapping("/{locationId}")
-    public void deleteConnections(@PathVariable String locationId) {
-        connectedToService.deleteConnections(locationId);
+            java.net.URI connection = java.net.URI.create("/api/connections/" + event.getEntityId());
+            return ResponseEntity.created(connection).body(connectionResult);
+        });
     }
 
     @DeleteMapping
-    public void deleteConnection(String sourceId, String targetId) {
-        connectedToService.deleteConnection(sourceId, targetId);
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteConnection(String sourceId, String targetId) {
+        var event = new ConnectionDeletedEvent(sourceId, targetId);
+        return eventProcessorHelper.processAndLogEvent(event)
+        .thenApply(result -> {
+            return ResponseEntity.noContent().build();
+        });
     }
 }

@@ -1,6 +1,7 @@
 package com.flumen.backend.services;
 
 import flumen.events.DomainEvent;
+import flumen.events.EntityEvent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ public class EventStore {
         });
     }
 
-    public void saveEvents(String aggregateId, List<DomainEvent> events) {
+    public void saveEvents(List<DomainEvent> events) {
         orientDBService.withSession(session -> {
             for (DomainEvent event : events) {
                 saveEvent(session, event);
@@ -44,7 +45,11 @@ public class EventStore {
     private void saveEvent(ODatabaseSession session, DomainEvent event) {
         OVertex eventVertex = session.newVertex("Event");
         eventVertex.setProperty("eventId", event.getEventId());
-        eventVertex.setProperty("entityId", event.getEntityId());
+
+        if (event instanceof EntityEvent) {
+            EntityEvent entityEvent = (EntityEvent) event;
+            eventVertex.setProperty("entityId", entityEvent.getEntityId());
+        }
         eventVertex.setProperty("timestamp", event.getTimestamp());
         eventVertex.setProperty("eventType", event.getEventType());
         String eventDataJson;

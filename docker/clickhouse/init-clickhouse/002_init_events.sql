@@ -1,11 +1,12 @@
 CREATE TABLE IF NOT EXISTS default.Events
 (
-    `timestamp` DateTime64(3),
+    `timestamp_received` DateTime64(3),
+    `timestamp_processed` DateTime64(3),
     `event_type` LowCardinality(String),
-    `entity_id` String,
+    `entity_id` Nullable(String),
     `event_id` UUID,
     `data` JSON
 )
 ENGINE = MergeTree
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (timestamp, event_type, entity_id, event_id);
+PARTITION BY toYYYYMM(timestamp_received)
+ORDER BY (timestamp_received, timestamp_processed, event_type, event_id);

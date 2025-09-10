@@ -3,15 +3,10 @@ package com.flumen.backend.domain;
 import lombok.Getter;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-import com.flumen.backend.domain.Location;
-import flumen.events.DomainEvent;
 import flumen.events.ItemCreatedEvent;
-import flumen.events.ItemPositionChangedEvent;
 import flumen.events.ItemPropertiesUpdatedEvent;
 import flumen.events.ItemSpeedChangedEvent;
 

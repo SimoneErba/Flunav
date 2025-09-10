@@ -6,27 +6,26 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
 import flumen.events.DomainEvent;
-import com.flumen.backend.services.ItemEventProcessor;
+import com.flumen.backend.services.EventProcessor;
 
 @Component
 public class ItemEventListener {
     private static final Logger logger = LoggerFactory.getLogger(ItemEventListener.class);
-    private final ItemEventProcessor eventProcessor;
+    private final EventProcessor eventProcessor;
 
-    public ItemEventListener(ItemEventProcessor eventProcessor) {
+    public ItemEventListener(EventProcessor eventProcessor) {
         this.eventProcessor = eventProcessor;
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.item-events}")
+    @RabbitListener(queues = "${rabbitmq.queue.item-events}", id = "graph-state-events-listener")
     public void handleItemEvent(DomainEvent event) {
-        logger.info("Received event from RabbitMQ: {} for item: {}", 
-            event.getEventType(), event.getEntityId());
+        logger.info("Received event from RabbitMQ: {}", 
+            event.getEventType());
         
-        eventProcessor.process(event)
+        eventProcessor.process(event, true)
             .exceptionally(throwable -> {
                 logger.error("Failed to process event from RabbitMQ: {}", 
                     event.getEventId(), throwable);
-                // Here you could implement retry logic or dead letter queue
                 return null;
             });
     }

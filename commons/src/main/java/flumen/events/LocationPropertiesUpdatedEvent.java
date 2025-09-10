@@ -7,7 +7,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Getter
-public class LocationPropertiesUpdatedEvent extends DomainEvent {
+public class LocationPropertiesUpdatedEvent extends EntityEvent {
     private final Map<String, Object> updatedProperties;
 
     @JsonCreator

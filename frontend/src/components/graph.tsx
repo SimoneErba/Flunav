@@ -109,7 +109,11 @@ const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
   );
 };
 
-const sigmaStyle: React.CSSProperties = { height: "100vh", width: "100vw" };
+const sigmaStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#fff',
+};
 
 // --- Edge Editor Component ---
 interface EdgeEditorData {
@@ -676,18 +680,18 @@ export const DisplayGraph = ({ initialGraphData }: { initialGraphData: GraphData
   }, [hoveredEdge]);
 
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
-    <SigmaContainer
-      style={{ ...sigmaStyle, cursor: hoveredEdge ? 'pointer' : 'default' }}
-      settings={{
-        nodeProgramClasses: { square: NodeSquareProgram },
-        enableEdgeEvents: true,
-        autoRescale: true
-      }}
-      edgeReducer={edgeReducer}
-    >
-      <GraphEvents initialGraphData={initialGraphData} setHoveredEdge={setHoveredEdge} />
-    </SigmaContainer>
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <SigmaContainer
+        style={{ ...sigmaStyle, cursor: hoveredEdge ? 'pointer' : 'default' }}
+        settings={{
+          nodeProgramClasses: { square: NodeSquareProgram },
+          enableEdgeEvents: true,
+          autoRescale: true
+        }}
+        edgeReducer={edgeReducer}
+      >
+        <GraphEvents initialGraphData={initialGraphData} setHoveredEdge={setHoveredEdge} />
+      </SigmaContainer>
     </div>
   );
 };

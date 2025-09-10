@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-public class ItemSpeedChangedEvent extends DomainEvent {
+public class ItemSpeedChangedEvent extends EntityEvent {
     private final Double speed;
 
     @JsonCreator

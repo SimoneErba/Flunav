@@ -6,9 +6,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-public class ItemActivatedEvent extends EntityEvent {
+public class ItemDeletedEvent extends EntityEvent {
     @JsonCreator
-    public ItemActivatedEvent(@JsonProperty("itemId") String itemId) {
-        super(itemId, "ITEM_ACTIVATED");
+    public ItemDeletedEvent(@JsonProperty("itemId") String itemId) {
+        super(itemId, "ITEM_DELETED");
     }
 } 

@@ -46,28 +46,6 @@ public class ConnectedToService {
     }
 
     /**
-     * Moves a connection from one location to another, meaning the connection direction is changed.
-     * @param location1Id The ID of the source location.
-     * @param location2Id The ID of the new target location.
-     */
-    public void moveConnection(String location1Id, String location2Id) {
-        try (ODatabaseSession db = orientDBService.getSession()) {
-            OElement location1 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location1Id);
-            OElement location2 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location2Id);
-
-            // Delete the existing "ConnectedTo" edge
-            var edges = location1.asVertex().get().getEdges(ODirection.OUT, "ConnectedTo");
-            for (var edge : edges) {
-                edge.delete();
-            }
-
-            // Create a new edge from location1 to location2
-            location1.asVertex().get().addEdge(location2.asVertex().get(), "ConnectedTo");
-            location1.save();
-        }
-    }
-
-    /**
      * Deletes all connections from a specific location.
      * @param locationId The ID of the location whose connections should be deleted.
      */

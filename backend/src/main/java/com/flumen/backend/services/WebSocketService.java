@@ -18,9 +18,20 @@ public class WebSocketService {
 
     public void broadcastPositionUpdate(String itemId, String locationId) {
         logger.info("Broadcasting position update for itemId: {}, locationId: {}", itemId, locationId);
-        messagingTemplate.convertAndSend("/topic/positions", 
-            new PositionUpdate(itemId, locationId));
+        messagingTemplate.convertAndSend("/topic/positions",
+            new PositionUpdate(itemId, locationId, PositionStatus.UPDATED));
     }
 
-    private record PositionUpdate(String itemId, String locationId) {}
-} 
+    public void broadcastPositionLost(String itemId) {
+        logger.info("Broadcasting position lost for itemId: {}", itemId);
+        messagingTemplate.convertAndSend("/topic/positions",
+            new PositionUpdate(itemId, null, PositionStatus.LOST));
+    }
+
+    private enum PositionStatus {
+        UPDATED,
+        LOST
+    }
+
+    private record PositionUpdate(String itemId, String locationId, PositionStatus status) {}
+}

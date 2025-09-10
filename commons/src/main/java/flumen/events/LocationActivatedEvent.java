@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-public class LocationActivatedEvent extends DomainEvent {
+public class LocationActivatedEvent extends EntityEvent {
 
     @JsonCreator
     public LocationActivatedEvent(@JsonProperty("locationId") String locationId) {

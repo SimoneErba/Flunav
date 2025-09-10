@@ -123,10 +123,27 @@ public class LocationService {
         }
     }
 
+    /**
+     * Delete a location and all connections to it
+     * @param id
+     */
     public void deleteLocation(String id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
-            toLocationVertex.delete();
+            db.begin();
+            try {
+                OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
+
+                for (OEdge edge : toLocationVertex.getEdges(ODirection.BOTH)) {
+                    edge.delete();
+                }
+
+                toLocationVertex.delete();
+
+                db.commit();
+            } catch (Exception e) {
+                db.rollback();
+                throw new RuntimeException("Error while deleting location with ID " + id + ": " + e.getMessage(), e);
+            }
         } catch (Exception e) {
             throw new RuntimeException("Error while deleting location with ID " + id + ": " + e.getMessage(), e);
         }

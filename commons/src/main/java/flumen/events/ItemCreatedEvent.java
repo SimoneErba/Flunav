@@ -6,7 +6,7 @@ import lombok.Getter;
 import java.util.Map;
 
 @Getter
-public class ItemCreatedEvent extends DomainEvent {
+public class ItemCreatedEvent extends EntityEvent {
     private final String name;
     private final Double speed;
     private final boolean active;

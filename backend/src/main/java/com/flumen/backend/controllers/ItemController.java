@@ -8,18 +8,27 @@ import com.flumen.backend.domain.Item;
 import com.flumen.backend.models.UpdateModel;
 import com.flumen.backend.models.input.ItemInput;
 import com.flumen.backend.services.ItemService;
+import com.flumen.backend.utils.ControllerHelper;
+
+import flumen.events.ItemCreatedEvent;
+import flumen.events.ItemDeletedEvent;
+import flumen.events.ItemPropertiesUpdatedEvent;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/items")
 public class ItemController {
 
     private final ItemService itemService;
+    private final ControllerHelper eventProcessorHelper;
 
     @Autowired
-    public ItemController(ItemService itemService) {
+    public ItemController(ItemService itemService, ControllerHelper eventProcessorHelper) {
         this.itemService = itemService;
+        this.eventProcessorHelper = eventProcessorHelper;
     }
 
     @GetMapping
@@ -35,21 +44,43 @@ public class ItemController {
     }
 
     @PostMapping()
-    public ResponseEntity<Item> createItem(@RequestBody ItemInput item) {
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> createItem(@RequestBody ItemInput item) {
         
-        Item newItem = itemService.createItem(item);
-        return ResponseEntity.ok(newItem);
+        var event = new ItemCreatedEvent(
+            item.getId(),
+            item.getName(),
+            item.getSpeed(),
+            item.getActive(),
+            item.getProperties()
+        );
+        return eventProcessorHelper.processAndLogEvent(event)
+        .thenApply(updatedItemProperties -> {
+
+            java.net.URI location = java.net.URI.create("/api/items/" + event.getEntityId());
+            return ResponseEntity.created(location).body(updatedItemProperties);
+        });
     }
 
     @PutMapping()
-    public ResponseEntity<Item> updateItem(@RequestBody UpdateModel model) {
-        Item updatedItem = itemService.updateItem(model);
-        return updatedItem != null ? ResponseEntity.ok(updatedItem) : ResponseEntity.notFound().build();
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateItem(@RequestBody UpdateModel model) {
+        var event = new ItemPropertiesUpdatedEvent(
+            model.getId(),
+            model.getProperties()
+        );
+        return eventProcessorHelper.processAndLogEvent(event)
+        .thenApply(updatedItemProperties -> {
+
+            return ResponseEntity.ok(updatedItemProperties);
+        });
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteItem(@PathVariable String id) {
-        itemService.deleteItem(id);
-        return ResponseEntity.noContent().build();
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteItem(@PathVariable String id) {
+        var event = new ItemDeletedEvent(id);
+        return eventProcessorHelper.processAndLogEvent(event)
+        .thenApply(result -> {
+
+            return ResponseEntity.noContent().build();
+        });
     }
 }
