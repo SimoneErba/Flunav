@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.flumen.backend.models.graph.GraphData;
 import com.flumen.backend.services.ClickHouseService;
 import com.flumen.backend.services.GraphService;
+import com.flumen.backend.services.HistoricalGraphBuilder;
 
 import java.time.Instant;
 
@@ -24,9 +25,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class GraphController {
     private static final Logger logger = LoggerFactory.getLogger(GraphController.class);
 
+    private final HistoricalGraphBuilder historicalGraphBuilder;
     private final GraphService graphService;
 
-    public GraphController(GraphService graphService) {
+    public GraphController(HistoricalGraphBuilder historicalGraphBuilder, GraphService graphService) {
+        this.historicalGraphBuilder = historicalGraphBuilder;
         this.graphService = graphService;
     }
 
@@ -39,9 +42,7 @@ public class GraphController {
     @PostMapping
     @Operation(summary = "Restore the graph to a specific time")
     public ResponseEntity<Void> restoreGraph(Instant time) {
-        logger.info("***********************");
-        logger.info(time.toString());
-        graphService.rebuildGraphState(time);
+        historicalGraphBuilder.rebuildGraphState(time);
         return ResponseEntity.noContent().build();
     }
 } 

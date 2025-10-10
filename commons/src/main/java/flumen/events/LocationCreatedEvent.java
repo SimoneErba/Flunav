@@ -2,6 +2,8 @@ package flumen.events;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import flumen.types.LocationType;
 import lombok.Getter;
 
 import java.util.Map;
@@ -15,7 +17,9 @@ public class LocationCreatedEvent extends EntityEvent {
     private final Double longitude;
     private final Double length;
     private final Double speed;
-    private final String type;
+    private final LocationType type;
+    private final Integer capacity;
+    private final Boolean isDischargePoint;
     private final Map<String, Object> properties;
 
     /**
@@ -30,7 +34,9 @@ public class LocationCreatedEvent extends EntityEvent {
         @JsonProperty("longitude") Double longitude,
         @JsonProperty("length") Double length,
         @JsonProperty("speed") Double speed,
-        @JsonProperty("type") String type,
+        @JsonProperty("type") LocationType type,
+        @JsonProperty("capacity") Integer capacity,
+        @JsonProperty("isDischargePoint") Boolean isDischargePoint,
         @JsonProperty("properties") Map<String, Object> properties
     ) {
         super(locationId, "LOCATION_CREATED");
@@ -42,5 +48,7 @@ public class LocationCreatedEvent extends EntityEvent {
         this.length = length;
         this.speed = speed;
         this.type = type;
+        this.isDischargePoint = isDischargePoint;
+        this.capacity = capacity;
     }
 }

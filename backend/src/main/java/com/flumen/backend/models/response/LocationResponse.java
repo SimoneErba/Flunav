@@ -1,6 +1,9 @@
 package com.flumen.backend.models.response;
 
 import java.util.Map;
+
+import flumen.types.LocationType;
+
 import java.util.List;
 
 import lombok.AllArgsConstructor;
@@ -17,7 +20,7 @@ public class LocationResponse {
     private Double longitude;
     private Double length;
     private Double speed;
-    private String type;
+    private LocationType type;
     private Boolean active;
     private Map<String, Object> properties;
     private List<ItemResponse> items;

@@ -6,50 +6,24 @@ import com.flumen.backend.entities.ConnectedTo;
 import com.flumen.backend.models.graph.GraphData;
 import com.flumen.backend.models.response.ConnectionResponse;
 import com.flumen.backend.models.response.LocationResponse;
-import com.flumen.backend.services.ClickHouseService.Snapshot;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
-import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-
-import flumen.events.DomainEvent;
-
-import com.orientechnologies.orient.core.id.ORID;
-
 import org.modelmapper.ModelMapper;
 import org.modelmapper.convention.MatchingStrategies;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.amqp.rabbit.listener.MessageListenerContainer;
-import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.lang.NonNull;
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-public class GraphService implements ApplicationContextAware {
+public class GraphService {
     private final OrientDBService orientDBService;
-    private final ClickHouseService clickHouseService;
-    private final EventProcessor eventProcessor;
-    private RabbitListenerEndpointRegistry rabbitListenerRegistry;
     private final ModelMapper modelMapper;
-    private static final Logger logger = LoggerFactory.getLogger(GraphService.class);
-
-    @Override
-    public void setApplicationContext(@NonNull ApplicationContext applicationContext) {
-        this.rabbitListenerRegistry = applicationContext.getBean(RabbitListenerEndpointRegistry.class);
-    }
 
     public GraphService(OrientDBService orientDBService, ClickHouseService clickHouseService, @Lazy EventProcessor eventProcessor) {
         this.orientDBService = orientDBService;
-        this.clickHouseService = clickHouseService;
-        this.eventProcessor = eventProcessor;
         this.modelMapper = new ModelMapper();
         modelMapper.getConfiguration().setMatchingStrategy(MatchingStrategies.STRICT);
         
@@ -157,142 +131,5 @@ public class GraphService implements ApplicationContextAware {
         graphData.setConnections(allConnections);
         
         return graphData;
-    }
-
-    public void rebuildGraphState(Instant timeToRestore) {
-        logger.info("Starting graph state reconstruction...");
-        MessageListenerContainer listenerContainer = rabbitListenerRegistry.getListenerContainer("graph-state-events-listener");
-
-        try{
-            logger.warn("Pausing RabbitMQ listener 'graph-state-events-listener'. Incoming events will be queued.");
-            listenerContainer.stop();
-            
-            Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(timeToRestore);
-
-            Instant startTime = Instant.EPOCH;
-
-            if (snapshotOpt.isPresent()) {
-                Snapshot snapshot = snapshotOpt.get();
-                logger.info("Restoring state from snapshot taken at {}", snapshot.timestamp());
-                restoreFromSnapshotData(snapshot.graphData());
-                startTime = snapshot.timestamp();
-            } else {
-                logger.info("No snapshot found. Replaying all events from the beginning.");
-            }
-
-            List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(startTime, timeToRestore);
-            logger.info("Found {} events to replay.", eventsToReplay.size());
-
-            for (DomainEvent event : eventsToReplay) {
-                eventProcessor.process(event, false); 
-            }
-
-            logger.info("Graph state reconstruction complete.");
-        } catch (Exception e) {
-            logger.error("A critical error occurred during the rebuild process.", e);
-        } finally {
-            if (listenerContainer != null && !listenerContainer.isRunning()) {
-                logger.warn("Resuming RabbitMQ listener 'graph-state-events-listener'. It will now process queued messages.");
-                listenerContainer.start();
-            }
-        }
-    }
-
-    /**
-     * Restores the entire graph state in OrientDB from a given snapshot.
-     * THIS IS A DESTRUCTIVE OPERATION. It will first wipe the entire graph
-     * (Items, Locations, and their connections) before recreating it from the snapshot data.
-     * The entire process is wrapped in a transaction to ensure atomicity.
-     *
-     * @param graphData The snapshot data to restore.
-     */
-    public void restoreFromSnapshotData(GraphData graphData) {
-        logger.warn("Executing destructive snapshot restore. Wiping current graph state.");
-
-        try (ODatabaseSession session = orientDBService.getSession()) {
-            try {
-                session.begin();
-                logger.info("Transaction started for snapshot restore.");
-
-                clearDatabase(session);
-
-                Map<String, ORID> locationIdToRidMap = new HashMap<>();
-                Map<String, ORID> itemIdToRidMap = new HashMap<>();
-
-                logger.info("Creating {} locations from snapshot...", graphData.getLocations().size());
-                for (LocationResponse locData : graphData.getLocations()) {
-                    OVertex locationVertex = session.newVertex("Location");
-                    locationVertex.setProperty("customId", locData.getId());
-                    locationVertex.setProperty("name", locData.getName());
-                    locationVertex.setProperty("latitude", locData.getLatitude());
-                    locationVertex.setProperty("longitude", locData.getLongitude());
-                    locationVertex.setProperty("length", locData.getLength());
-                    locationVertex.setProperty("speed", locData.getSpeed());
-                    locationVertex.setProperty("active", locData.getActive());
-                    locationVertex.setProperty("properties", locData.getProperties());
-                    locationVertex.save();
-                    locationIdToRidMap.put(locData.getId(), locationVertex.getIdentity());
-
-                    if (locData.getItems() != null) {
-                        for (ItemResponse itemData : locData.getItems()) {
-                            OVertex itemVertex = session.newVertex("Item");
-                            itemVertex.setProperty("customId", itemData.getId());
-                            itemVertex.setProperty("name", itemData.getName());
-                            itemVertex.setProperty("speed", itemData.getSpeed());
-                            itemVertex.setProperty("active", itemData.getActive());
-                            itemVertex.setProperty("properties", itemData.getProperties());
-                            itemVertex.save();
-                            itemIdToRidMap.put(itemData.getId(), itemVertex.getIdentity());
-
-                            itemVertex.addEdge(locationVertex, "HasPosition").save();
-                        }
-                    }
-                }
-                logger.info("Vertex creation complete.");
-
-                logger.info("Creating {} connections from snapshot...", graphData.getConnections().size());
-                for (ConnectionResponse connData : graphData.getConnections()) {
-                    ORID sourceRid = locationIdToRidMap.get(connData.getSourceId());
-                    ORID targetRid = locationIdToRidMap.get(connData.getTargetId());
-
-                    if (sourceRid != null && targetRid != null) {
-                        OVertex sourceVertex = (OVertex) session.load(sourceRid);
-                        OVertex targetVertex = (OVertex) session.load(targetRid);
-                        OEdge connectionEdge = sourceVertex.addEdge(targetVertex, "ConnectedTo");
-                        connectionEdge.setProperty("properties", connData.getProperties());
-                        connectionEdge.save();
-                    } else {
-                        logger.warn("Could not create connection from {} to {}: one or both locations not found in map.",
-                                connData.getSourceId(), connData.getTargetId());
-                    }
-                }
-                logger.info("Edge creation complete.");
-
-                session.commit();
-                logger.info("Snapshot restore transaction committed successfully.");
-
-            } catch (Exception e) {
-                logger.error("Error during snapshot restore. Rolling back transaction.", e);
-                session.rollback();
-                throw new RuntimeException("Snapshot restore failed and was rolled back.", e);
-            }
-        }
-    }
-
-    /**
-     * Wipes all relevant graph data from the database.
-     * This should only be called within a transaction.
-     *
-     * @param session The active ODatabaseSession.
-     */
-    private void clearDatabase(ODatabaseSession session) {
-        logger.info("Clearing database: Deleting all edges and vertices...");
-
-        session.command("DELETE FROM ConnectedTo UNSAFE");
-        session.command("DELETE FROM HasPosition UNSAFE");
-        session.command("DELETE FROM Item UNSAFE");
-        session.command("DELETE FROM Location UNSAFE");
-
-        logger.info("Database clearing complete.");
     }
 }

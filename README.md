@@ -1,45 +1,69 @@
 <p align="center">
   <img src="logo.svg" alt="Flumen Logo" width="350"/>
 </p>
-
-**Flumen** is a real-time visualization engine for tracking moving objects across a dynamic graph. It's designed to receive positional data from an external system (like a factory PLC or logistics API) and render the movement in an interactive, user-configurable interface.
-
-Imagine watching items flow along a complex conveyor belt system, seeing their status change in real-time, and being able to replay the data. That's the goal of Flumen.
-
-> ⚠️ **Work in Progress**
->
-> This project is currently under active development. The core backend functionalities are nearing completion, but the frontent still needs work.
+<p align="center">
+  A real-time digital twin engine for tracking and simulating complex logistical systems.
+</p>
 
 ---
 
+> ⚠️ **Work in Progress**
+>
+> This project is under active development. The backend architecture and core functionalities are largely complete, while the frontend UI is undergoing further refinement.
+
+## What is Flumen?
+
+Flumen is a backend platform and visualization tool designed to create a **digital twin** of systems with moving assets, such as conveyor-based sorting facilities or production lines. It ingests event data from external control systems (e.g., PLCs), maintains a real-time graph model of the system's state, and provides tools for historical analysis and simulation.
+
+The core purpose is to transform discrete sensor data into a continuous, understandable, and actionable view of the entire operation.
+
+<p align="center">
+  <!-- A GIF or screenshot of the UI would be effective here -->
+  <img src="https://i.imgur.com/your-demo-gif.gif" alt="Flumen in action"/>
+</p>
+
+## Core Concepts
+
+- **Dynamic Graph Model:** The entire physical layout of the system is represented as a graph. Users can visually design and modify this layout directly from the frontend.
+- **Nodes as Tracks:** Unlike traditional graphs, nodes themselves can represent physical tracks (like a conveyor belt) with properties like `length` and `speed`. This enables realistic, time-based animations of items moving *across* a node.
+- **Live System Status:** The visual appearance of every component in the graph dynamically changes to reflect its real-world state, such as `OPERATIONAL`, `STOPPED`, `FULL`, or `ERROR`.
+
+## Key Features
+
+- **Real-time Visualization & Control:**
+    - **Live Asset Tracking:** See items move across the facility in real-time.
+    - **Dynamic Status Updates:** Instantly identify system-wide issues by watching conveyors stop, items queue up at bottlenecks, or chutes become full.
+    - **Interactive Graph Editor:** Design, build, and modify your entire facility layout directly in the user interface.
+
+- **Predictive Path Simulation:**
+    - When an item receives a destination, the system calculates the most likely physical path.
+    - The frontend animates the item along this predicted route, providing a forward-looking view of the operation.
+    - **State Correction ("Teleport"):** If a sensor reports an item in a location that deviates from its predicted path, the UI immediately corrects its position, instantly highlighting operational anomalies.
+
+- **Historical Analysis & "Time Travel":**
+    - **High-Fidelity Playback:** Replay past operational periods to analyze specific incidents with frame-by-frame accuracy. See exactly when a conveyor stopped and how that caused a cascading failure upstream.
+    - **Complete Item History:** Select any item, past or present, and instantly see its entire event history: every location it visited, every decision point it passed through, and the full timeline of its journey.
+    - **"What-If" Analysis:** Create a fork of a historical state in an isolated environment to test the impact of new business rules using historical event data, allowing for data-driven process optimization.
+
+---
+
+## Architecture
+
+Flumen's architecture is designed for resilience, scalability, and data fidelity by separating concerns and using specialized data stores.
+
+### 1. Event Sourcing
+The system's source of truth is not the current state, but an immutable log of all domain events (`ItemCreated`, `PositionChanged`, etc.). This provides a complete audit trail and enables all historical features.
+
+### 2. Polyglot Persistence
+We use different databases for their specialized strengths:
+- **OrientDB (Graph Database):** Stores the *current state* of the digital twin. Its graph structure is optimized for pathfinding algorithms and querying complex relationships between system components.
+- **ClickHouse (Columnar Database):** The **event store**. Built for extremely high-throughput ingestion of time-series data and fast analytical queries required for state reconstruction.
+
+### 3. Asynchronous & Decoupled Ingestion
+- **RabbitMQ (Message Queue):** The API layer is decoupled from the state processing logic. Incoming events are published to a queue, allowing the API to remain fast and responsive under high load and ensuring data durability. The core system processes events from this queue.
+
+### 4. Isolated In-Memory Simulations
+- **On-Demand Environments:** Historical simulations do not run against the live production database. When a user requests a historical view, a new, dedicated **in-memory OrientDB database** is created instantly.
+- **"Golden Template" Pattern:** To avoid slow schema creation, new in-memory databases are cloned in milliseconds from a pre-configured, schema-ready in-memory template that is created once at application startup. This ensures that analytical workloads are fully isolated from the live operational system.
+
 ### AI Docs [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SimoneErba/Flumen)
-
-## 💡 Core Concepts
-
-Flumen's design is based on a few key principles:
-
-### 1. Node-Centric Tracks
-Unlike traditional graph visualizations where edges represent the path, in Flumen, **specialized `Location` nodes represent the actual tracks**, this helps in tracking the exact item position and progress on the section.
-- **Nodes** can be simple points (e.g., a sensor) or tracks (`Location` nodes).
-- **`Location` nodes** have properties like `length` and `speed`. When an item enters a `Location` node, the frontend animates its movement along that node's length at the specified speed.
-- **Edges** simply define the directed flow, indicating the *next* node an item will move to.
-
-### 2. Decoupled State: The Reconciliation Loop
-Flumen cleanly separates the "source of truth" from the visualization.
-1.  **External System:** The authoritative source that knows the true location of every item.
-2.  **Flumen Backend:** Listens for events from the external system (e.g., "Item A has arrived at Location 2"). It maintains the official state.
-3.  **Flumen Frontend:** When the backend confirms an item is on a `Location` node, the frontend begins an "optimistic" animation of the item moving along that node. This provides a smooth visual experience without needing constant updates. The item officially moves to the *next* node only when the backend receives another confirmation event.
-
-### 3. Event Sourcing for History and Auditing
-The entire system is built on an **[Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html)** architecture. Instead of just storing the current state, we store an immutable sequence of all events that have ever happened (e.g., `NodeCreated`, `ItemMoved`, `NodeAttributeChanged`).
-- **Full History:** Replay events to see the state of the system at any point in time.
-- **Debugging & Auditing:** Provides a complete, unchangeable log of every action.
-- **State Resilience:** If a process stops, the item's progress (e.g., percentage traveled along a `Location` node) can be precisely stored and resumed.
-
-## ✨ Key Features
-
-- **Real-time Visualization:** See objects move and states change instantly via WebSockets.
-- **Dynamic Graph Editor:** Create, move, and configure nodes and their connections directly in the UI.
-- **Stateful Animations:** The frontend animates object movement based on the `length` and `speed` attributes of `Location` nodes.
-- **Status-Driven Visuals:** Nodes dynamically change their appearance (e.g., color) to reflect their state (`ok`, `alarm`, `inactive`).
-- **Event-Sourced Backend:** A robust architecture that provides a full, replayable history of the system.

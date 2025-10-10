@@ -3,6 +3,7 @@ package com.flumen.backend.models.input;
 import java.util.Map;
 
 import flumen.events.LocationCreatedEvent;
+import flumen.types.LocationType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -17,7 +18,7 @@ public class LocationInput {
 	private Double longitude;
 	private Double length;
     private Double speed;
-    private String type;
+    private LocationType type;
     private Boolean active;
 	private Map<String, Object> properties;
 

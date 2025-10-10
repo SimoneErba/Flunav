@@ -23,6 +23,7 @@ import flumen.events.LocationPropertiesUpdatedEvent;
 import flumen.events.PositionChangedEvent;
 import flumen.events.PositionCreatedEvent;
 
+import com.flumen.backend.context.DatabaseContextHolder;
 import com.flumen.backend.models.UpdateModel;
 import com.flumen.backend.models.input.ItemInput;
 import com.flumen.backend.models.input.LocationInput;
@@ -129,6 +130,15 @@ private <T> T executeWithRetry(Supplier<T> operation) {
         }
     }
 }
+
+    public void processHistoricalEvent(String simulationId, DomainEvent event) {
+        DatabaseContextHolder.setSimulationId(simulationId);
+        try {
+            processEvent(event, false);
+        } finally {
+            DatabaseContextHolder.clear();
+        }
+    }
 
     public Map<String, Object> processEvent(DomainEvent event) {
         return processEvent(event, true);

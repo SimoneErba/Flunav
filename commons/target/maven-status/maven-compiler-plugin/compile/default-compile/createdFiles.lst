@@ -12,6 +12,7 @@ flumen/events/PositionCreatedEvent.class
 flumen/events/ItemPropertiesUpdatedEvent.class
 flumen/events/LocationConnectionCreatedEvent.class
 flumen/events/LocationActivatedEvent.class
+flumen/types/LocationType.class
 flumen/events/ItemPositionDeletedEvent.class
 flumen/events/LocationDeletedEvent.class
 flumen/events/ItemPositionChangedEvent.class
