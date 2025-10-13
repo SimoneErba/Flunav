@@ -1,7 +1,5 @@
 package com.flumen.backend.controllers;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -9,7 +7,6 @@ import org.springframework.web.bind.annotation.*;
 import com.flumen.backend.domain.Location;
 import com.flumen.backend.models.UpdateModel;
 import com.flumen.backend.models.input.LocationInput;
-import com.flumen.backend.services.EventProcessor;
 import com.flumen.backend.services.LocationService;
 import com.flumen.backend.utils.ControllerHelper;
 
@@ -55,6 +52,7 @@ public class LocationController {
             location.getLength(),
             location.getSpeed(),
             location.getType(),
+            location.getCapactiy(),
             location.getProperties()
         );
         return eventProcessorHelper.processAndLogEvent(event)

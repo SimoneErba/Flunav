@@ -53,13 +53,15 @@ public class OrientDBService {
         }
         logger.info("OrientDB connection pool for main DB '{}' initialized.", mainDbName);
 
-        // Create the "Golden Template" in-memory DB at startup for fast cloning.
-        logger.info("Creating in-memory golden template database...");
-        orientDB.create(TEMPLATE_DB_NAME, ODatabaseType.MEMORY);
-        try (ODatabaseSession templateSession = orientDB.open(TEMPLATE_DB_NAME, username, password)) {
-            ensureSchemaExists(templateSession);
+        if (!orientDB.exists(TEMPLATE_DB_NAME)) {
+            // Create the "Golden Template" in-memory DB at startup for fast cloning.
+            logger.info("Creating in-memory golden template database...");
+            orientDB.create(TEMPLATE_DB_NAME, ODatabaseType.MEMORY);
+            try (ODatabaseSession templateSession = orientDB.open(TEMPLATE_DB_NAME, username, password)) {
+                ensureSchemaExists(templateSession);
+            }
+            logger.info("Golden template database '{}' created and configured.", TEMPLATE_DB_NAME);
         }
-        logger.info("Golden template database '{}' created and configured.", TEMPLATE_DB_NAME);
     }
 
     @PreDestroy

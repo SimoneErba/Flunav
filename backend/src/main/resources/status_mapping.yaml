@@ -1,0 +1,13 @@
+statusMappings:
+  - customerStatusCode: 1
+    customerStatusName: "OK"
+    internalStatus: "OPERATIONAL"
+    display:
+      color: "#00FF00"
+      name: "Operativo"
+  - customerStatusCode: 9
+    customerStatusName: "Jam Detected"
+    internalStatus: "ERROR"
+    display:
+      color: "#FF0000"
+      name: "Inceppamento"

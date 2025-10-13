@@ -2,27 +2,18 @@ package com.flumen.backend.services;
 
 import com.flumen.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
-import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.record.ODirection;
-import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OElement;
-import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-import com.orientechnologies.orient.core.id.ORID;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ConnectedToService {
-
-    private static final Logger logger = LoggerFactory.getLogger(ConnectedToService.class);
-
     private final OrientDBService orientDBService;
 
     @Autowired

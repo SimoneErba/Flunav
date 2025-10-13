@@ -1,20 +1,18 @@
 package com.flumen.backend.services;
 
-import com.flumen.backend.config.RequestLoggingFilter;
 import com.flumen.backend.domain.Location;
-import flumen.events.DomainEvent;
 import com.flumen.backend.models.UpdateModel;
 import com.flumen.backend.models.input.LocationInput;
 import com.flumen.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
-import com.orientechnologies.orient.core.id.ORID;
-import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.record.ODirection;
 import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+
+import flumen.types.LocationType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -187,16 +185,19 @@ public class LocationService {
         if (vertex == null) {
             throw new IllegalArgumentException("Attempted to convert a null vertex to location.");
         }
+        Integer capacity = vertex.getProperty("capacity");
+
         return new Location(
             vertex.getProperty("customId"),
             vertex.getProperty("name"),
+            LocationType.fromString(vertex.getProperty("type")),
+            vertex.getProperty("active"),
+            vertex.getProperty("properties"),
             vertex.getProperty("latitude"),
             vertex.getProperty("longitude"),
             vertex.getProperty("length"),
             vertex.getProperty("speed"),
-            vertex.getProperty("type"),
-            vertex.getProperty("active"),
-            vertex.getProperty("properties")
+            capacity
         );
     }
 }

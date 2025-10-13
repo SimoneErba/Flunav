@@ -4,8 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import flumen.events.ConnectionDeletedEvent;
 import flumen.events.DomainEvent;
 import flumen.events.ItemActivatedEvent;
@@ -29,7 +27,6 @@ import com.flumen.backend.models.input.ItemInput;
 import com.flumen.backend.models.input.LocationInput;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,33 +40,25 @@ public class EventProcessor {
     private static final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
 
     private final EventStore eventStore;
-    private final OrientDBService orientDBService;
     private final ClickHouseService clickHouseService;
     private final ItemService itemService;
     private final LocationService locationService;
     private final ConnectedToService connectionService;
     private final WebSocketService webSocketService;
-    private final GraphService graphService;
-
-    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public EventProcessor(
             EventStore eventStore, 
-            OrientDBService orientDBService,
             ClickHouseService clickHouseService,
             ItemService itemService,
             LocationService locationService,
             ConnectedToService connectionService,
-            GraphService graphService,
             WebSocketService webSocketService) {
         this.eventStore = eventStore;
-        this.orientDBService = orientDBService;
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
         this.connectionService = connectionService;
         this.webSocketService = webSocketService;
-        this.graphService = graphService;
     }
 
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {

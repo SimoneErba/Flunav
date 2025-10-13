@@ -1,18 +1,15 @@
 package com.flumen.backend.services;
 
-import com.flumen.backend.services.ClickHouseService;
 import flumen.events.DomainEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 @Service
 public class HistoricalEventPlayer {

@@ -19,7 +19,6 @@ public class LocationCreatedEvent extends EntityEvent {
     private final Double speed;
     private final LocationType type;
     private final Integer capacity;
-    private final Boolean isDischargePoint;
     private final Map<String, Object> properties;
 
     /**
@@ -36,7 +35,6 @@ public class LocationCreatedEvent extends EntityEvent {
         @JsonProperty("speed") Double speed,
         @JsonProperty("type") LocationType type,
         @JsonProperty("capacity") Integer capacity,
-        @JsonProperty("isDischargePoint") Boolean isDischargePoint,
         @JsonProperty("properties") Map<String, Object> properties
     ) {
         super(locationId, "LOCATION_CREATED");
@@ -48,7 +46,6 @@ public class LocationCreatedEvent extends EntityEvent {
         this.length = length;
         this.speed = speed;
         this.type = type;
-        this.isDischargePoint = isDischargePoint;
         this.capacity = capacity;
     }
 }

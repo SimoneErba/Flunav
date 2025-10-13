@@ -95,6 +95,19 @@ export interface CreateConnection {
 /**
  * 
  * @export
+ * @interface CreateSimulationRequest
+ */
+export interface CreateSimulationRequest {
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateSimulationRequest
+     */
+    'timestamp'?: string;
+}
+/**
+ * 
+ * @export
  * @interface GraphData
  */
 export interface GraphData {
@@ -254,6 +267,24 @@ export interface Location {
     'name'?: string;
     /**
      * 
+     * @type {string}
+     * @memberof Location
+     */
+    'type'?: LocationTypeEnum;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Location
+     */
+    'active'?: boolean;
+    /**
+     * 
+     * @type {{ [key: string]: object; }}
+     * @memberof Location
+     */
+    'properties'?: { [key: string]: object; };
+    /**
+     * 
      * @type {number}
      * @memberof Location
      */
@@ -278,29 +309,59 @@ export interface Location {
     'speed'?: number;
     /**
      * 
-     * @type {string}
+     * @type {number}
      * @memberof Location
      */
-    'type'?: string;
+    'capacity'?: number;
     /**
      * 
-     * @type {boolean}
+     * @type {number}
      * @memberof Location
      */
-    'active'?: boolean;
-    /**
-     * 
-     * @type {{ [key: string]: object; }}
-     * @memberof Location
-     */
-    'properties'?: { [key: string]: object; };
+    'itemCount'?: number;
     /**
      * 
      * @type {Set<string>}
      * @memberof Location
      */
     'outboundConnectionIds'?: Set<string>;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Location
+     */
+    'full'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Location
+     */
+    'dischargePoint'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Location
+     */
+    'track'?: boolean;
+    /**
+     * 
+     * @type {number}
+     * @memberof Location
+     */
+    'transitTimeSeconds'?: number;
 }
+
+export const LocationTypeEnum = {
+    Conveyor: 'CONVEYOR',
+    Junction: 'JUNCTION',
+    Chute: 'CHUTE',
+    Accumulation: 'ACCUMULATION',
+    Road: 'ROAD',
+    Generic: 'GENERIC'
+} as const;
+
+export type LocationTypeEnum = typeof LocationTypeEnum[keyof typeof LocationTypeEnum];
+
 /**
  * 
  * @export
@@ -348,7 +409,13 @@ export interface LocationInput {
      * @type {string}
      * @memberof LocationInput
      */
-    'type'?: string;
+    'type'?: LocationInputTypeEnum;
+    /**
+     * 
+     * @type {number}
+     * @memberof LocationInput
+     */
+    'capactiy'?: number;
     /**
      * 
      * @type {boolean}
@@ -362,6 +429,18 @@ export interface LocationInput {
      */
     'properties'?: { [key: string]: object; };
 }
+
+export const LocationInputTypeEnum = {
+    Conveyor: 'CONVEYOR',
+    Junction: 'JUNCTION',
+    Chute: 'CHUTE',
+    Accumulation: 'ACCUMULATION',
+    Road: 'ROAD',
+    Generic: 'GENERIC'
+} as const;
+
+export type LocationInputTypeEnum = typeof LocationInputTypeEnum[keyof typeof LocationInputTypeEnum];
+
 /**
  * 
  * @export
@@ -409,13 +488,19 @@ export interface LocationResponse {
      * @type {string}
      * @memberof LocationResponse
      */
-    'type'?: string;
+    'type'?: LocationResponseTypeEnum;
     /**
      * 
      * @type {boolean}
      * @memberof LocationResponse
      */
     'active'?: boolean;
+    /**
+     * 
+     * @type {number}
+     * @memberof LocationResponse
+     */
+    'capacity'?: number;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -434,6 +519,31 @@ export interface LocationResponse {
      * @memberof LocationResponse
      */
     'connections'?: Array<ConnectionResponse>;
+}
+
+export const LocationResponseTypeEnum = {
+    Conveyor: 'CONVEYOR',
+    Junction: 'JUNCTION',
+    Chute: 'CHUTE',
+    Accumulation: 'ACCUMULATION',
+    Road: 'ROAD',
+    Generic: 'GENERIC'
+} as const;
+
+export type LocationResponseTypeEnum = typeof LocationResponseTypeEnum[keyof typeof LocationResponseTypeEnum];
+
+/**
+ * 
+ * @export
+ * @interface PlaybackRequest
+ */
+export interface PlaybackRequest {
+    /**
+     * 
+     * @type {number}
+     * @memberof PlaybackRequest
+     */
+    'speedFactor'?: number;
 }
 /**
  * 
@@ -454,6 +564,48 @@ export interface ProgressInfo {
      */
     'datetime'?: string;
 }
+/**
+ * 
+ * @export
+ * @interface SimulationState
+ */
+export interface SimulationState {
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationState
+     */
+    'id'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationState
+     */
+    'timestamp'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationState
+     */
+    'status'?: SimulationStateStatusEnum;
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationState
+     */
+    'lastHeartbeatTimestamp'?: string;
+}
+
+export const SimulationStateStatusEnum = {
+    Queued: 'QUEUED',
+    Building: 'BUILDING',
+    Ready: 'READY',
+    Playing: 'PLAYING',
+    Failed: 'FAILED'
+} as const;
+
+export type SimulationStateStatusEnum = typeof SimulationStateStatusEnum[keyof typeof SimulationStateStatusEnum];
+
 /**
  * 
  * @export
@@ -513,11 +665,14 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
         /**
          * 
          * @summary Restore the graph to a specific time
+         * @param {string} simulationId 
          * @param {string} time 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        restoreGraph: async (time: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        restoreGraph: async (simulationId: string, time: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('restoreGraph', 'simulationId', simulationId)
             // verify required parameter 'time' is not null or undefined
             assertParamExists('restoreGraph', 'time', time)
             const localVarPath = `/api/graph`;
@@ -531,6 +686,10 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
             const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
+
+            if (simulationId !== undefined) {
+                localVarQueryParameter['simulationId'] = simulationId;
+            }
 
             if (time !== undefined) {
                 localVarQueryParameter['time'] = (time as any instanceof Date) ?
@@ -574,12 +733,13 @@ export const GraphApiFp = function(configuration?: Configuration) {
         /**
          * 
          * @summary Restore the graph to a specific time
+         * @param {string} simulationId 
          * @param {string} time 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async restoreGraph(time: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.restoreGraph(time, options);
+        async restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.restoreGraph(simulationId, time, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['GraphApi.restoreGraph']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -606,12 +766,13 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
         /**
          * 
          * @summary Restore the graph to a specific time
+         * @param {string} simulationId 
          * @param {string} time 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        restoreGraph(time: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.restoreGraph(time, options).then((request) => request(axios, basePath));
+        restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.restoreGraph(simulationId, time, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -637,13 +798,14 @@ export class GraphApi extends BaseAPI {
     /**
      * 
      * @summary Restore the graph to a specific time
+     * @param {string} simulationId 
      * @param {string} time 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof GraphApi
      */
-    public restoreGraph(time: string, options?: RawAxiosRequestConfig) {
-        return GraphApiFp(this.configuration).restoreGraph(time, options).then((request) => request(this.axios, this.basePath));
+    public restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig) {
+        return GraphApiFp(this.configuration).restoreGraph(simulationId, time, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -1800,6 +1962,381 @@ export class PositionsApi extends BaseAPI {
      */
     public moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig) {
         return PositionsApiFp(this.configuration).moveConnection(createConnection, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
+ * SimulationsApi - axios parameter creator
+ * @export
+ */
+export const SimulationsApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        cancelPlayback: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('cancelPlayback', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}/playback/cancel`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {CreateSimulationRequest} createSimulationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createSimulation: async (createSimulationRequest: CreateSimulationRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'createSimulationRequest' is not null or undefined
+            assertParamExists('createSimulation', 'createSimulationRequest', createSimulationRequest)
+            const localVarPath = `/api/simulations`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(createSimulationRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        destroySimulation: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('destroySimulation', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSimulationStatus: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('getSimulationStatus', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {PlaybackRequest} playbackRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        startPlayback: async (simulationId: string, playbackRequest: PlaybackRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('startPlayback', 'simulationId', simulationId)
+            // verify required parameter 'playbackRequest' is not null or undefined
+            assertParamExists('startPlayback', 'playbackRequest', playbackRequest)
+            const localVarPath = `/api/simulations/{simulationId}/playback/start`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(playbackRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * SimulationsApi - functional programming interface
+ * @export
+ */
+export const SimulationsApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = SimulationsApiAxiosParamCreator(configuration)
+    return {
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async cancelPlayback(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.cancelPlayback(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.cancelPlayback']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {CreateSimulationRequest} createSimulationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationState>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.createSimulation(createSimulationRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.createSimulation']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async destroySimulation(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.destroySimulation(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.destroySimulation']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationState>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getSimulationStatus(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.getSimulationStatus']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {PlaybackRequest} playbackRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async startPlayback(simulationId: string, playbackRequest: PlaybackRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.startPlayback(simulationId, playbackRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.startPlayback']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * SimulationsApi - factory interface
+ * @export
+ */
+export const SimulationsApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = SimulationsApiFp(configuration)
+    return {
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        cancelPlayback(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.cancelPlayback(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {CreateSimulationRequest} createSimulationRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): AxiosPromise<SimulationState> {
+            return localVarFp.createSimulation(createSimulationRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        destroySimulation(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.destroySimulation(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<SimulationState> {
+            return localVarFp.getSimulationStatus(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} simulationId 
+         * @param {PlaybackRequest} playbackRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        startPlayback(simulationId: string, playbackRequest: PlaybackRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.startPlayback(simulationId, playbackRequest, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * SimulationsApi - object-oriented interface
+ * @export
+ * @class SimulationsApi
+ * @extends {BaseAPI}
+ */
+export class SimulationsApi extends BaseAPI {
+    /**
+     * 
+     * @param {string} simulationId 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public cancelPlayback(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).cancelPlayback(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {CreateSimulationRequest} createSimulationRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).createSimulation(createSimulationRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} simulationId 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public destroySimulation(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).destroySimulation(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} simulationId 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).getSimulationStatus(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} simulationId 
+     * @param {PlaybackRequest} playbackRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public startPlayback(simulationId: string, playbackRequest: PlaybackRequest, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).startPlayback(simulationId, playbackRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

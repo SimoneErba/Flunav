@@ -22,6 +22,7 @@ public class LocationResponse {
     private Double speed;
     private LocationType type;
     private Boolean active;
+    private Integer capacity;
     private Map<String, Object> properties;
     private List<ItemResponse> items;
     private List<ConnectionResponse> connections;

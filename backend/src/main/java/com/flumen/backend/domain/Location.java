@@ -16,36 +16,28 @@ import java.util.Set;
 @Getter
 public class Location {
 
-    // --- Core Identity & Metadata ---
-    private final String id; // ID is immutable after creation
+    private final String id;
     private String name;
-    private LocationType type; // e.g., "CONVEYOR", "JUNCTION", "CHUTE", "ACCUMULATION"
+    private LocationType type;
     private Boolean active;
     private Map<String, Object> properties;
 
-    // --- Physical Properties (for tracks) ---
     private Double latitude;
     private Double longitude;
-    private Double length; // Can be null if it's not a physical track (e.g., a Junction)
-    private Double speed;  // Can be null if it's not motorized
+    private Double length;
+    private Double speed;
 
-    // --- Behavioral Properties ---
-    private boolean isDischargePoint = false; // Does this location remove items from the active graph?
-    private int capacity = -1;                // Max item capacity (-1 for infinite)
+    private Integer capacity = -1;
     
-    @Setter // This property is dynamic and changes frequently
-    private int itemCount = 0;                  // Current number of items in this location
+    @Setter
+    private int itemCount = 0;
 
-    // --- Graph Relationships ---
     private final Set<String> outboundConnectionIds = new HashSet<>();
 
-    /**
-     * Full constructor for creating a Location with all its properties.
-     */
     public Location(
         String id, String name, LocationType type, Boolean active, Map<String, Object> properties,
         Double latitude, Double longitude, Double length, Double speed,
-        boolean isDischargePoint, int capacity
+        Integer capacity
     ) {
         this.id = id;
         this.name = name;
@@ -56,13 +48,9 @@ public class Location {
         this.longitude = longitude;
         this.length = length;
         this.speed = speed;
-        this.isDischargePoint = isDischargePoint;
         this.capacity = capacity;
     }
 
-    /**
-     * Constructor to build the object from a creation event (Event Sourcing pattern).
-     */
     public Location(LocationCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
@@ -73,11 +61,8 @@ public class Location {
         this.longitude = event.getLongitude();
         this.length = event.getLength();
         this.speed = event.getSpeed();
-        this.isDischargePoint = event.isDischargePoint();
         this.capacity = event.getCapacity();
     }
-
-    // --- State Mutation Methods (driven by events) ---
 
     public void updateProperties(LocationPropertiesUpdatedEvent event) {
         if (event.getUpdatedProperties() != null) {
@@ -106,18 +91,10 @@ public class Location {
         this.outboundConnectionIds.remove(toLocationId);
     }
 
-    // --- "Smart" Helper Methods (encapsulated business logic) ---
-
-    /**
-     * Checks if this location can accept more items based on its capacity.
-     */
     public boolean isFull() {
         return this.capacity > 0 && this.itemCount >= this.capacity;
     }
     
-    /**
-     * Checks if this location represents a physical path with a calculable transit time.
-     */
     public boolean isTrack() {
         return this.length != null && this.length > 0;
     }

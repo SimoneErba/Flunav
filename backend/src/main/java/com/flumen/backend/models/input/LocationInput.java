@@ -19,6 +19,7 @@ public class LocationInput {
 	private Double length;
     private Double speed;
     private LocationType type;
+    private Integer capactiy;
     private Boolean active;
 	private Map<String, Object> properties;
 
@@ -31,6 +32,7 @@ public class LocationInput {
         this.speed = event.getSpeed();
         this.type = event.getType();
         this.active = event.getActive();
+        this.capactiy = event.getCapacity();
         this.properties = event.getProperties();
     }
 }

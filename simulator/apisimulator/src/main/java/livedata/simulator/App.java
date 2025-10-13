@@ -6,9 +6,11 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import flumen.events.DomainEvent;
+import flumen.events.EntityEvent;
 import flumen.events.ItemCreatedEvent;
 import flumen.events.ItemPositionChangedEvent;
 import flumen.events.LocationCreatedEvent;
+import flumen.types.LocationType;
 import flumen.events.LocationConnectionCreatedEvent;
 
 import java.net.URI;
@@ -85,7 +87,8 @@ public class App {
                         longitude,
                         DEFAULT_LOCATION_LENGTH,
                         DEFAULT_LOCATION_SPEED,
-                        "conveyor",
+                        LocationType.CONVEYOR,
+                        0,
                         new HashMap<>()
                 ), "POST");
                 locations.add(locationName);
@@ -171,7 +174,7 @@ public class App {
         logger.info("Bound queue to exchange.");
     }
 
-    private static void sendEvent(DomainEvent event, String httpMethod) throws Exception {
+    private static void sendEvent(EntityEvent event, String httpMethod) throws Exception {
         String json = objectMapper.writeValueAsString(event);
         if (MODE.equalsIgnoreCase("rabbit")) {
             String hashKey = event.getEntityId(); 

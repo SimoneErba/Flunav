@@ -12,9 +12,6 @@ import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-import com.orientechnologies.orient.core.id.ORecordId;
-import com.orientechnologies.orient.core.id.ORID;
-
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;

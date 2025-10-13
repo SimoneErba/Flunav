@@ -1,7 +1,7 @@
 flumen/events/DomainEvent.class
 flumen/events/LocationDeactivatedEvent.class
-flumen/events/LocationPropertiesUpdatedEvent.class
 flumen/events/ItemActivatedEvent.class
+flumen/events/LocationPropertiesUpdatedEvent.class
 flumen/events/ItemSpeedChangedEvent.class
 flumen/events/ConnectionDeletedEvent.class
 flumen/events/ItemDeactivatedEvent.class
@@ -9,12 +9,12 @@ flumen/events/EntityEvent.class
 flumen/events/LocationCreatedEvent.class
 flumen/events/ItemCreatedEvent.class
 flumen/events/PositionCreatedEvent.class
-flumen/events/ItemPropertiesUpdatedEvent.class
 flumen/events/LocationConnectionCreatedEvent.class
+flumen/events/ItemPropertiesUpdatedEvent.class
 flumen/events/LocationActivatedEvent.class
 flumen/types/LocationType.class
 flumen/events/ItemPositionDeletedEvent.class
 flumen/events/LocationDeletedEvent.class
 flumen/events/ItemPositionChangedEvent.class
-flumen/events/ItemDeletedEvent.class
 flumen/events/PositionChangedEvent.class
+flumen/events/ItemDeletedEvent.class

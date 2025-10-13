@@ -4,16 +4,11 @@ import com.flumen.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.record.ODirection;
 import com.orientechnologies.orient.core.record.OElement;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class PositionService {
-
-    private static final Logger logger = LoggerFactory.getLogger(PositionService.class);
-
     private final OrientDBService orientDBService;
 
     @Autowired

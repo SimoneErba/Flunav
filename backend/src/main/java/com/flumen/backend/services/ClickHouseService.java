@@ -3,7 +3,6 @@ package com.flumen.backend.services;
 import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.query.QueryResponse;
 import com.clickhouse.data.ClickHouseFormat;
-import com.clickhouse.data.ClickHouseRecord;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flumen.backend.models.graph.GraphData;
