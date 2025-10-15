@@ -336,12 +336,6 @@ export interface Location {
      * @type {boolean}
      * @memberof Location
      */
-    'dischargePoint'?: boolean;
-    /**
-     * 
-     * @type {boolean}
-     * @memberof Location
-     */
     'track'?: boolean;
     /**
      * 
