@@ -15,11 +15,16 @@ export const useGraph = () => {
     const [error, setError] = useState<string | null>(null);
     const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);
 
-    const refetchGraphData = useCallback(async () => {
+    const refetchGraphData = useCallback(async (simulationId = null) => {
         try {
             console.log("Refetching graph data...");
             setLoading(true);
-            const response = await graphApi.getGraphData();
+            let response;
+            if (simulationId) {
+                response = await graphApi.getSimulationGraphData(simulationId);
+            } else {
+                response = await graphApi.getGraphData();
+            }
             if (response?.data) {
                 setGraphData(response.data);
                 setError(null);

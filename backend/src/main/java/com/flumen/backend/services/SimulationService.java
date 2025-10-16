@@ -4,6 +4,7 @@ import com.flumen.backend.models.simulation.SimulationState;
 import com.flumen.backend.models.simulation.SimulationStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.graphql.GraphQlProperties.Websocket;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,6 +32,7 @@ public class SimulationService {
     private final OrientDBService orientDBService;
     private final HistoricalEventPlayer historicalEventPlayer;
     private final HistoricalGraphBuilder historicalGraphBuilder;
+    private final WebSocketService webSocketService;
 
     // --- State Management ---
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
@@ -40,11 +42,12 @@ public class SimulationService {
     private final Semaphore buildPermits = new Semaphore(2); // Example: Allow 2 concurrent builds
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
-    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
+    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer, WebsocketSocketService webSocketService,
                             @Lazy HistoricalGraphBuilder historicalGraphBuilder) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
+        this.webSocketService = webSocketService;
     }
 
     /**
@@ -53,9 +56,8 @@ public class SimulationService {
     public SimulationState createSimulation(Instant timestamp) {
         String simulationId = "sim_" + UUID.randomUUID().toString().replace("-", "");
         SimulationState state = new SimulationState(simulationId, timestamp);
-        simulationCache.put(simulationId, state); // Add to cache immediately
+        simulationCache.put(simulationId, state);
 
-        // Attempt to acquire a permit and start the build
         processWaitingQueue();
 
         return state;
@@ -125,10 +127,6 @@ public class SimulationService {
         return state;
     }
 
-    // ===================================================================
-    // NEW METHODS TO CONNECT THE BUILDER AND QUEUE
-    // ===================================================================
-
     /**
      * Updates the status of a simulation. Called by the HistoricalGraphBuilder.
      */
@@ -136,6 +134,7 @@ public class SimulationService {
         SimulationState state = simulationCache.get(simulationId);
         if (state != null) {
             state.setStatus(status);
+            this.webSocketService.broadcastNodeUpdate(simulationId, state);
             logger.info("Updated status for simulation {} to {}", simulationId, status);
         } else {
             logger.warn("Could not update status for non-existent simulation: {}", simulationId);

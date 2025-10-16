@@ -1,20 +1,25 @@
 import './App.css'
 import { DisplayGraph } from './components/graph'
 import { useGraph } from './hooks/useGraph';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  GraphApi
+  GraphApi,
+  SimulationsApi
 } from "./api-client/api";
+import { useWebSocket } from './hooks/useWebSocket';
 
 function App() {
   // Your existing hook to get the initial graph data
   const { graphData, loading, refetchGraphData } = useGraph();
-  const client = new GraphApi();
+  const client = new SimulationsApi();
   // State for the datetime picker
   const [selectedDate, setSelectedDate] = useState(new Date());
-  
+  const { connected, subscribeToSimulationStatus } = useWebSocket(); // Usa l'hook
+
   // State to manage the restore process and provide UI feedback
   const [isRestoring, setIsRestoring] = useState(false);
+  
+  const [activeSimulation, setActiveSimulation] = useState(null);
 
   // --- Helper function to format date for the datetime-local input ---
   const toDateTimeLocal = (date) => {
@@ -37,7 +42,7 @@ function App() {
     setIsRestoring(true);
 
       try {
-        await client.restoreGraph(selectedDate.toISOString())
+        await client.createSimulation(selectedDate.toISOString())
         alert('System restore initiated successfully! Fetching updated graph...');
 
         refetchGraphData(); 
@@ -47,6 +52,38 @@ function App() {
       setIsRestoring(false);
     }
   };
+
+  useEffect(() => {
+      // Se non siamo connessi o non c'è una simulazione attiva in attesa, non fare nulla.
+      if (!connected || !activeSimulation || activeSimulation.status === 'READY') {
+          return;
+      }
+
+      // Sottoscrivi alle notifiche per la nostra simulazione attiva
+      const unsubscribe = subscribeToSimulationStatus(activeSimulation.id, (update) => {
+          console.log('Received simulation status update:', update);
+
+          // Aggiorna lo stato della simulazione per mostrare il progresso (es. da QUEUED a BUILDING)
+          setActiveSimulation(prev => ({ ...prev, status: update.status }));
+
+          if (update.status === 'READY') {
+              // È PRONTO!
+              alert('Simulation is ready! Fetching the new graph state.');
+              
+              refetchGraphData(activeSimulation.id);
+              
+              setIsRestoring(false);
+              unsubscribe();
+          } else if (update.status === 'FAILED') {
+              alert(`Simulation build failed: ${update.message || 'Unknown error'}`);
+              setIsRestoring(false);
+              unsubscribe();
+          }
+      });
+
+      return () => unsubscribe();
+
+  }, [connected, activeSimulation, subscribeToSimulationStatus, refetchGraphData]);
 
   // --- Main Render Logic ---
   return (
