@@ -1,6 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Client, Message, StompSubscription } from '@stomp/stompjs';
-import { SimulationStatus } from "../api-client/api";
 export interface PositionUpdate {
     itemId: string;
     locationId: string | null;
@@ -85,7 +84,7 @@ export const useWebSocket = () => {
 
     const subscribeToSimulationStatus = useCallback((
         simulationId: string,
-        handler: (update: SimulationStatus) => void
+        handler: (update: any) => void
     ) => {
         if (!client.current?.connected) {
             console.warn('WebSocket not connected, cannot subscribe to simulation status.');
@@ -93,12 +92,12 @@ export const useWebSocket = () => {
         }
 
 
-        const topic = `/simulation-status/${simulationId}`;
+        const topic = `/topic/simulation-status/${simulationId}`;
         console.log(`Subscribing to user-specific topic: ${topic}`);
 
         const subscription = client.current.subscribe(topic, (message: Message) => {
             try {
-                const update: SimulationStatus = JSON.parse(message.body);
+                const update = JSON.parse(message.body);
                 handler(update);
             } catch (e) {
                 console.error("Failed to parse simulation status update", e);

@@ -1,3 +1,11 @@
+### TODO
+
+see other simulations (with a name, be able to switch to them)
+check the simulation heartbeat
+item state colors and mapping
+uscite, attese, ricircoli
+edit active simulations to see "what if"
+
 ### Known Challenges
 
 *   **State Divergence Risk:** A bug in the `EventProcessor` could cause the OrientDB state to drift out of sync with the ClickHouse event log.

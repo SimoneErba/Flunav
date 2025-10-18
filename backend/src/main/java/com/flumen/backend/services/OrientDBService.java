@@ -1,7 +1,9 @@
 package com.flumen.backend.services;
 
 import com.flumen.backend.context.DatabaseContextHolder;
+import com.orientechnologies.orient.core.db.ODatabaseDocumentInternal;
 import com.orientechnologies.orient.core.db.ODatabasePool;
+import com.orientechnologies.orient.core.db.ODatabaseRecordThreadLocal;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.ODatabaseType;
 import com.orientechnologies.orient.core.db.OrientDB;
@@ -11,13 +13,12 @@ import com.orientechnologies.orient.core.metadata.schema.OType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,7 +38,6 @@ public class OrientDBService {
     @Value("${orientdb.password}")
     private String password;
 
-    private static final String TEMPLATE_DB_NAME = "_template";
     private final Set<String> activeSimulations = ConcurrentHashMap.newKeySet();
 
     @PostConstruct
@@ -48,20 +48,9 @@ public class OrientDBService {
             orientDB.create(mainDbName, ODatabaseType.PLOCAL);
         }
         mainPool = new ODatabasePool(orientDB, mainDbName, username, password);
-        try (ODatabaseSession session = getSession()) {
-            ensureSchemaExists(session);
-        }
+        ensureSchemaExists();
+        
         logger.info("OrientDB connection pool for main DB '{}' initialized.", mainDbName);
-
-        if (!orientDB.exists(TEMPLATE_DB_NAME)) {
-            // Create the "Golden Template" in-memory DB at startup for fast cloning.
-            logger.info("Creating in-memory golden template database...");
-            orientDB.create(TEMPLATE_DB_NAME, ODatabaseType.MEMORY);
-            try (ODatabaseSession templateSession = orientDB.open(TEMPLATE_DB_NAME, username, password)) {
-                ensureSchemaExists(templateSession);
-            }
-            logger.info("Golden template database '{}' created and configured.", TEMPLATE_DB_NAME);
-        }
     }
 
     @PreDestroy
@@ -69,7 +58,6 @@ public class OrientDBService {
         if (mainPool != null) mainPool.close();
         if (orientDB != null) {
             activeSimulations.forEach(this::dropDatabase);
-            if (orientDB.exists(TEMPLATE_DB_NAME)) orientDB.drop(TEMPLATE_DB_NAME);
             orientDB.close();
         }
         logger.info("OrientDB service has been shut down.");
@@ -82,52 +70,52 @@ public class OrientDBService {
      */
     public ODatabaseSession getSession() {
         String simulationId = DatabaseContextHolder.getSimulationId();
-
+        logger.info("---------------------Simulation is: " + simulationId);
         if (simulationId != null) {
-            // A simulation context is active for this thread. Connect to the in-memory DB.
             if (!activeSimulations.contains(simulationId)) {
                 throw new IllegalStateException("Attempted to get session for non-existent or inactive simulation: " + simulationId);
             }
             return orientDB.open(simulationId, username, password);
         } else {
-            // No simulation context. Default to the pooled connection for the live database.
             return mainPool.acquire();
         }
     }
 
+    public ODatabaseSession getSession(String dbName) {
+
+        if (dbName != null) {
+            return orientDB.open(dbName, username, password);
+        } else {
+            return mainPool.acquire();
+        }
+    }
+
+
     /**
-     * Creates a new in-memory database by cloning the golden template.
+     * Creates a new, ready-to-use in-memory database and applies the base schema.
+     * The creation of indexes is triggered to run in the background.
      */
     public void createInMemoryDatabase(String dbName) {
-        Path tempBackupFile = null;
         try {
-            tempBackupFile = Files.createTempFile("orientdb_template_backup", ".zip");
-            String backupPath = tempBackupFile.toAbsolutePath().toString();
-
-            try (ODatabaseSession templateSession = orientDB.open(TEMPLATE_DB_NAME, username, password)) {
-                templateSession.command(String.format("BACKUP DATABASE %s", backupPath));
+            if (orientDB.exists(dbName)) {
+                orientDB.drop(dbName);
             }
-
-            if (orientDB.exists(dbName)) orientDB.drop(dbName);
             orientDB.create(dbName, ODatabaseType.MEMORY);
-
-            try (ODatabaseSession newDbSession = orientDB.open(dbName, username, password)) {
-                newDbSession.command(String.format("RESTORE DATABASE %s", backupPath));
-            }
-            
             activeSimulations.add(dbName);
-            logger.info("Successfully cloned new in-memory simulation database: {}", dbName);
+            logger.info("Successfully created new in-memory simulation database: {}", dbName);
+            DatabaseContextHolder.setSimulationId(dbName);
+            ensureSchemaExists();
 
-        } catch (IOException e) {
-            throw new RuntimeException("Simulation DB creation failed due to temp file issue.", e);
-        } finally {
-            if (tempBackupFile != null) {
-                try {
-                    Files.deleteIfExists(tempBackupFile);
-                } catch (IOException e) {
-                    logger.warn("Could not delete temporary backup file: {}", tempBackupFile, e);
-                }
+        } catch (Exception e) {
+            logger.error("Failed to create in-memory simulation DB '{}'", dbName, e);
+            activeSimulations.remove(dbName);
+
+            if (orientDB.exists(dbName)) {
+                orientDB.drop(dbName);
             }
+            throw new RuntimeException("Simulation DB creation failed.", e);
+        } finally{
+            DatabaseContextHolder.clear();
         }
     }
 
@@ -151,22 +139,48 @@ public class OrientDBService {
         }
     }
 
-    private void ensureSchemaExists(ODatabaseSession session) {
-        if (session.getClass("Location") == null) {
-            OClass locationClass = session.createVertexClass("Location");
-            locationClass.createProperty("customId", OType.STRING).setNotNull(true);
-            locationClass.createIndex("Location_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
+    private void ensureSchemaExists() {
+        try (ODatabaseSession session = getSession()) {
+            if (session.getClass("Location") == null) {
+                OClass locationClass = session.createVertexClass("Location");
+                locationClass.createProperty("customId", OType.STRING).setNotNull(true);
+            }
+            if (session.getClass("Item") == null) {
+                OClass itemClass = session.createVertexClass("Item");
+                itemClass.createProperty("customId", OType.STRING).setNotNull(true);
+            }
+            if (session.getClass("HasPosition") == null) session.createEdgeClass("HasPosition");
+            if (session.getClass("ConnectedTo") == null) session.createEdgeClass("ConnectedTo");
+            logger.debug("Schema verified for database: {}", session.getName());
         }
-        if (session.getClass("Item") == null) {
-            OClass itemClass = session.createVertexClass("Item");
-            itemClass.createProperty("customId", OType.STRING).setNotNull(true);
-            itemClass.createIndex("Item_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
-        }
-        if (session.getClass("HasPosition") == null) session.createEdgeClass("HasPosition");
-        if (session.getClass("ConnectedTo") == null) session.createEdgeClass("ConnectedTo");
-        
-        logger.debug("Schema verified for database: {}", session.getName());
+
+        createIndexes(DatabaseContextHolder.getSimulationId());
     }
+
+    @Async
+    public void createIndexes(String simulationId) {
+        orientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
+        try (ODatabaseSession session = orientDB.open(simulationId != null ? simulationId : mainDbName, username, password)) {
+            logger.info("Starting asynchronous index creation for database: {}", dbUrl);
+                
+            OClass locationClass = session.getClass("Location");
+            if (locationClass != null && locationClass.getClassIndex("Location_customId_idx") == null) {
+                logger.info("Creating index 'Location_customId_idx'...");
+                locationClass.createIndex("Location_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
+                logger.info("Index 'Location_customId_idx' created.");
+            }
+
+            OClass itemClass = session.getClass("Item");
+            if (itemClass != null && itemClass.getClassIndex("Item_customId_idx") == null) {
+                logger.info("Creating index 'Item_customId_idx'...");
+                itemClass.createIndex("Item_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
+                logger.info("Index 'Item_customId_idx' created.");
+            }
+            
+            logger.info("Asynchronous index creation finished for database: {}", dbUrl);
+        }
+    }
+
 
     @FunctionalInterface
     public interface SessionCallback {

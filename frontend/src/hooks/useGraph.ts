@@ -9,19 +9,19 @@ const emptyGraphData: GraphData = {
 };
 
 export const useGraph = () => {
-    const { graphApi } = useApi();
+    const { simulationApi, graphApi } = useApi();
     const { connected, subscribeToPositionUpdates, subscribeToNodeUpdates } = useWebSocket();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);
 
-    const refetchGraphData = useCallback(async (simulationId = null) => {
+    const refetchGraphData = useCallback(async (simulationId: string | undefined = undefined) => {
         try {
             console.log("Refetching graph data...");
             setLoading(true);
             let response;
             if (simulationId) {
-                response = await graphApi.getSimulationGraphData(simulationId);
+                response = await simulationApi.getSimulationGraphData(simulationId);
             } else {
                 response = await graphApi.getGraphData();
             }

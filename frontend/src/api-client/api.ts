@@ -561,36 +561,24 @@ export interface ProgressInfo {
 /**
  * 
  * @export
- * @interface SimulationState
+ * @interface SimulationStateResponse
  */
-export interface SimulationState {
+export interface SimulationStateResponse {
     /**
      * 
      * @type {string}
-     * @memberof SimulationState
+     * @memberof SimulationStateResponse
      */
     'id'?: string;
     /**
      * 
      * @type {string}
-     * @memberof SimulationState
+     * @memberof SimulationStateResponse
      */
-    'timestamp'?: string;
-    /**
-     * 
-     * @type {string}
-     * @memberof SimulationState
-     */
-    'status'?: SimulationStateStatusEnum;
-    /**
-     * 
-     * @type {string}
-     * @memberof SimulationState
-     */
-    'lastHeartbeatTimestamp'?: string;
+    'status'?: SimulationStateResponseStatusEnum;
 }
 
-export const SimulationStateStatusEnum = {
+export const SimulationStateResponseStatusEnum = {
     Queued: 'QUEUED',
     Building: 'BUILDING',
     Ready: 'READY',
@@ -598,7 +586,7 @@ export const SimulationStateStatusEnum = {
     Failed: 'FAILED'
 } as const;
 
-export type SimulationStateStatusEnum = typeof SimulationStateStatusEnum[keyof typeof SimulationStateStatusEnum];
+export type SimulationStateResponseStatusEnum = typeof SimulationStateResponseStatusEnum[keyof typeof SimulationStateResponseStatusEnum];
 
 /**
  * 
@@ -656,52 +644,6 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
                 options: localVarRequestOptions,
             };
         },
-        /**
-         * 
-         * @summary Restore the graph to a specific time
-         * @param {string} simulationId 
-         * @param {string} time 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        restoreGraph: async (simulationId: string, time: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'simulationId' is not null or undefined
-            assertParamExists('restoreGraph', 'simulationId', simulationId)
-            // verify required parameter 'time' is not null or undefined
-            assertParamExists('restoreGraph', 'time', time)
-            const localVarPath = `/api/graph`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            if (simulationId !== undefined) {
-                localVarQueryParameter['simulationId'] = simulationId;
-            }
-
-            if (time !== undefined) {
-                localVarQueryParameter['time'] = (time as any instanceof Date) ?
-                    (time as any).toISOString() :
-                    time;
-            }
-
-
-    
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
     }
 };
 
@@ -724,20 +666,6 @@ export const GraphApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['GraphApi.getGraphData']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
-        /**
-         * 
-         * @summary Restore the graph to a specific time
-         * @param {string} simulationId 
-         * @param {string} time 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.restoreGraph(simulationId, time, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['GraphApi.restoreGraph']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
     }
 };
 
@@ -756,17 +684,6 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
          */
         getGraphData(options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
             return localVarFp.getGraphData(options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @summary Restore the graph to a specific time
-         * @param {string} simulationId 
-         * @param {string} time 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.restoreGraph(simulationId, time, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -787,19 +704,6 @@ export class GraphApi extends BaseAPI {
      */
     public getGraphData(options?: RawAxiosRequestConfig) {
         return GraphApiFp(this.configuration).getGraphData(options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @summary Restore the graph to a specific time
-     * @param {string} simulationId 
-     * @param {string} time 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof GraphApi
-     */
-    public restoreGraph(simulationId: string, time: string, options?: RawAxiosRequestConfig) {
-        return GraphApiFp(this.configuration).restoreGraph(simulationId, time, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -1968,8 +1872,9 @@ export class PositionsApi extends BaseAPI {
 export const SimulationsApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * 
-         * @param {string} simulationId 
+         * Stops a currently running event playback.
+         * @summary Cancel event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2001,7 +1906,8 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * 
+         * Initiates an asynchronous build of a historical graph state. Returns immediately with a simulation ID.
+         * @summary Create a new simulation
          * @param {CreateSimulationRequest} createSimulationRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2036,8 +1942,9 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Deletes an in-memory simulation and cancels any associated tasks.
+         * @summary Destroy a simulation
+         * @param {string} simulationId The unique ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2069,8 +1976,43 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Fetches the entire graph state for a specific simulation. Only works if the simulation status is READY or PLAYING.
+         * @summary Get graph data for a simulation
+         * @param {string} simulationId The ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSimulationGraphData: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('getSimulationGraphData', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}/graph`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Poll this endpoint to check the build status (e.g., QUEUED, BUILDING, READY).
+         * @summary Get simulation status
+         * @param {string} simulationId The unique ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2102,8 +2044,43 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
+         * @summary Send a heartbeat
+         * @param {string} simulationId The ID of the active simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        sendHeartbeat: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('sendHeartbeat', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}/heartbeat`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Starts the time-synchronized event playback for a READY simulation.
+         * @summary Start event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2151,8 +2128,9 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = SimulationsApiAxiosParamCreator(configuration)
     return {
         /**
-         * 
-         * @param {string} simulationId 
+         * Stops a currently running event playback.
+         * @summary Cancel event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2163,20 +2141,22 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * 
+         * Initiates an asynchronous build of a historical graph state. Returns immediately with a simulation ID.
+         * @summary Create a new simulation
          * @param {CreateSimulationRequest} createSimulationRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationState>> {
+        async createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationStateResponse>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.createSimulation(createSimulationRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SimulationsApi.createSimulation']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Deletes an in-memory simulation and cancels any associated tasks.
+         * @summary Destroy a simulation
+         * @param {string} simulationId The unique ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2187,20 +2167,48 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Fetches the entire graph state for a specific simulation. Only works if the simulation status is READY or PLAYING.
+         * @summary Get graph data for a simulation
+         * @param {string} simulationId The ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationState>> {
+        async getSimulationGraphData(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GraphData>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getSimulationGraphData(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.getSimulationGraphData']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Poll this endpoint to check the build status (e.g., QUEUED, BUILDING, READY).
+         * @summary Get simulation status
+         * @param {string} simulationId The unique ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationStateResponse>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.getSimulationStatus(simulationId, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SimulationsApi.getSimulationStatus']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
+         * @summary Send a heartbeat
+         * @param {string} simulationId The ID of the active simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async sendHeartbeat(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.sendHeartbeat(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.sendHeartbeat']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Starts the time-synchronized event playback for a READY simulation.
+         * @summary Start event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2222,8 +2230,9 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
     const localVarFp = SimulationsApiFp(configuration)
     return {
         /**
-         * 
-         * @param {string} simulationId 
+         * Stops a currently running event playback.
+         * @summary Cancel event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2231,17 +2240,19 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.cancelPlayback(simulationId, options).then((request) => request(axios, basePath));
         },
         /**
-         * 
+         * Initiates an asynchronous build of a historical graph state. Returns immediately with a simulation ID.
+         * @summary Create a new simulation
          * @param {CreateSimulationRequest} createSimulationRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): AxiosPromise<SimulationState> {
+        createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig): AxiosPromise<SimulationStateResponse> {
             return localVarFp.createSimulation(createSimulationRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Deletes an in-memory simulation and cancels any associated tasks.
+         * @summary Destroy a simulation
+         * @param {string} simulationId The unique ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
@@ -2249,17 +2260,39 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.destroySimulation(simulationId, options).then((request) => request(axios, basePath));
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * Fetches the entire graph state for a specific simulation. Only works if the simulation status is READY or PLAYING.
+         * @summary Get graph data for a simulation
+         * @param {string} simulationId The ID of the simulation
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<SimulationState> {
+        getSimulationGraphData(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
+            return localVarFp.getSimulationGraphData(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Poll this endpoint to check the build status (e.g., QUEUED, BUILDING, READY).
+         * @summary Get simulation status
+         * @param {string} simulationId The unique ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSimulationStatus(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<SimulationStateResponse> {
             return localVarFp.getSimulationStatus(simulationId, options).then((request) => request(axios, basePath));
         },
         /**
-         * 
-         * @param {string} simulationId 
+         * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
+         * @summary Send a heartbeat
+         * @param {string} simulationId The ID of the active simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        sendHeartbeat(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.sendHeartbeat(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Starts the time-synchronized event playback for a READY simulation.
+         * @summary Start event playback
+         * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2278,8 +2311,9 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
  */
 export class SimulationsApi extends BaseAPI {
     /**
-     * 
-     * @param {string} simulationId 
+     * Stops a currently running event playback.
+     * @summary Cancel event playback
+     * @param {string} simulationId The ID of the simulation
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof SimulationsApi
@@ -2289,7 +2323,8 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
-     * 
+     * Initiates an asynchronous build of a historical graph state. Returns immediately with a simulation ID.
+     * @summary Create a new simulation
      * @param {CreateSimulationRequest} createSimulationRequest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -2300,8 +2335,9 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
-     * 
-     * @param {string} simulationId 
+     * Deletes an in-memory simulation and cancels any associated tasks.
+     * @summary Destroy a simulation
+     * @param {string} simulationId The unique ID of the simulation
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof SimulationsApi
@@ -2311,8 +2347,21 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
-     * 
-     * @param {string} simulationId 
+     * Fetches the entire graph state for a specific simulation. Only works if the simulation status is READY or PLAYING.
+     * @summary Get graph data for a simulation
+     * @param {string} simulationId The ID of the simulation
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public getSimulationGraphData(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).getSimulationGraphData(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Poll this endpoint to check the build status (e.g., QUEUED, BUILDING, READY).
+     * @summary Get simulation status
+     * @param {string} simulationId The unique ID of the simulation
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof SimulationsApi
@@ -2322,8 +2371,21 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
-     * 
-     * @param {string} simulationId 
+     * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
+     * @summary Send a heartbeat
+     * @param {string} simulationId The ID of the active simulation
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public sendHeartbeat(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).sendHeartbeat(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Starts the time-synchronized event playback for a READY simulation.
+     * @summary Start event playback
+     * @param {string} simulationId The ID of the simulation
      * @param {PlaybackRequest} playbackRequest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}

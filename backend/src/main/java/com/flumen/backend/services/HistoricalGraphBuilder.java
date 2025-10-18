@@ -56,17 +56,28 @@ public class HistoricalGraphBuilder {
                 eventsAfterTimestamp = snapshot.timestamp();
                 logger.info("Restoring state from snapshot taken at {}", eventsAfterTimestamp);
                 restoreFromSnapshotData(snapshot.graphData());
-            } else {
-                clearDatabase();
-                logger.info("No snapshot found. Replaying all events from the beginning.");
             }
 
             List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(eventsAfterTimestamp, restorePoint);
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
-            for (DomainEvent event : eventsToReplay) {
-                eventProcessor.processHistoricalEvent(simulationId, event);
-            }
+            // Wrap in a transaction to be faster (we dont commit every time). if the transaction becomes too big, breaks it into chunks (TODO)
+            orientDBService.withSession(session -> {
+                try {
+                    session.begin();
+                    for (DomainEvent event : eventsToReplay) {
+                        try {
+                            eventProcessor.processHistoricalEvent(simulationId, event);
+                        } catch (Exception e) {
+                            logger.warn("Error while processing event {}: {}", event.getEventType(), e);
+                        }
+                    }
+                    session.commit();
+                } catch (Exception e) {
+                    session.rollback();
+                    logger.error("Transaction failed, rolling back changes", e);
+                }
+            });
 
             logger.info("Historical graph build complete for simulation: {}", simulationId);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY);

@@ -42,7 +42,7 @@ public class SimulationService {
     private final Semaphore buildPermits = new Semaphore(2); // Example: Allow 2 concurrent builds
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
-    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer, WebsocketSocketService webSocketService,
+    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer, WebSocketService webSocketService,
                             @Lazy HistoricalGraphBuilder historicalGraphBuilder) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
@@ -57,7 +57,7 @@ public class SimulationService {
         String simulationId = "sim_" + UUID.randomUUID().toString().replace("-", "");
         SimulationState state = new SimulationState(simulationId, timestamp);
         simulationCache.put(simulationId, state);
-
+        waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
 
         return state;
@@ -134,7 +134,7 @@ public class SimulationService {
         SimulationState state = simulationCache.get(simulationId);
         if (state != null) {
             state.setStatus(status);
-            this.webSocketService.broadcastNodeUpdate(simulationId, state);
+            this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus());
             logger.info("Updated status for simulation {} to {}", simulationId, status);
         } else {
             logger.warn("Could not update status for non-existent simulation: {}", simulationId);
@@ -152,9 +152,10 @@ public class SimulationService {
                 if (request != null) {
                     logger.info("Build permit acquired for queued simulation {}. Starting build.", request.simulationId());
                     updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING);
+                    orientDBService.createInMemoryDatabase(request.simulationId());
                     historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
                 } else {
-                    buildPermits.release(); // Should not happen, but safe to release if poll fails
+                    buildPermits.release();
                 }
             } else {
                 logger.info("Processing queue requested, but no build permits are available.");

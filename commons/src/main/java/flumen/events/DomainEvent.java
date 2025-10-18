@@ -11,7 +11,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonTypeInfo(
     use = JsonTypeInfo.Id.NAME, 
     include = JsonTypeInfo.As.PROPERTY, 
-    property = "eventType"
+    property = "eventType",
+    defaultImpl = UnknownEvent.class
 )
 @JsonSubTypes({
     @JsonSubTypes.Type(value = ItemActivatedEvent.class, name = "ITEM_ACTIVATED"),
@@ -29,7 +30,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     @JsonSubTypes.Type(value = LocationDeletedEvent.class, name = "LOCATION_DELETED"),
     @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
 
-    @JsonSubTypes.Type(value = ConnectionDeletedEvent.class, name = "CONNECTION_DELETED")
+    @JsonSubTypes.Type(value = ConnectionDeletedEvent.class, name = "CONNECTION_DELETED"),
+    @JsonSubTypes.Type(value = PositionChangedEvent.class, name = "POSITION_CHANGED"),
+    @JsonSubTypes.Type(value = PositionCreatedEvent.class, name = "POSITION_CREATED")
 
 })
 public abstract class DomainEvent {

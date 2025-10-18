@@ -5,10 +5,12 @@ import com.clickhouse.client.api.query.QueryResponse;
 import com.clickhouse.data.ClickHouseFormat;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flumen.backend.models.graph.GraphData;
 
 import flumen.events.DomainEvent;
 import flumen.events.EntityEvent;
+import flumen.events.UnknownEvent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PreDestroy;
 import java.io.ByteArrayInputStream;
+import java.io.EOFException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -159,19 +162,28 @@ public class ClickHouseService {
         
 
             try (InputStream inputStream = response.getInputStream()) {
+
                 var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
-                Map<String, Object> row = objectMapper.readValue(inputStream, mapType);
-    
-                // If we get here, parsing succeeded, so we have data.
-                GraphData graphData = objectMapper.convertValue(row.get("graph_data"), GraphData.class);
-                String timestampString = (String) row.get("timestamp");
-                LocalDateTime localDateTime = LocalDateTime.parse(timestampString, CLICKHOUSE_FORMATTER);
-                Instant snapshotTimestamp = localDateTime.toInstant(ZoneOffset.UTC);
-    
-                Snapshot result = new Snapshot(graphData, snapshotTimestamp);
                 
-                logger.info("Successfully retrieved and deserialized snapshot.");
-                return Optional.of(result);
+                try{
+                    Map<String, Object> row = objectMapper.readValue(inputStream, mapType);
+        
+                    GraphData graphData = objectMapper.convertValue(row.get("graph_data"), GraphData.class);
+                    String timestampString = (String) row.get("timestamp");
+                    LocalDateTime localDateTime = LocalDateTime.parse(timestampString, CLICKHOUSE_FORMATTER);
+                    Instant snapshotTimestamp = localDateTime.toInstant(ZoneOffset.UTC);
+        
+                    Snapshot result = new Snapshot(graphData, snapshotTimestamp);
+                    
+                    logger.info("Successfully retrieved and deserialized snapshot.");
+                    return Optional.of(result);
+                } catch (EOFException | MismatchedInputException e) {
+                    logger.warn("No snapshot found for timestamp <= {}", formattedTimestamp);
+                    return Optional.empty();
+                } catch (Exception e) {
+                    logger.error("Error while reading snapshot from ClickHouse", e);
+                    throw e;
+                }
             }
 
         } catch (Exception e) {
@@ -208,7 +220,10 @@ public class ClickHouseService {
                     Object eventData = row.get("data");
     
                     DomainEvent event = objectMapper.convertValue(eventData, DomainEvent.class);
-                    events.add(event);
+
+                    if(!(event instanceof UnknownEvent)){
+                        events.add(event);
+                    }
                 }
             }
     

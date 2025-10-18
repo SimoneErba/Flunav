@@ -1,5 +1,8 @@
 package com.flumen.backend.services;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
@@ -26,7 +29,9 @@ public class WebSocketService {
     }
 
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status) {
-        messagingTemplate.convertAndSend("/simulation-status/"+ simulationId, status);
+        Map<String, Object> message = new HashMap<>();
+        message.put("status", status);
+        messagingTemplate.convertAndSend("/topic/simulation-status/" + simulationId, message);
     }
 
     public void broadcastPositionUpdate(String itemId, String locationId) {

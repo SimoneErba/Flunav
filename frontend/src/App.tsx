@@ -3,130 +3,197 @@ import { DisplayGraph } from './components/graph'
 import { useGraph } from './hooks/useGraph';
 import React, { useState, useEffect } from 'react';
 import {
-  GraphApi,
-  SimulationsApi
+  SimulationsApi, SimulationStateResponse, SimulationStateResponseStatusEnum
 } from "./api-client/api";
 import { useWebSocket } from './hooks/useWebSocket';
 
 function App() {
-  // Your existing hook to get the initial graph data
+  const [activeSimulation, setActiveSimulation] = useState<SimulationStateResponse | null>(null);
+  
   const { graphData, loading, refetchGraphData } = useGraph();
+  
   const client = new SimulationsApi();
-  // State for the datetime picker
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const { connected, subscribeToSimulationStatus } = useWebSocket(); // Usa l'hook
 
-  // State to manage the restore process and provide UI feedback
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const { connected, subscribeToSimulationStatus } = useWebSocket();
+
   const [isRestoring, setIsRestoring] = useState(false);
   
-  const [activeSimulation, setActiveSimulation] = useState(null);
-
-  // --- Helper function to format date for the datetime-local input ---
-  const toDateTimeLocal = (date) => {
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  const toDateTimeLocal = (date: Date) => {
+    const offset = date.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(date.getTime() - offset)).toISOString().slice(0, 16);
+    return localISOTime;
   };
 
-  // --- Function to handle the restore API call ---
   const handleRestore = async () => {
     if (!selectedDate) {
       alert('Please select a valid date and time.');
       return;
     }
 
+    if (activeSimulation) {
+        try {
+            await client.destroySimulation(activeSimulation.id);
+        } catch (e) {
+            console.warn("Failed to destroy previous simulation", e);
+        }
+    }
+
     console.log(`Restoring system to: ${selectedDate.toISOString()}`);
     setIsRestoring(true);
 
-      try {
-        await client.createSimulation(selectedDate.toISOString())
-        alert('System restore initiated successfully! Fetching updated graph...');
+    try {
+      const result = await client.createSimulation({timestamp: selectedDate.toISOString()});
+      
+      setActiveSimulation(result.data);
 
-        refetchGraphData(); 
-      } catch (error) {
-        alert(`Erorr while restoring the state: ${error}`)
-    } finally {
+
+    } catch (error) {
+      alert(`Error while initiating the restore: ${error}`);
       setIsRestoring(false);
+      setActiveSimulation(null);
     }
   };
 
+  const handleReturnToLive = async () => {
+    if (activeSimulation) {
+        try {
+            await client.destroySimulation(activeSimulation.id);
+        } catch (error) {
+            console.error("Error destroying simulation on backend:", error);
+        }
+    }
+
+    setActiveSimulation(null);
+    setIsRestoring(false);
+    refetchGraphData();
+  };
+
   useEffect(() => {
-      // Se non siamo connessi o non c'è una simulazione attiva in attesa, non fare nulla.
-      if (!connected || !activeSimulation || activeSimulation.status === 'READY') {
+      if (!connected || !activeSimulation || 
+          activeSimulation.status === SimulationStateResponseStatusEnum.Ready || 
+          activeSimulation.status === SimulationStateResponseStatusEnum.Playing ||
+          activeSimulation.status === SimulationStateResponseStatusEnum.Failed) {
           return;
       }
 
-      // Sottoscrivi alle notifiche per la nostra simulazione attiva
+      console.log(`Subscribing to status updates for simulation: ${activeSimulation.id}`);
       const unsubscribe = subscribeToSimulationStatus(activeSimulation.id, (update) => {
           console.log('Received simulation status update:', update);
 
-          // Aggiorna lo stato della simulazione per mostrare il progresso (es. da QUEUED a BUILDING)
-          setActiveSimulation(prev => ({ ...prev, status: update.status }));
+          setActiveSimulation(prev => prev ? ({ ...prev, status: update.status }) : null);
 
-          if (update.status === 'READY') {
-              // È PRONTO!
-              alert('Simulation is ready! Fetching the new graph state.');
-              
-              refetchGraphData(activeSimulation.id);
-              
+          if (update.status === SimulationStateResponseStatusEnum.Ready) {
+              refetchGraphData(activeSimulation.id)
               setIsRestoring(false);
               unsubscribe();
-          } else if (update.status === 'FAILED') {
+          } else if (update.status === SimulationStateResponseStatusEnum.Failed) {
               alert(`Simulation build failed: ${update.message || 'Unknown error'}`);
               setIsRestoring(false);
+              setActiveSimulation(null);
               unsubscribe();
           }
       });
 
+      client.getSimulationStatus(activeSimulation.id)
+      .then(response => {
+        const status = response.data.status;
+        console.log("Polled simulation status:", status);
+
+        if (status === SimulationStateResponseStatusEnum.Ready) {
+          refetchGraphData(activeSimulation.id);
+          setIsRestoring(false);
+          unsubscribe();
+        } else if (status === SimulationStateResponseStatusEnum.Failed) {
+          alert(`Simulation build failed: ${response.data.message || 'Unknown error'}`);
+          setIsRestoring(false);
+          setActiveSimulation(null);
+          unsubscribe();
+        }
+      })
+      .catch(error => {
+        console.warn("Error polling simulation status", error);
+      });
+
       return () => unsubscribe();
 
-  }, [connected, activeSimulation, subscribeToSimulationStatus, refetchGraphData]);
+  }, [connected, activeSimulation, subscribeToSimulationStatus]);
 
-  // --- Main Render Logic ---
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5' }}>
       
-      {/* Control Panel Header with Padding */}
       <div style={{ 
         padding: '16px', 
         background: 'white', 
         borderBottom: '1px solid #ddd',
         display: 'flex',
         alignItems: 'center',
-        gap: '16px',
-        flexShrink: 0 // Prevents the header from shrinking
+        justifyContent: 'space-between',
+        flexShrink: 0
       }}>
-        <h2 style={{ margin: 0, color: '#333' }}>System State Control</h2>
-        <input
-          type="datetime-local"
-          value={toDateTimeLocal(selectedDate)}
-          onChange={(e) => setSelectedDate(new Date(e.target.value))}
-          disabled={loading || isRestoring}
-          style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-        />
-        <button
-          onClick={handleRestore}
-          disabled={loading || isRestoring}
-          style={{ 
-            padding: '8px 16px', 
-            border: 'none', 
-            borderRadius: '4px', 
-            background: '#007bff', 
-            color: 'white',
-            cursor: 'pointer'
-          }}
-        >
-          {isRestoring ? 'Restoring...' : 'Restore to this Time'}
-        </button>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <h2 style={{ margin: 0, color: '#333' }}>
+                {activeSimulation ? 'Historical View' : 'Live System'}
+            </h2>
+            
+            <input
+            type="datetime-local"
+            value={toDateTimeLocal(selectedDate)}
+            onChange={(e) => setSelectedDate(new Date(e.target.value))}
+            disabled={loading || isRestoring}
+            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            
+            <button
+            onClick={handleRestore}
+            disabled={loading || isRestoring}
+            style={{ 
+                padding: '8px 16px', 
+                border: 'none', 
+                borderRadius: '4px', 
+                background: '#007bff', 
+                color: 'white',
+                cursor: loading || isRestoring ? 'not-allowed' : 'pointer',
+                opacity: loading || isRestoring ? 0.7 : 1
+            }}
+            >
+            {isRestoring ? 'Building Simulation...' : 'Restore to this Time'}
+            </button>
+
+            {isRestoring && activeSimulation && (
+                <span style={{ color: '#666', fontStyle: 'italic' }}>
+                    Status: {activeSimulation.status}...
+                </span>
+            )}
+        </div>
+
+        {activeSimulation && !isRestoring && (
+            <button
+                onClick={handleReturnToLive}
+                style={{ 
+                    padding: '8px 16px', 
+                    border: '1px solid #dc3545', 
+                    borderRadius: '4px', 
+                    background: 'white', 
+                    color: '#dc3545',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                }}
+            >
+                Return to Live
+            </button>
+        )}
       </div>
 
-      {/* Main Content Area */}
       <div style={{ flex: 1, position: 'relative' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', paddingTop: '50px' }}>Loading Graph...</div>
+        {loading || isRestoring ? (
+          <div style={{ 
+              position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              textAlign: 'center', color: '#666' 
+          }}>
+            <h3>{isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}</h3>
+          </div>
         ) : (
           <DisplayGraph initialGraphData={graphData} />
         )}
@@ -136,4 +203,4 @@ function App() {
   );
 }
 
-export default App
+export default App;

@@ -62,18 +62,14 @@ public class EventProcessor {
     }
 
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
-        // Use supplyAsync to return our new Map
         return CompletableFuture.supplyAsync(() -> {
-            // This map is like a Python dictionary. We'll add our results to it.
             Map<String, Object> resultMap = new HashMap<>();
             try {
-                // 1. Store the event in OrientDB
+                // TODO: remove?
                 eventStore.saveEvents(List.of(event));
                 
-                // 2. Store the event in ClickHouse
                 clickHouseService.saveEvent(event);
                 
-                // 3. Update the read model using existing services
                 resultMap = processEvent(event);
                 
                 logger.info("Successfully processed event: {}", 
@@ -98,20 +94,20 @@ private <T> T executeWithRetry(Supplier<T> operation) {
     final int MAX_RETRIES = 3;
     int attempt = 0;
 
-    while (true) { // Loop indefinitely until success or permanent failure
+    while (true) {
         try {
             return operation.get();
         } catch (OConcurrentModificationException e) {
             attempt++;
             if (attempt >= MAX_RETRIES) {
                 logger.error("Operation failed after {} retries due to persistent concurrent modification.", MAX_RETRIES, e);
-                throw e; // Give up and re-throw the exception.
+                throw e;
             }
 
             logger.warn("Concurrent modification detected. Retrying attempt {}/{}.", attempt, MAX_RETRIES);
             
             try {
-                Thread.sleep(50 + new Random().nextInt(50)); // Wait before next attempt
+                Thread.sleep(50 + new Random().nextInt(50));
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("Retry attempt was interrupted", ie);
@@ -121,12 +117,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
 }
 
     public void processHistoricalEvent(String simulationId, DomainEvent event) {
-        DatabaseContextHolder.setSimulationId(simulationId);
-        try {
-            processEvent(event, false);
-        } finally {
-            DatabaseContextHolder.clear();
-        }
+        processEvent(event, false);
     }
 
     public Map<String, Object> processEvent(DomainEvent event) {
@@ -165,7 +156,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
-            case ItemDeactivatedEvent e -> { // Corrected type
+            case ItemDeactivatedEvent e -> {
                 var item = itemService.getItemById(e.getEntityId());
                 item.stop();
                 Map<String, Object> updateData = new HashMap<>();
