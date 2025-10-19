@@ -1,13 +1,16 @@
 package com.flumen.backend.services;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.flumen.backend.context.DatabaseContextHolder;
+import com.flumen.backend.models.simulation.SimulationStatus;
+import com.flumen.backend.models.UpdateModel;
+import com.flumen.backend.models.input.ItemInput;
+import com.flumen.backend.models.input.LocationInput;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import com.flumen.backend.context.DatabaseContextHolder;
-import com.flumen.backend.models.simulation.SimulationStatus;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class WebSocketService {
@@ -19,13 +22,7 @@ public class WebSocketService {
     }
 
     public void broadcastNodeUpdate(String nodeId, Object update) {
-        String simulationId = DatabaseContextHolder.getSimulationId();
-        if (simulationId != null) {
-            String topic = String.format("/topic/simulations/%s/nodes/" + nodeId, simulationId);
-            messagingTemplate.convertAndSend(topic, update);
-        }else{
-            messagingTemplate.convertAndSend("/topic/nodes/" + nodeId, update);
-        }
+        sendToTopic("nodes/" + nodeId, update);
     }
 
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status) {
@@ -34,37 +31,90 @@ public class WebSocketService {
         messagingTemplate.convertAndSend("/topic/simulation-status/" + simulationId, message);
     }
 
-    public void broadcastPositionUpdate(String itemId, String locationId) {
-        String simulationId = DatabaseContextHolder.getSimulationId();
-        PositionUpdate payload = new PositionUpdate(itemId, locationId, PositionStatus.UPDATED);
+    public void broadcastItemCreated(ItemInput item) {
+        EntityMessage<ItemInput> payload = new EntityMessage<>(CrudOperation.CREATED, item);
+        sendToTopic("items", payload);
+    }
 
-        if (simulationId != null) {
-            String topic = String.format("/topic/simulations/%s/positions", simulationId);
-            logger.debug("Broadcasting simulation position update to {}: {}", topic, payload);
-            messagingTemplate.convertAndSend(topic, payload);
-        } else {
-            String topic = "/topic/positions";
-            logger.info("Broadcasting live position update to {}: {}", topic, payload);
-            messagingTemplate.convertAndSend(topic, payload);
-        }
+    public void broadcastItemSpeedChanged(String itemId, double speed) {
+        Map<String, Object> payload = Map.of("speed", speed);
+        sendToTopic("items/" + itemId, payload);
+    }
+
+    public void broadcastItemDeactivated(String itemId) {
+        Map<String, Object> payload = Map.of("active", false);
+        sendToTopic("items/" + itemId, payload);
+    }
+
+    public void broadcastItemActivated(String itemId) {
+        Map<String, Object> payload = Map.of("active", true);
+        sendToTopic("items/" + itemId, payload);
+    }
+
+    public void broadcastItemPropertiesUpdated(UpdateModel updateModel) {
+        sendToTopic("items/" + updateModel.getId(), updateModel.getProperties());
+    }
+
+    public void broadcastItemDeleted(String itemId) {
+        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, itemId);
+        sendToTopic("items", payload);
+    }
+
+    public void broadcastLocationCreated(LocationInput location) {
+        EntityMessage<LocationInput> payload = new EntityMessage<>(CrudOperation.CREATED, location);
+        sendToTopic("locations", payload);
+    }
+
+    public void broadcastLocationUpdated(String locationId, Map<String, Object> updateData) {
+        sendToTopic("locations/" + locationId, updateData);
+    }
+
+    public void broadcastLocationDeleted(String locationId) {
+        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, locationId);
+        sendToTopic("locations", payload);
+    }
+
+    public void broadcastConnectionCreated(String fromLocationId, String toLocationId) {
+        ConnectionMessage payload = new ConnectionMessage(fromLocationId, toLocationId, CrudOperation.CREATED);
+        sendToTopic("connections", payload);
+    }
+
+    public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId) {
+        ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED);
+        sendToTopic("connections", payload);
+    }
+
+    public void broadcastPositionUpdate(String itemId, String locationId) {
+        PositionUpdate payload = new PositionUpdate(itemId, locationId, PositionStatus.UPDATED);
+        sendToTopic("positions", payload);
     }
 
     public void broadcastPositionLost(String itemId) {
-        String simulationId = DatabaseContextHolder.getSimulationId();
         PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST);
-        if (simulationId != null) {
-            String topic = String.format("/topic/simulations/%s/positions", simulationId);
-            messagingTemplate.convertAndSend(topic, payload);
-        } else {
-            String topic = "/topic/positions";
-            messagingTemplate.convertAndSend(topic, payload);
-        }
+        sendToTopic("positions", payload);
     }
 
-    private enum PositionStatus {
-        UPDATED,
-        LOST
+    /**
+     * Centralized method to send a message. It checks for a simulation ID in the
+     * context and constructs the appropriate topic string before broadcasting.
+     *
+     * @param subTopic The specific sub-topic for the message (e.g., "items", "positions").
+     * @param payload  The object to be sent as the message body.
+     */
+    private void sendToTopic(String subTopic, Object payload) {
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        String topic = (simulationId != null)
+            ? String.format("/topic/simulations/%s/%s", simulationId, subTopic)
+            : String.format("/topic/%s", subTopic);
+
+        logger.debug("Broadcasting to {}: {}", topic, payload);
+        messagingTemplate.convertAndSend(topic, payload);
     }
+
+    private enum CrudOperation { CREATED, DELETED }
+    private enum PositionStatus { UPDATED, LOST }
 
     private record PositionUpdate(String itemId, String locationId, PositionStatus status) {}
+    private record EntityMessage<T>(CrudOperation operation, T data) {}
+    private record ConnectionMessage(String from, String to, CrudOperation operation) {}
 }

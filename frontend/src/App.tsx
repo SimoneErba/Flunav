@@ -119,6 +119,18 @@ function App() {
 
   }, [connected, activeSimulation, subscribeToSimulationStatus]);
 
+  useEffect(() => {
+  if (!activeSimulation) return;
+
+  const intervalId = setInterval(() => {
+    console.log(`Sending heartbeat for simulation: ${activeSimulation.id}`);
+    client.sendHeartbeat(activeSimulation.id)
+      .catch(err => console.warn("Failed to send heartbeat:", err));
+  }, 30_000);
+
+  return () => clearInterval(intervalId);
+}, [activeSimulation]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5' }}>
       
@@ -133,6 +145,7 @@ function App() {
       }}>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <img src="/logo.svg" alt="Logo" style={{ width: 250 }} />
             <h2 style={{ margin: 0, color: '#333' }}>
                 {activeSimulation ? 'Historical View' : 'Live System'}
             </h2>

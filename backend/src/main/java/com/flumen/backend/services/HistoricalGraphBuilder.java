@@ -67,7 +67,7 @@ public class HistoricalGraphBuilder {
                     session.begin();
                     for (DomainEvent event : eventsToReplay) {
                         try {
-                            eventProcessor.processHistoricalEvent(simulationId, event);
+                            eventProcessor.processEventWithoutBroadcast(event);
                         } catch (Exception e) {
                             logger.warn("Error while processing event {}: {}", event.getEventType(), e);
                         }

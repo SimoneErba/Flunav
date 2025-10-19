@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import com.flumen.backend.context.DatabaseContextHolder;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +35,7 @@ public class HistoricalEventPlayer {
 
         // This is the "simulation clock" which we will advance in chunks.
         Instant currentSimulationTime = simulationStartTime;
-
+        DatabaseContextHolder.setSimulationId(simulationId);
         // --- THE OUTER POLLING LOOP ---
         // This loop runs until the player is cancelled.
         while (!Thread.currentThread().isInterrupted()) {
@@ -74,6 +76,8 @@ public class HistoricalEventPlayer {
             } catch (Exception e) {
                 logger.error("An unhandled error occurred during polling playback for simulation {}. Stopping.", simulationId, e);
                 break;
+            } finally {
+                DatabaseContextHolder.clear();
             }
         }
 
@@ -110,7 +114,7 @@ public class HistoricalEventPlayer {
             }
 
             // Process the event
-            eventProcessor.processHistoricalEvent(simulationId, event);
+            eventProcessor.processEvent(event);
         }
     }
 }

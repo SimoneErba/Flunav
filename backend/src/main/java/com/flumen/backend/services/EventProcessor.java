@@ -116,12 +116,12 @@ private <T> T executeWithRetry(Supplier<T> operation) {
     }
 }
 
-    public void processHistoricalEvent(String simulationId, DomainEvent event) {
-        processEvent(event, false);
-    }
-
     public Map<String, Object> processEvent(DomainEvent event) {
         return processEvent(event, true);
+    }
+    
+    public Map<String, Object> processEventWithoutBroadcast(DomainEvent event) {
+        return processEvent(event, false);
     }
 
    private Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
@@ -130,7 +130,9 @@ private <T> T executeWithRetry(Supplier<T> operation) {
             case ItemCreatedEvent e -> {
                 var item = new ItemInput(e);
                 itemService.createItem(item);
-
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemCreated(item);
+                }
                 yield Map.of(
                     "status", "CREATED",
                     "itemId", e.getEntityId(),
@@ -153,6 +155,9 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 var item = itemService.getItemById(e.getEntityId());
                 item.updateSpeed(e);
                 itemService.fullUpdateItem(item);
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemSpeedChanged(e.getEntityId(), e.getSpeed());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
@@ -162,6 +167,9 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 Map<String, Object> updateData = new HashMap<>();
                 updateData.put("active", item.isActive());
                 itemService.updateItem(new UpdateModel(item.getId(), updateData));
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemDeactivated(item.getId());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
@@ -171,6 +179,9 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 Map<String, Object> updateData = new HashMap<>();
                 updateData.put("active", item.isActive());
                 itemService.updateItem(new UpdateModel(item.getId(), updateData));
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemActivated(item.getId());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
@@ -179,19 +190,29 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 item.updateProperties(e);
                 Map<String, Object> updateData = new HashMap<>();
                 updateData.put("properties", item.getProperties());
-                itemService.updateItem(new UpdateModel(item.getId(), updateData));
+                var updateModel = new UpdateModel(item.getId(), updateData);
+                itemService.updateItem(updateModel);
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemPropertiesUpdated(updateModel);
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
             case ItemDeletedEvent e -> {
                 // TODO: DDD. mark to be deleted, then delete
                 itemService.deleteItem(e.getEntityId());
+                if (shouldBroadcast){
+                    webSocketService.broadcastItemDeleted(e.getEntityId());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
             case LocationCreatedEvent e -> {
                 var location = new LocationInput(e);
                 locationService.createLocation(location);
+                if (shouldBroadcast){
+                    webSocketService.broadcastLocationCreated(location);
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
@@ -201,6 +222,9 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 Map<String, Object> updateData = new HashMap<>();
                 updateData.put("properties", location.getProperties());
                 locationService.updateLocation(new UpdateModel(location.getId(), updateData));
+                if (shouldBroadcast){
+                    webSocketService.broadcastLocationUpdated(location.getId(), updateData);
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
@@ -209,17 +233,26 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 fromLocation.addConnectionTo(e.getLocation2Id());
 
                 locationService.fullUpdateLocation(fromLocation);
+                if (shouldBroadcast){
+                    webSocketService.broadcastConnectionCreated(e.getEntityId(), e.getLocation2Id());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
             case LocationDeletedEvent e -> {
                 // TODO: delete items? or put them inside
                 locationService.deleteLocation(e.getEntityId());
+                if (shouldBroadcast){
+                    webSocketService.broadcastLocationDeleted(e.getEntityId());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
             case ConnectionDeletedEvent e -> {
                 connectionService.deleteConnection(e.getSourceLocationId(), e.getTargetLocationId());
+                if (shouldBroadcast){
+                    webSocketService.broadcastConnectionDeleted(e.getSourceLocationId(), e.getTargetLocationId());
+                }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 

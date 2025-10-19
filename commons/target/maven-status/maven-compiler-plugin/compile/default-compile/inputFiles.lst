@@ -17,4 +17,5 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flumen/events/LocationPropertiesUpdatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flumen/events/PositionChangedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flumen/events/PositionCreatedEvent.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flumen/events/UnknownEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flumen/types/LocationType.java

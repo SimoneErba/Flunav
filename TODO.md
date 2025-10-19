@@ -5,6 +5,7 @@ check the simulation heartbeat
 item state colors and mapping
 uscite, attese, ricircoli
 edit active simulations to see "what if"
+outlet box: save to orient db only if websocket can be sent (transaction)
 
 ### Known Challenges
 

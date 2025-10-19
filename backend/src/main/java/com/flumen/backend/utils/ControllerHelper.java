@@ -28,7 +28,7 @@ public class ControllerHelper {
      * @return A CompletableFuture containing the result map from the event processor.
      */
     public CompletableFuture<Map<String, Object>> processAndLogEvent(DomainEvent event) {
-        return eventProcessor.process(event, true)
+        return eventProcessor.process(event, false)
             .thenApply(resultMap -> {
 
                 logger.debug("Successfully processed event of type {}",

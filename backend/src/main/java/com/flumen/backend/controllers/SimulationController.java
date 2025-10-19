@@ -40,6 +40,7 @@ public class SimulationController {
     @ApiResponse(responseCode = "202", description = "Simulation build has been accepted for processing.")
     public ResponseEntity<SimulationStateResponse> createSimulation(@RequestBody CreateSimulationRequest request) {
         SimulationState state = simulationService.createSimulation(request.timestamp());
+        simulationService.startPlayback(state.getId(), 1);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new SimulationStateResponse(state.getId(), state.getStatus()));
     }
 

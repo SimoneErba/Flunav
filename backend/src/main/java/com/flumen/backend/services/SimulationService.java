@@ -177,7 +177,7 @@ public class SimulationService {
             Map.Entry<String, SimulationState> entry = it.next();
             SimulationState state = entry.getValue();
 
-            if (Duration.between(state.getLastHeartbeatTimestamp(), now).toMinutes() > 5) {
+            if (Duration.between(state.getLastHeartbeatTimestamp(), now).toMinutes() > 2) {
                 logger.warn("Removing abandoned simulation {} (ID: {}).", entry.getKey());
                 destroySimulation(entry.getKey()); // Use destroy to also cancel playback
                 abandonedCount++;
