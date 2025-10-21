@@ -77,7 +77,7 @@ public class HistoricalEventPlayer {
                 logger.error("An unhandled error occurred during polling playback for simulation {}. Stopping.", simulationId, e);
                 break;
             } finally {
-                DatabaseContextHolder.clear();
+                DatabaseContextHolder.clearSimulation();
             }
         }
 

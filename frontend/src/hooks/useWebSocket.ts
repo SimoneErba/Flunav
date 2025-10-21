@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Client, Message, StompSubscription } from '@stomp/stompjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -59,7 +59,7 @@ interface SubscriptionManager {
 export const useWebSocket = () => {
     const client = useRef<Client | null>(null);
     const subscriptions = useRef<Map<string, SubscriptionManager>>(new Map());
-
+    const [connected, setConnected] = useState(false);
     const buildTopic = (baseTopic: string, simulationId?: string | null): string => {
         return simulationId
             ? `/topic/simulations/${simulationId}/${baseTopic}`
@@ -75,9 +75,15 @@ export const useWebSocket = () => {
             heartbeatOutgoing: 4000,
         });
 
-        client.current.onConnect = (frame) => console.log('%cSTOMP Connected', 'color: green', frame);
+        client.current.onConnect = (frame) => {
+            console.log('%cSTOMP Connected', 'color: green', frame);
+            setConnected(true);
+        };        
         client.current.onStompError = (frame) => console.error('%cSTOMP Error', 'color: red', frame);
-        client.current.onWebSocketClose = (event) => console.warn('%cWebSocket Closed', 'color: orange', event);
+        client.current.onWebSocketClose = (event) => {
+            console.warn('%cWebSocket Closed', 'color: orange', event);
+            setConnected(false);
+        };        
         client.current.onWebSocketError = (event) => console.error('%cWebSocket Error', 'color: red', event);
 
         client.current.activate();
@@ -249,7 +255,7 @@ export const useWebSocket = () => {
     }, [connect]);
 
     return {
-        connected: client.current?.connected ?? false,
+        connected,
         subscribeToSimulationStatus,
         subscribeToPositionUpdates,
         subscribeToItemCreated,

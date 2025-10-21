@@ -62,7 +62,7 @@ public class HistoricalGraphBuilder {
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
             // Wrap in a transaction to be faster (we dont commit every time). if the transaction becomes too big, breaks it into chunks (TODO)
-            orientDBService.withSession(session -> {
+            orientDBService.withTransaction(session -> {
                 try {
                     session.begin();
                     for (DomainEvent event : eventsToReplay) {
@@ -86,7 +86,7 @@ public class HistoricalGraphBuilder {
             logger.error("A critical error occurred during the build process for simulation: {}", simulationId, e);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED);
         } finally {
-            DatabaseContextHolder.clear();
+            DatabaseContextHolder.clearSimulation();
             buildPermits.release();
             logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());
             simulationService.processWaitingQueue();

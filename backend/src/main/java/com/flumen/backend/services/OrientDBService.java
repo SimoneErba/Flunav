@@ -1,9 +1,7 @@
 package com.flumen.backend.services;
 
 import com.flumen.backend.context.DatabaseContextHolder;
-import com.orientechnologies.orient.core.db.ODatabaseDocumentInternal;
 import com.orientechnologies.orient.core.db.ODatabasePool;
-import com.orientechnologies.orient.core.db.ODatabaseRecordThreadLocal;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.ODatabaseType;
 import com.orientechnologies.orient.core.db.OrientDB;
@@ -40,6 +38,9 @@ public class OrientDBService {
 
     private final Set<String> activeSimulations = ConcurrentHashMap.newKeySet();
 
+    // --- NEW: A ThreadLocal specifically for managing an active transactional session ---
+    private static final ThreadLocal<ODatabaseSession> transactionalSession = new ThreadLocal<>();
+
     @PostConstruct
     public void init() {
         orientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
@@ -65,24 +66,35 @@ public class OrientDBService {
 
     /**
      * The primary, context-aware method for acquiring a database session.
-     * It checks the DatabaseContextHolder to determine whether to connect to a
-     * transient simulation DB or the main, live database.
+     * --- REFACTORED ---
+     * It now prioritizes reusing an existing transactional session from the ThreadLocal context.
+     * If none exists, it falls back to the original logic of checking the simulationId.
+     * This is the core of the transaction propagation pattern.
      */
     public ODatabaseSession getSession() {
+        // 1. Check for an active transactional session on this thread first.
+        ODatabaseSession session = transactionalSession.get();
+        if (session != null && !session.isClosed()) {
+            logger.trace("Reusing existing transactional session for this thread.");
+            return session;
+        }
+
+        // 2. If no transactional session, fall back to the normal context-aware logic.
         String simulationId = DatabaseContextHolder.getSimulationId();
-        logger.info("---------------------Simulation is: " + simulationId);
         if (simulationId != null) {
             if (!activeSimulations.contains(simulationId)) {
                 throw new IllegalStateException("Attempted to get session for non-existent or inactive simulation: " + simulationId);
             }
+            logger.trace("Opening new session for simulation DB: {}", simulationId);
             return orientDB.open(simulationId, username, password);
         } else {
+            logger.trace("Acquiring new session for main DB from pool.");
             return mainPool.acquire();
         }
     }
 
     public ODatabaseSession getSession(String dbName) {
-
+        // This method remains useful for direct access when needed.
         if (dbName != null) {
             return orientDB.open(dbName, username, password);
         } else {
@@ -90,11 +102,74 @@ public class OrientDBService {
         }
     }
 
+    /**
+     * --- NEW: The robust "Unit of Work" method for batch operations. ---
+     * This method manages the entire lifecycle of a transaction.
+     * It acquires a new session, binds it to the ThreadLocal context,
+     * executes the callback, and guarantees commit/rollback and cleanup.
+     */
+    public void withTransaction(TransactionalCallback callback) {
+        // We always start with a fresh session for a transaction to ensure isolation.
+        try (ODatabaseSession session = getSession()) {
+            // Bind this session to the current thread for the duration of the transaction.
+            transactionalSession.set(session);
+            
+            try {
+                session.begin();
+                callback.execute(session);
+                session.commit();
+                logger.debug("Transaction committed successfully.");
+            } catch (Exception e) {
+                logger.error("Error during transactional callback. Initiating rollback.", e);
+                if (session.getTransaction().isActive()) {
+                    try {
+                        session.rollback();
+                        logger.info("Transaction rolled back successfully.");
+                    } catch (Exception rollbackEx) {
+                        logger.error("Critical error: Failed to rollback transaction.", rollbackEx);
+                        e.addSuppressed(rollbackEx);
+                    }
+                }
+                throw new RuntimeException("Transactional callback failed, operation was rolled back.", e);
+            }
+        } finally {
+            // CRITICAL: Always clear the ThreadLocal after the transaction is complete.
+            transactionalSession.remove();
+        }
+    }
 
     /**
-     * Creates a new, ready-to-use in-memory database and applies the base schema.
-     * The creation of indexes is triggered to run in the background.
+     * Utility method to execute a block of code within a managed, single-use session.
+     * --- REFACTORED ---
+     * This is now intended for non-transactional or single-statement operations.
+     * It's a simple wrapper for getting and closing a session.
      */
+    public void withSession(SessionCallback callback) {
+        // The getSession() call here will now correctly check the ThreadLocal first.
+        // If this is called *inside* a withTransaction block, it will reuse the session.
+        // If called standalone, it will create a new one.
+        try (ODatabaseSession session = getSession()) {
+            callback.execute(session);
+        } catch (Exception e) {
+            logger.error("Error executing session callback on context-aware DB", e);
+            throw new RuntimeException("Session callback failed", e);
+        }
+    }
+
+    // --- NEW: Functional interface for the transactional method ---
+    @FunctionalInterface
+    public interface TransactionalCallback {
+        void execute(ODatabaseSession session);
+    }
+    
+    // Existing functional interface, still useful.
+    @FunctionalInterface
+    public interface SessionCallback {
+        void execute(ODatabaseSession session);
+    }
+
+    // --- The rest of your service methods are unchanged, but I've included them for completeness ---
+
     public void createInMemoryDatabase(String dbName) {
         try {
             if (orientDB.exists(dbName)) {
@@ -115,7 +190,7 @@ public class OrientDBService {
             }
             throw new RuntimeException("Simulation DB creation failed.", e);
         } finally{
-            DatabaseContextHolder.clear();
+            DatabaseContextHolder.clearSimulation();
         }
     }
 
@@ -124,18 +199,6 @@ public class OrientDBService {
             orientDB.drop(dbName);
             activeSimulations.remove(dbName);
             logger.info("Dropped simulation database: {}", dbName);
-        }
-    }
-    
-    /**
-     * Utility method to execute a block of code within a managed, context-aware session.
-     */
-    public void withSession(SessionCallback callback) {
-        try (ODatabaseSession session = getSession()) {
-            callback.execute(session);
-        } catch (Exception e) {
-            logger.error("Error executing session callback on context-aware DB", e);
-            throw new RuntimeException("Session callback failed", e);
         }
     }
 
@@ -159,31 +222,25 @@ public class OrientDBService {
 
     @Async
     public void createIndexes(String simulationId) {
-        orientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
-        try (ODatabaseSession session = orientDB.open(simulationId != null ? simulationId : mainDbName, username, password)) {
-            logger.info("Starting asynchronous index creation for database: {}", dbUrl);
+        // Note: Creating a new OrientDB instance in an @Async method can be tricky.
+        // This is okay for a one-off task, but for heavy use, consider passing the OrientDB factory bean.
+        OrientDB localOrientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
+        try (ODatabaseSession session = localOrientDB.open(simulationId != null ? simulationId : mainDbName, username, password)) {
+            logger.info("Starting asynchronous index creation for database: {}", session.getName());
                 
             OClass locationClass = session.getClass("Location");
             if (locationClass != null && locationClass.getClassIndex("Location_customId_idx") == null) {
-                logger.info("Creating index 'Location_customId_idx'...");
                 locationClass.createIndex("Location_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
-                logger.info("Index 'Location_customId_idx' created.");
             }
 
             OClass itemClass = session.getClass("Item");
             if (itemClass != null && itemClass.getClassIndex("Item_customId_idx") == null) {
-                logger.info("Creating index 'Item_customId_idx'...");
                 itemClass.createIndex("Item_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
-                logger.info("Index 'Item_customId_idx' created.");
             }
             
-            logger.info("Asynchronous index creation finished for database: {}", dbUrl);
+            logger.info("Asynchronous index creation finished for database: {}", session.getName());
+        } finally {
+            localOrientDB.close();
         }
-    }
-
-
-    @FunctionalInterface
-    public interface SessionCallback {
-        void execute(ODatabaseSession session);
     }
 }
