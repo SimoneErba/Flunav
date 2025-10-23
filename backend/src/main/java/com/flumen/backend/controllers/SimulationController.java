@@ -116,4 +116,15 @@ public class SimulationController {
         simulationService.getSimulationState(simulationId);
         return ResponseEntity.noContent().build();
     }
+
+    @PatchMapping("/{simulationId}/playback")
+    @Operation(summary = "Update playback speed", description = "Allows changing the speed")
+    public ResponseEntity<Void> updateSpeed(
+            @PathVariable String simulationId,  
+            @RequestBody double speedFactor) {
+        
+        simulationService.updatePlaybackSpeed(simulationId, speedFactor);
+
+        return ResponseEntity.accepted().build();
+    }
 }

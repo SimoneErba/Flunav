@@ -188,5 +188,12 @@ public class SimulationService {
         }
     }
 
+    public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
+        SimulationState state = getSimulationState(simulationId);
+        state.setSpeedFactor(newSpeedFactor);
+        logger.info("Updated playback speed for simulation {} to {}x and notified player.", simulationId, newSpeedFactor);
+        //TODO: notify others
+    }
+
     public record SimulationRequest(String simulationId, Instant timestamp) {}
 }
