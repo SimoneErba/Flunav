@@ -3,16 +3,20 @@ package com.flumen.backend.services;
 import flumen.events.DomainEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
 
 import com.flumen.backend.context.DatabaseContextHolder;
 import com.flumen.backend.models.simulation.SimulationState;
+import com.flumen.backend.models.simulation.SimulationStatus;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 @Service
 public class HistoricalEventPlayer {
@@ -21,74 +25,100 @@ public class HistoricalEventPlayer {
     private final EventProcessor eventProcessor;
     private final ClickHouseService clickHouseService;
     private final SimulationService simulationService;
+    private final WebSocketService webSocketService;
 
     // Define the polling interval as a constant for easy configuration
     private static final Duration POLLING_INTERVAL = Duration.ofSeconds(5);
 
-    public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService, SimulationService simulationService) {
+    public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService, @Lazy SimulationService simulationService, WebSocketService webSocketService) {
         this.eventProcessor = eventProcessor;
         this.clickHouseService = clickHouseService;
         this.simulationService = simulationService;
+        this.webSocketService = webSocketService;
     }
 
+    @SuppressWarnings("deprecation")
     @Async("taskExecutor")
-    public CompletableFuture<Void> playEvents(String simulationId, Instant simulationStartTime, double initialSpeedFactor) {
-        logger.info("Starting POLLING playback for simulation {} from {} at {}x speed.",
+    public Future<Void> playEvents(String simulationId, Instant simulationStartTime, double initialSpeedFactor) {
+        logger.info("Starting playback for simulation {} from {} at {}x speed.",
                 simulationId, simulationStartTime, initialSpeedFactor);
 
-        // This is the "simulation clock" which we will advance in chunks.
-        Instant currentSimulationTime = simulationStartTime;
-        DatabaseContextHolder.setSimulationId(simulationId);
-        SimulationState state = simulationService.getSimulationState(simulationId);
-        state.setSpeedFactor(initialSpeedFactor);
-        // --- THE OUTER POLLING LOOP ---
-        // This loop runs until the player is cancelled.
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
+        // Use a try-with-resources block for the context to ensure it's always cleared.
+        try (DatabaseContextHolder.SimulationContext ignored = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            SimulationState state = simulationService.getSimulationState(simulationId);
+
+            // --- Initial State Setup ---
+            state.setStatus(SimulationStatus.PLAYING);
+            state.setSpeedFactor(initialSpeedFactor);
+            state.setLastProcessedTimestamp(simulationStartTime); // Initialize progress
+            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING); // Use service to broadcast
+
+            Instant currentSimulationTime = simulationStartTime;
+
+            // --- Main Playback Loop ---
+            while (!Thread.currentThread().isInterrupted()) {
+                long loopWallClockStartNs = System.nanoTime();
+
                 double currentSpeedFactor = state.getSpeedFactor();
-                // 1. Define the time window for the next database query.
                 Instant windowStartTime = currentSimulationTime;
                 Instant windowEndTime = windowStartTime.plus(POLLING_INTERVAL);
 
-                // 2. Fetch the chunk of events for this window from ClickHouse.
                 logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime, windowEndTime);
                 List<DomainEvent> eventChunk = clickHouseService.getEventsBetween(windowStartTime, windowEndTime);
 
                 if (!eventChunk.isEmpty()) {
-                    logger.info("Found {} events in chunk for {}. Starting smooth playback.", eventChunk.size(), simulationId);
-                    
-                    // 3. Play this specific chunk with high fidelity.
                     playChunk(simulationId, eventChunk, state);
-                    
-                    // 4. Advance the simulation clock to the timestamp of the last event we just played.
                     currentSimulationTime = eventChunk.get(eventChunk.size() - 1).getTimestamp();
                 } else {
-                    logger.trace("No events found in window for {}.", simulationId);
-                    // If no events were found, we still advance the clock to the end of the window
-                    // to avoid getting stuck querying the same empty time range forever.
+                    // No events found, advance the clock to avoid getting stuck.
                     currentSimulationTime = windowEndTime;
+                    // OPTIONAL: Add logic here to detect natural completion.
+                    // For example, if (windowEndTime > simulationService.getSimulationEndTime(simulationId)) {
+                    //     state.setStatus(SimulationStatus.COMPLETED);
+                    //     simulationService.broadcastStatusUpdate(simulationId, SimulationStatus.COMPLETED);
+                    //     logger.info("Simulation {} completed naturally.", simulationId);
+                    //     break; // Exit the loop
+                    // }
                 }
 
-                // 5. Wait for the next polling cycle.
-                // The sleep duration is adjusted by the speed factor.
-                long sleepMillis = (long) (POLLING_INTERVAL.toMillis() / currentSpeedFactor);
-                logger.debug("Chunk processed. Sleeping for {}ms before next poll.", sleepMillis);
-                Thread.sleep(sleepMillis);
+                // CRITICAL: Persistently save the progress after every chunk.
+                state.setLastProcessedTimestamp(currentSimulationTime);
 
-            } catch (InterruptedException e) {
-                logger.warn("Polling playback for simulation {} was interrupted. Stopping.", simulationId);
-                Thread.currentThread().interrupt(); // Re-set the interrupt flag
-                break; // Exit the main loop
-            } catch (Exception e) {
-                logger.error("An unhandled error occurred during polling playback for simulation {}. Stopping.", simulationId, e);
-                break;
-            } finally {
-                DatabaseContextHolder.clearSimulation();
+                // --- Dynamic Sleep Calculation ---
+                long elapsedNs = System.nanoTime() - loopWallClockStartNs;
+                long targetLoopDurationNs = (long) (POLLING_INTERVAL.toNanos() / currentSpeedFactor);
+                long sleepNanos = targetLoopDurationNs - elapsedNs;
+
+                if (sleepNanos > 0) {
+                    Thread.sleep(sleepNanos / 1_000_000);
+                }
+            }
+        } catch (InterruptedException e) {
+            // This block is entered when the thread is interrupted by playbackTask.cancel(true).
+            SimulationState state = simulationService.getSimulationState(simulationId);
+            // Check the official state to determine if this was a pause or a stop.
+            if (state != null && state.getStatus() == SimulationStatus.PAUSED) {
+                logger.info("Playback for simulation {} paused gracefully at {}.", simulationId, state.getLastProcessedTimestamp());
+            } else {
+                logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
+                if (state != null) {
+                    state.setStatus(SimulationStatus.STOPPED);
+                    webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.STOPPED);
+                }
+            }
+            // Preserve the interrupted status for the thread pool.
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.error("An unhandled error occurred during playback for simulation {}. Setting state to FAILED.", simulationId, e);
+            SimulationState state = simulationService.getSimulationState(simulationId);
+            if (state != null) {
+                state.setStatus(SimulationStatus.FAILED);
+                webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.FAILED);
             }
         }
 
-        logger.info("Polling playback finished for simulation {}.", simulationId);
-        return CompletableFuture.completedFuture(null);
+        logger.info("Playback thread for simulation {} is terminating.", simulationId);
+        return new AsyncResult<>(null);
     }
 
     /**

@@ -77,14 +77,8 @@ public class SimulationService {
         state.setStatus(SimulationStatus.PLAYING);
         logger.info("Starting live tailing playback for simulation {} from {}", simulationId, simulationStartTime);
 
-        CompletableFuture<Void> playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
+        var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
         activePlaybacks.put(simulationId, playbackFuture);
-
-        playbackFuture.thenRun(() -> {
-            logger.info("Playback for simulation {} has completed or was cancelled.", simulationId);
-            activePlaybacks.remove(simulationId);
-            updateSimulationStatus(simulationId, SimulationStatus.READY);
-        });
     }
     
     /**
@@ -92,12 +86,23 @@ public class SimulationService {
      */
     public void cancelPlayback(String simulationId) {
         Future<?> playbackFuture = activePlaybacks.get(simulationId);
+        SimulationState state = simulationCache.get(simulationId);
         if (playbackFuture != null && !playbackFuture.isDone()) {
             logger.warn("Attempting to cancel playback for simulation {}", simulationId);
+            
+            if (state != null) {
+                state.setStatus(SimulationStatus.STOPPED);
+            }
+
             boolean cancelled = playbackFuture.cancel(true);
             if (cancelled) {
-                logger.info("Successfully sent cancellation signal to playback task for {}", simulationId);
-                activePlaybacks.remove(simulationId);
+                if (playbackFuture.isCancelled()){
+                    logger.info("Successfully sent cancellation signal to playback task for {}", simulationId);
+                    activePlaybacks.remove(simulationId);
+                }else{
+                    logger.warn("Playback task for {} was not cancelled", simulationId);
+                    activePlaybacks.remove(simulationId);
+                }
             } else {
                 logger.error("Failed to cancel playback task for {}", simulationId);
             }
@@ -112,6 +117,7 @@ public class SimulationService {
         SimulationState state = simulationCache.remove(simulationId);
         if (state != null) {
             orientDBService.dropDatabase(simulationId);
+            simulationCache.remove(simulationId);
             logger.info("Successfully destroyed simulation: {}", simulationId);
         } else {
             logger.warn("Attempted to destroy non-existent simulation: {}", simulationId);
@@ -186,6 +192,15 @@ public class SimulationService {
         if (abandonedCount > 0) {
             logger.info("Cleanup complete. Removed {} abandoned simulations.", abandonedCount);
         }
+
+        Iterator<Map.Entry<String, Future<?>>> iterator = activePlaybacks.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Future<?>> entry = iterator.next();
+            if (entry.getValue().isDone()) {
+                iterator.remove();
+                logger.debug("Removed completed task for simulation: {}", entry.getKey());
+            }
+        }
     }
 
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
@@ -193,6 +208,36 @@ public class SimulationService {
         state.setSpeedFactor(newSpeedFactor);
         logger.info("Updated playback speed for simulation {} to {}x and notified player.", simulationId, newSpeedFactor);
         //TODO: notify others
+    }
+
+    public void pauseSimulation(String simulationId) {
+        // 1. Find the state and the running task.
+        SimulationState state = simulationCache.get(simulationId);
+        Future<?> playbackTask = activePlaybacks.get(simulationId);
+
+        // 2. Validate the current state. Is it possible to pause?
+        if (state == null || playbackTask == null) {
+            throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
+        }
+        if (state.getStatus() != SimulationStatus.PLAYING) {
+            throw new IllegalStateException("Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
+        }
+
+        logger.info("Pausing simulation {}", simulationId);
+
+        // 3. Set the state to PAUSED. This MUST be done BEFORE interrupting the thread.
+        state.setStatus(SimulationStatus.PAUSED);
+
+        // 4. Broadcast the update to all connected clients.
+        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED);
+
+        // 5. CRITICAL: Interrupt the actual background thread.
+        // The 'true' parameter sends an interrupt signal, which will be caught
+        // by the InterruptedException block in the playEvents method.
+        playbackTask.cancel(true);
+
+        // 6. Clean up the task from the active list.
+        activePlaybacks.remove(simulationId);
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {}

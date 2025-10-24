@@ -66,12 +66,9 @@ public class SimulationController {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
 
-        DatabaseContextHolder.setSimulationId(simulationId);
-        try {
+        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             GraphData data = graphService.getGraphData();
             return ResponseEntity.ok(data);
-        } finally {
-            DatabaseContextHolder.clearSimulation();
         }
     }
 
@@ -106,6 +103,22 @@ public class SimulationController {
             @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
         simulationService.cancelPlayback(simulationId);
         return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{simulationId}/playback/pause")
+    @Operation(summary = "Pause event playback", description = "Pauses a currently running event playback.")
+    @ApiResponse(responseCode = "202", description = "Cancellation signal has been sent.")
+    public ResponseEntity<Void> pausePlayback(
+        @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
+    
+        try {
+            simulationService.pauseSimulation(simulationId);
+            return ResponseEntity.accepted().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
     }
 
     @PostMapping("/{simulationId}/heartbeat")

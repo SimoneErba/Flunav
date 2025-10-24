@@ -32,12 +32,8 @@ public class RabbitMQConfig {
     @Bean
     public CustomExchange itemEventsExchange() {
         // This is the classic way to create a custom exchange, which works in older Spring AMQP versions.
-        
-        Map<String, Object> arguments = new HashMap<>();
-        arguments.put("hash-header", "x-consistent-hash-by");
-
         // The constructor takes: name, type, durable, autoDelete, arguments
-        return new CustomExchange(itemEventsExchange, "x-consistent-hash", true, false, arguments);
+        return new CustomExchange(itemEventsExchange, "x-consistent-hash", true, false);
     }
 
     @Bean

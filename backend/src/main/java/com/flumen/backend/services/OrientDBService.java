@@ -178,8 +178,10 @@ public class OrientDBService {
             orientDB.create(dbName, ODatabaseType.MEMORY);
             activeSimulations.add(dbName);
             logger.info("Successfully created new in-memory simulation database: {}", dbName);
-            DatabaseContextHolder.setSimulationId(dbName);
-            ensureSchemaExists();
+            try(var context = DatabaseContextHolder.enterSimulationContext(dbName))
+            {
+                ensureSchemaExists();
+            }
 
         } catch (Exception e) {
             logger.error("Failed to create in-memory simulation DB '{}'", dbName, e);
@@ -189,8 +191,6 @@ public class OrientDBService {
                 orientDB.drop(dbName);
             }
             throw new RuntimeException("Simulation DB creation failed.", e);
-        } finally{
-            DatabaseContextHolder.clearSimulation();
         }
     }
 

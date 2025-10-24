@@ -44,8 +44,7 @@ public class HistoricalGraphBuilder {
 
     @Async("taskExecutor")
     public void build(String simulationId, Instant restorePoint, Semaphore buildPermits) {
-        DatabaseContextHolder.setSimulationId(simulationId);
-        try {
+        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             logger.info("Starting historical graph build for simulation: {}", simulationId);
 
             Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(restorePoint);
@@ -86,7 +85,6 @@ public class HistoricalGraphBuilder {
             logger.error("A critical error occurred during the build process for simulation: {}", simulationId, e);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED);
         } finally {
-            DatabaseContextHolder.clearSimulation();
             buildPermits.release();
             logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());
             simulationService.processWaitingQueue();

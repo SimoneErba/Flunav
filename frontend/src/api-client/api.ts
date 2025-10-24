@@ -583,6 +583,9 @@ export const SimulationStateResponseStatusEnum = {
     Building: 'BUILDING',
     Ready: 'READY',
     Playing: 'PLAYING',
+    Paused: 'PAUSED',
+    Completed: 'COMPLETED',
+    Stopped: 'STOPPED',
     Failed: 'FAILED'
 } as const;
 
@@ -2044,6 +2047,40 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
+         * Pauses a currently running event playback.
+         * @summary Pause event playback
+         * @param {string} simulationId The ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        pausePlayback: async (simulationId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('pausePlayback', 'simulationId', simulationId)
+            const localVarPath = `/api/simulations/{simulationId}/playback/pause`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
          * @summary Send a heartbeat
          * @param {string} simulationId The ID of the active simulation
@@ -2111,6 +2148,46 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
             localVarRequestOptions.data = serializeDataIfNeeded(playbackRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * Allows changing the speed
+         * @summary Update playback speed
+         * @param {string} simulationId 
+         * @param {number} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateSpeed: async (simulationId: string, body: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'simulationId' is not null or undefined
+            assertParamExists('updateSpeed', 'simulationId', simulationId)
+            // verify required parameter 'body' is not null or undefined
+            assertParamExists('updateSpeed', 'body', body)
+            const localVarPath = `/api/simulations/{simulationId}/playback`
+                .replace(`{${"simulationId"}}`, encodeURIComponent(String(simulationId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PATCH', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(body, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -2193,6 +2270,19 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Pauses a currently running event playback.
+         * @summary Pause event playback
+         * @param {string} simulationId The ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async pausePlayback(simulationId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.pausePlayback(simulationId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.pausePlayback']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
          * @summary Send a heartbeat
          * @param {string} simulationId The ID of the active simulation
@@ -2217,6 +2307,20 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.startPlayback(simulationId, playbackRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['SimulationsApi.startPlayback']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * Allows changing the speed
+         * @summary Update playback speed
+         * @param {string} simulationId 
+         * @param {number} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateSpeed(simulationId: string, body: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateSpeed(simulationId, body, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.updateSpeed']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -2280,6 +2384,16 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.getSimulationStatus(simulationId, options).then((request) => request(axios, basePath));
         },
         /**
+         * Pauses a currently running event playback.
+         * @summary Pause event playback
+         * @param {string} simulationId The ID of the simulation
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        pausePlayback(simulationId: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.pausePlayback(simulationId, options).then((request) => request(axios, basePath));
+        },
+        /**
          * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
          * @summary Send a heartbeat
          * @param {string} simulationId The ID of the active simulation
@@ -2299,6 +2413,17 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
          */
         startPlayback(simulationId: string, playbackRequest: PlaybackRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
             return localVarFp.startPlayback(simulationId, playbackRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * Allows changing the speed
+         * @summary Update playback speed
+         * @param {string} simulationId 
+         * @param {number} body 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateSpeed(simulationId: string, body: number, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateSpeed(simulationId, body, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -2371,6 +2496,18 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
+     * Pauses a currently running event playback.
+     * @summary Pause event playback
+     * @param {string} simulationId The ID of the simulation
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public pausePlayback(simulationId: string, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).pausePlayback(simulationId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
      * A lightweight endpoint for the frontend to periodically call to keep a simulation alive.
      * @summary Send a heartbeat
      * @param {string} simulationId The ID of the active simulation
@@ -2393,6 +2530,19 @@ export class SimulationsApi extends BaseAPI {
      */
     public startPlayback(simulationId: string, playbackRequest: PlaybackRequest, options?: RawAxiosRequestConfig) {
         return SimulationsApiFp(this.configuration).startPlayback(simulationId, playbackRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * Allows changing the speed
+     * @summary Update playback speed
+     * @param {string} simulationId 
+     * @param {number} body 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public updateSpeed(simulationId: string, body: number, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).updateSpeed(simulationId, body, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

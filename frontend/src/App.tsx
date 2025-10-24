@@ -162,8 +162,6 @@ useEffect(() => {
     activeSimulation.status === SimulationStateResponseStatusEnum.Playing
   );
 
-  console.log("DEBUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG", activeSimulation, isRestoring, activeSimulation?.status);
-
 return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5' }}>
       

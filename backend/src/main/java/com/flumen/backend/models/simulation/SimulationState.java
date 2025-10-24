@@ -10,8 +10,9 @@ public class SimulationState {
 
     private final String id;
     private final Instant timestamp;
-    private SimulationStatus status;
+    private volatile SimulationStatus status;
     private Instant lastHeartbeatTimestamp;
+    private volatile Instant lastProcessedTimestamp;
     private double speedFactor = 1.0;
     private final Object timingLock = new Object();
 
