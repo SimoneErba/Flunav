@@ -8,7 +8,7 @@
 		<version>3.3.5</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.flumen</groupId>
+	<groupId>com.fiumen</groupId>
 	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>backend</name>
@@ -105,7 +105,7 @@
 			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 		<dependency>
-		<groupId>flumen</groupId>
+		<groupId>fiumen</groupId>
 		<artifactId>events</artifactId>
 		<version>1.0.0</version>
 		</dependency>

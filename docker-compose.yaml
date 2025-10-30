@@ -58,7 +58,7 @@ services:
       - app-network
   clickhouse:
     image: clickhouse/clickhouse-server:latest
-    container_name: clickhouse_flumen
+    container_name: clickhouse_fiumen
     restart: always
     ports:
       - "8124:8123"

@@ -29,7 +29,7 @@
   
 
   <text x="75" y="35" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="700" 
-        fill="#2563eb" letter-spacing="0.5px">FLUMEN</text>
+        fill="#2563eb" letter-spacing="0.5px">FIUMEN</text>
   
   <text x="80" y="60" font-family="Inter, system-ui, sans-serif" font-size="14" 
         fill="#64748b">Flow made visible</text>
