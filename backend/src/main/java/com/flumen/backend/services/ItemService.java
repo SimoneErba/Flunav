@@ -23,7 +23,7 @@ import java.util.Objects;
 public class ItemService {
     private final OrientDBService orientDBService;
     private final UpdateService updateService;
-    public ItemService(EventStore eventStore, OrientDBService orientDBService, UpdateService updateService) {
+    public ItemService(OrientDBService orientDBService, UpdateService updateService) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
     }

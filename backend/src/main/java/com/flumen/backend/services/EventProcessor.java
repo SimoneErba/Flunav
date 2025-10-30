@@ -39,7 +39,6 @@ import java.util.function.Supplier;
 public class EventProcessor {
     private static final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
 
-    private final EventStore eventStore;
     private final ClickHouseService clickHouseService;
     private final ItemService itemService;
     private final LocationService locationService;
@@ -47,13 +46,11 @@ public class EventProcessor {
     private final WebSocketService webSocketService;
 
     public EventProcessor(
-            EventStore eventStore, 
             ClickHouseService clickHouseService,
             ItemService itemService,
             LocationService locationService,
             ConnectedToService connectionService,
             WebSocketService webSocketService) {
-        this.eventStore = eventStore;
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
@@ -65,9 +62,6 @@ public class EventProcessor {
         return CompletableFuture.supplyAsync(() -> {
             Map<String, Object> resultMap = new HashMap<>();
             try {
-                // TODO: remove?
-                eventStore.saveEvents(List.of(event));
-                
                 clickHouseService.saveEvent(event);
                 
                 resultMap = processEvent(event);
