@@ -12,7 +12,7 @@ import {
 import { MultiDirectedGraph } from "graphology";
 import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
-
+import { useWebSocket, PositionUpdate } from './../hooks/useWebSocket';
 // --- API CLIENT IMPORTS ---
 // (Assuming your generated client is in a folder named 'api' in the same directory)
 import {
@@ -211,7 +211,7 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge }: GraphEventsProps) => 
   const sigma = useSigma();
   const registerEvents = useRegisterEvents();
   const loadGraph = useLoadGraph();
-  
+  const { connected, subscribeToPositionUpdates } = useWebSocket();
   // --- API Client Instances ---
   const locationApi = useRef(new LocationControllerApi()).current;
   const connectionApi = useRef(new LocationConnectionControllerApi()).current;
@@ -331,6 +331,66 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge }: GraphEventsProps) => 
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
   }, [sigma]);
+
+    useEffect(() => {
+    if (!connected) return;
+
+    const handlePositionUpdate = (update: PositionUpdate) => {
+        console.log("Received position update in component:", update);
+        const graph = sigma.getGraph();
+        if (!graph || !update.locationId) return;
+
+        // 1. Find the new location node and its attributes (coordinates)
+        const newLocationNode = graph.getNodeAttributes(update.locationId);
+        const itemExists = graph.hasNode(update.itemId);
+
+        if (!newLocationNode || !itemExists) {
+            console.warn(`Could not process update for item ${update.itemId} to location ${update.locationId}. Node not found.`);
+            return;
+        }
+
+        // 2. Immediately snap the item's position to its new starting location.
+        // This corrects its position instantly. The animation loop will handle the next move.
+        graph.setNodeAttribute(update.itemId, "x", newLocationNode.x);
+        graph.setNodeAttribute(update.itemId, "y", newLocationNode.y);
+
+        // 3. Trigger the *next* animation from this new location.
+        const newSourceId = update.locationId;
+        const newSourceLocationAttrs = newLocationNode;
+        const nextPossibleTargets = graph.outEdges(newSourceId).map(edge => graph.target(edge));
+        const uniqueNextTargets = [...new Set(nextPossibleTargets)];
+
+        let newAnimationState: AnimationState | null = null;
+        if (uniqueNextTargets.length === 1 && newSourceLocationAttrs && newSourceLocationAttrs.speed > 0) {
+            const newTargetId = uniqueNextTargets[0];
+            const duration = (newSourceLocationAttrs.length / newSourceLocationAttrs.speed) * 1000;
+            newAnimationState = { 
+                sourceId: newSourceId, 
+                targetId: newTargetId, 
+                startTime: Date.now(), 
+                duration 
+            };
+        }
+
+        // 4. Update the animation state for this specific item.
+        setAnimatingItems(currentAnims => {
+            const nextAnims = { ...currentAnims };
+            if (newAnimationState) {
+                nextAnims[update.itemId] = newAnimationState;
+            } else {
+                // The item has reached a dead-end or a choice point, stop its animation.
+                delete nextAnims[update.itemId];
+            }
+            return nextAnims;
+        });
+
+        sigma.refresh();
+    };
+
+    const unsubscribe = subscribeToPositionUpdates(handlePositionUpdate);
+    return () => unsubscribe();
+
+  }, [connected, sigma, subscribeToPositionUpdates]);
 
   const handleEdgeSubmit = useCallback(async ({ speed, length, isReversed }: { speed: number; length: number; isReversed: boolean }) => {
     if (!selectedEdgeData) return;

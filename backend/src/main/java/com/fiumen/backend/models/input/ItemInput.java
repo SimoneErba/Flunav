@@ -15,6 +15,7 @@ public class ItemInput {
 	private String name;
 	private Double speed;
     private Boolean active; 
+    private String locationId;
 	private Map<String, Object> properties;
 
 
@@ -23,6 +24,7 @@ public class ItemInput {
         this.name = event.getName();
         this.speed = event.getSpeed();
         this.active = event.isActive();
+        this.locationId = event.getLocationId();
         this.properties = event.getProperties();
     }
 }

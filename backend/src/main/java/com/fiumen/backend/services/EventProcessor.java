@@ -21,14 +21,12 @@ import fiumen.events.LocationPropertiesUpdatedEvent;
 import fiumen.events.PositionChangedEvent;
 import fiumen.events.PositionCreatedEvent;
 
-import com.fiumen.backend.context.DatabaseContextHolder;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
@@ -124,6 +122,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
             case ItemCreatedEvent e -> {
                 var item = new ItemInput(e);
                 itemService.createItem(item);
+
                 if (shouldBroadcast){
                     webSocketService.broadcastItemCreated(item);
                 }

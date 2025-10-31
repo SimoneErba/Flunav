@@ -10,7 +10,7 @@ const emptyGraphData: GraphData = {
 
 export const useGraph = () => {
     const { simulationApi, graphApi } = useApi();
-    const { connected, subscribeToPositionUpdates, subscribeToLocationUpdates } = useWebSocket();
+    const { connected, subscribeToLocationUpdates } = useWebSocket();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);
@@ -43,54 +43,6 @@ export const useGraph = () => {
     useEffect(() => {
         refetchGraphData();
     }, [refetchGraphData]); 
-
-    // Handle position updates
-    useEffect(() => {
-        if (!connected) return;
-
-        const handlePositionUpdate = (update: PositionUpdate) => {
-            setGraphData((current: GraphData) => {
-                // Find the old location of the item
-                const updatedLocations = current.locations.map((location: Location) => {
-                    const updatedItems = (location.items || []).filter((item: Item) => 
-                        item.id !== update.itemId
-                    );
-                    return {
-                        ...location,
-                        items: updatedItems
-                    };
-                });
-
-                // Add item to new location
-                if (update.locationId) {
-                    const newLocation = updatedLocations.find(loc => loc.id === update.locationId);
-                    if (newLocation) {
-                        const item = current.locations
-                            .flatMap(loc => loc.items || [])
-                            .find(item => item.id === update.itemId);
-                        
-                        if (item) {
-                            const locationIndex = updatedLocations.findIndex(loc => loc.id === update.locationId);
-                            if (locationIndex !== -1) {
-                                updatedLocations[locationIndex] = {
-                                    ...newLocation,
-                                    items: [...(newLocation.items || []), item]
-                                };
-                            }
-                        }
-                    }
-                }
-
-                return {
-                    ...current,
-                    locations: updatedLocations
-                };
-            });
-        };
-
-        const unsubscribe = subscribeToPositionUpdates(handlePositionUpdate);
-        return () => unsubscribe();
-    }, [connected, subscribeToPositionUpdates]);
 
     // Handle node updates
     // useEffect(() => {

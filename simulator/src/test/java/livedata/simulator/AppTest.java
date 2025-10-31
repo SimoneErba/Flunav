@@ -1,4 +1,4 @@
-package livedata.simulator;
+package fiumen.simulator;
 
 import static org.junit.Assert.assertTrue;
 

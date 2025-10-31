@@ -51,6 +51,7 @@ public class ItemController {
             item.getName(),
             item.getSpeed(),
             item.getActive(),
+            item.getLocationId(),
             item.getProperties()
         );
         return eventProcessorHelper.processAndLogEvent(event)

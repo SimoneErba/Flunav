@@ -9,6 +9,7 @@ import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import com.orientechnologies.orient.core.record.ODirection;
 import com.orientechnologies.orient.core.record.OEdge;
+import com.orientechnologies.orient.core.record.OElement;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
@@ -60,22 +61,40 @@ public class ItemService {
 
     public Item createItem(ItemInput item) {
         try (ODatabaseSession db = orientDBService.getSession()) {
+            db.begin();
+
             if (OrientDBUtils.checkIfAlreadyExists(db, item.getId())) {
-                throw new IllegalArgumentException("Item with ID " + item.getId() + " already exists.");
+                throw new IllegalArgumentException("Item with ID ".concat(item.getId()).concat(" already exists."));
             }
-    
-            OVertex vertex = db.newVertex("Item");
-            vertex.setProperty("customId", item.getId());
-            vertex.setProperty("name", item.getName());
-            vertex.setProperty("speed", item.getSpeed());
-            vertex.setProperty("active", item.getActive());
-            vertex.setProperty("properties", item.getProperties());
-    
-            vertex.save();
-            return vertexToItem(vertex);
+
+            OVertex itemVertex = db.newVertex("Item");
+            itemVertex.setProperty("customId", item.getId());
+            itemVertex.setProperty("name", item.getName());
+            itemVertex.setProperty("speed", item.getSpeed());
+            itemVertex.setProperty("active", item.getActive());
+            itemVertex.setProperty("properties", item.getProperties());
+            itemVertex.save();
+
+            if (item.getLocationId() != null) {
+               OElement locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getLocationId());
+
+
+                if (locationVertex == null) {
+                    db.rollback();
+                    throw new IllegalArgumentException("Location with ID ".concat(item.getLocationId()).concat(" not found."));
+                }
+                itemVertex.asVertex().get().addEdge(locationVertex.asVertex().get(), "HasPosition");
+                itemVertex.save();
+            }
+            
+            db.commit();
+
+            return vertexToItem(itemVertex);
+
         } catch (Exception e) {
+            orientDBService.getSession().rollback(); 
             throw new RuntimeException(
-                    "Error while creating item with ID " + item.getId() + ": " + e.getMessage(), e);
+                    "Error while creating item with ID ".concat(item.getId()).concat(": ").concat(e.getMessage()), e);
         }
     }
     

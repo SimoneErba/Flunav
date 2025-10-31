@@ -1,5 +1,6 @@
 ### TODO
 
+calculate current item position int he path (timestamp + speed/length). save item progress
 see other simulations (with a name, be able to switch to them)
 check the simulation heartbeat
 item state colors and mapping
