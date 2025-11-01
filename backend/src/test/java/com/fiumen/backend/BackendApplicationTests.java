@@ -7,7 +7,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import com.fiumen.backend.services.ClickHouseService;
 import com.fiumen.backend.services.OrientDBService;
 
-@SpringBootTest
+@SpringBootTest(properties = { "springwolf.enabled=false" })
 class BackendApplicationTests {
 
 	@MockBean

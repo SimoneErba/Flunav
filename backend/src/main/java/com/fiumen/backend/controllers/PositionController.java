@@ -1,13 +1,18 @@
 package com.fiumen.backend.controllers;
 
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.fiumen.backend.models.input.CreateConnection;
-import com.fiumen.backend.services.PositionService;
-import com.fiumen.backend.services.WebSocketService;
+import com.fiumen.backend.utils.ControllerHelper;
 
+import fiumen.events.ItemPositionChangedEvent;
+import fiumen.events.ItemPositionCreatedEvent;
+import fiumen.events.ItemPositionDeletedEvent;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,53 +22,42 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "Positions", description = "APIs for managing item positions")
 public class PositionController {
 
-    private final PositionService positionService;
-    private final WebSocketService webSocketService;
+    private final ControllerHelper eventProcessorHelper;
 
     @Autowired
-    public PositionController(PositionService positionService, WebSocketService webSocketService) {
-        this.positionService = positionService;
-        this.webSocketService = webSocketService;
+    public PositionController(ControllerHelper eventProcessorHelper) {
+        this.eventProcessorHelper = eventProcessorHelper;
     }
 
     @PostMapping()
     @Operation(summary = "Create a new position connection")
-    public ResponseEntity<String> createConnection(@RequestBody CreateConnection model) {
-        try {
-            positionService.createConnection(model.getItemId(), model.getLocationId());
-            webSocketService.broadcastPositionUpdate(model.getItemId(), model.getLocationId());
-            return ResponseEntity.ok("Connection created successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(String.format("Error while createConnection: %s", e.getMessage()));
-        }
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> createConnection(@RequestBody CreateConnection model) {
+        var event = new ItemPositionCreatedEvent(model.getItemId(), model.getLocationId());
+        return eventProcessorHelper.processAndLogEvent(event)
+            .thenApply(result -> {
+                return ResponseEntity.noContent().build();
+            });
     }
 
     @PutMapping()
     @Operation(summary = "Move an item to a new position")
-    public ResponseEntity<String> moveConnection(@RequestBody CreateConnection model) {
-        try {
-            positionService.moveConnection(model.getItemId(), model.getLocationId());
-            webSocketService.broadcastPositionUpdate(model.getItemId(), model.getLocationId());
-            return ResponseEntity.ok("Connection moved successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(String.format("Error while moveConnection: %s", e.getMessage()));
-        }
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> moveConnection(@RequestBody CreateConnection model) {
+        var event = new ItemPositionChangedEvent(model.getItemId(), model.getLocationId());
+        return eventProcessorHelper.processAndLogEvent(event)
+            .thenApply(result -> {
+                return ResponseEntity.noContent().build();
+            });
     }
 
     @DeleteMapping("/{itemId}")
     @Operation(summary = "Delete position connections for an item")
-    public ResponseEntity<String> deleteConnections(
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteConnections(
             @Parameter(description = "ID of the item") 
             @PathVariable String itemId) {
-        try {
-            positionService.deleteConnections(itemId);
-            webSocketService.broadcastPositionUpdate(itemId, null);
-            return ResponseEntity.ok("Connections deleted successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(String.format("Error while deleteConnections: %s", e.getMessage()));
-        }
+        var event = new ItemPositionDeletedEvent(itemId);
+        return eventProcessorHelper.processAndLogEvent(event)
+            .thenApply(result -> {
+                return ResponseEntity.noContent().build();
+            });
     }
 }

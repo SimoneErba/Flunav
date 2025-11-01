@@ -11,6 +11,7 @@ import fiumen.events.ItemCreatedEvent;
 import fiumen.events.ItemDeactivatedEvent;
 import fiumen.events.ItemDeletedEvent;
 import fiumen.events.ItemPositionChangedEvent;
+import fiumen.events.ItemPositionCreatedEvent;
 import fiumen.events.ItemPositionDeletedEvent;
 import fiumen.events.ItemPropertiesUpdatedEvent;
 import fiumen.events.ItemSpeedChangedEvent;
@@ -18,8 +19,6 @@ import fiumen.events.LocationConnectionCreatedEvent;
 import fiumen.events.LocationCreatedEvent;
 import fiumen.events.LocationDeletedEvent;
 import fiumen.events.LocationPropertiesUpdatedEvent;
-import fiumen.events.PositionChangedEvent;
-import fiumen.events.PositionCreatedEvent;
 
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
@@ -144,12 +143,33 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
+            case ItemPositionDeletedEvent e -> {
+                var item = itemService.getItemById(e.getEntityId());
+                item.updatePosition(null);
+                itemService.fullUpdateItem(item);
+                if (shouldBroadcast){
+                    webSocketService.broadcastPositionLost(item.getId());
+                }
+                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+            }
+
+            case ItemPositionCreatedEvent e -> {
+                var item = itemService.getItemById(e.getEntityId());
+                var location = locationService.getLocationById(e.getLocationId());
+                item.updatePosition(location);
+                itemService.fullUpdateItem(item);
+                if (shouldBroadcast){
+                    webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
+                }
+                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+            }
+
             case ItemSpeedChangedEvent e -> {
                 var item = itemService.getItemById(e.getEntityId());
                 item.updateSpeed(e);
                 itemService.fullUpdateItem(item);
                 if (shouldBroadcast){
-                    webSocketService.broadcastItemSpeedChanged(e.getEntityId(), e.getSpeed());
+                    webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("speed", item.getSpeed())));
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
@@ -161,7 +181,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 updateData.put("active", item.isActive());
                 itemService.updateItem(new UpdateModel(item.getId(), updateData));
                 if (shouldBroadcast){
-                    webSocketService.broadcastItemDeactivated(item.getId());
+                    webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", item.isActive())));
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
@@ -173,7 +193,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 updateData.put("active", item.isActive());
                 itemService.updateItem(new UpdateModel(item.getId(), updateData));
                 if (shouldBroadcast){
-                    webSocketService.broadcastItemActivated(item.getId());
+                    webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", item.isActive())));
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
@@ -186,7 +206,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 var updateModel = new UpdateModel(item.getId(), updateData);
                 itemService.updateItem(updateModel);
                 if (shouldBroadcast){
-                    webSocketService.broadcastItemPropertiesUpdated(updateModel);
+                    webSocketService.broadcastItemUpdated(updateModel);
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
@@ -216,7 +236,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 updateData.put("properties", location.getProperties());
                 locationService.updateLocation(new UpdateModel(location.getId(), updateData));
                 if (shouldBroadcast){
-                    webSocketService.broadcastLocationUpdated(location.getId(), updateData);
+                    webSocketService.broadcastLocationPropertiesUpdated(new UpdateModel(location.getId(), Map.of("properties", location.getProperties())));
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
@@ -245,38 +265,6 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 connectionService.deleteConnection(e.getSourceLocationId(), e.getTargetLocationId());
                 if (shouldBroadcast){
                     webSocketService.broadcastConnectionDeleted(e.getSourceLocationId(), e.getTargetLocationId());
-                }
-                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-            }
-
-            case PositionCreatedEvent e -> {
-                var item = itemService.getItemById(e.getItemId());
-                var location = locationService.getLocationById(e.getLocationId());
-                item.updatePosition(location);
-                itemService.fullUpdateItem(item);
-                if (shouldBroadcast){
-                    webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
-                }
-                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-            }
-
-            case PositionChangedEvent e -> {
-                var item = itemService.getItemById(e.getItemId());
-                var location = locationService.getLocationById(e.getLocationId());
-                item.updatePosition(location);
-                itemService.fullUpdateItem(item);
-                if (shouldBroadcast){
-                    webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
-                }
-                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-            }
-
-            case ItemPositionDeletedEvent e -> {
-                var item = itemService.getItemById(e.getEntityId());
-                item.updatePosition(null);
-                itemService.fullUpdateItem(item);
-                if (shouldBroadcast){
-                    webSocketService.broadcastPositionLost(item.getId());
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }

@@ -1,28 +1,34 @@
 package com.fiumen.backend.services;
 
 import com.fiumen.backend.context.DatabaseContextHolder;
-import com.fiumen.backend.models.simulation.SimulationStatus;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
+import com.fiumen.backend.models.simulation.SimulationStatus;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.HashMap;
+
+enum CrudOperation { CREATED, DELETED }
+enum PositionStatus { UPDATED, LOST }
+
+record PositionUpdate(String itemId, String locationId, PositionStatus status) {}
+record ConnectionMessage(String from, String to, CrudOperation operation) {}
+record EntityMessage<T>(CrudOperation operation, T data) {}
+
 
 @Service
 public class WebSocketService {
     private final SimpMessagingTemplate messagingTemplate;
-    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(WebSocketService.class);
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketService.class);
 
     public WebSocketService(SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;
-    }
-
-    public void broadcastNodeUpdate(String nodeId, Object update) {
-        sendToTopic("nodes/" + nodeId, update);
     }
 
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status) {
@@ -30,29 +36,12 @@ public class WebSocketService {
         message.put("status", status);
         messagingTemplate.convertAndSend("/topic/simulation-status/" + simulationId, message);
     }
+    
+    // --- ITEM EVENTS ---
 
     public void broadcastItemCreated(ItemInput item) {
         EntityMessage<ItemInput> payload = new EntityMessage<>(CrudOperation.CREATED, item);
         sendToTopic("items", payload);
-    }
-
-    public void broadcastItemSpeedChanged(String itemId, double speed) {
-        Map<String, Object> payload = Map.of("speed", speed);
-        sendToTopic("items/" + itemId, payload);
-    }
-
-    public void broadcastItemDeactivated(String itemId) {
-        Map<String, Object> payload = Map.of("active", false);
-        sendToTopic("items/" + itemId, payload);
-    }
-
-    public void broadcastItemActivated(String itemId) {
-        Map<String, Object> payload = Map.of("active", true);
-        sendToTopic("items/" + itemId, payload);
-    }
-
-    public void broadcastItemPropertiesUpdated(UpdateModel updateModel) {
-        sendToTopic("items/" + updateModel.getId(), updateModel.getProperties());
     }
 
     public void broadcastItemDeleted(String itemId) {
@@ -60,13 +49,15 @@ public class WebSocketService {
         sendToTopic("items", payload);
     }
 
+    public void broadcastItemUpdated(UpdateModel updateModel) {
+        sendToTopic("items/updates", updateModel);
+    }
+    
+    // --- LOCATION EVENTS ---
+
     public void broadcastLocationCreated(LocationInput location) {
         EntityMessage<LocationInput> payload = new EntityMessage<>(CrudOperation.CREATED, location);
         sendToTopic("locations", payload);
-    }
-
-    public void broadcastLocationUpdated(String locationId, Map<String, Object> updateData) {
-        sendToTopic("locations/" + locationId, updateData);
     }
 
     public void broadcastLocationDeleted(String locationId) {
@@ -74,15 +65,28 @@ public class WebSocketService {
         sendToTopic("locations", payload);
     }
 
+    /**
+     * NEW: Broadcasts all property updates for ANY location to a single topic.
+     * The payload includes the location's ID and the map of changed properties.
+     */
+    public void broadcastLocationPropertiesUpdated(UpdateModel updateModel) {
+        sendToTopic("locations/updates", updateModel);
+    }
+
+    // --- CONNECTION EVENTS ---
+
     public void broadcastConnectionCreated(String fromLocationId, String toLocationId) {
         ConnectionMessage payload = new ConnectionMessage(fromLocationId, toLocationId, CrudOperation.CREATED);
         sendToTopic("connections", payload);
     }
 
+
     public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId) {
         ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED);
         sendToTopic("connections", payload);
     }
+
+    // --- POSITION EVENTS ---
 
     public void broadcastPositionUpdate(String itemId, String locationId) {
         PositionUpdate payload = new PositionUpdate(itemId, locationId, PositionStatus.UPDATED);
@@ -94,27 +98,15 @@ public class WebSocketService {
         sendToTopic("positions", payload);
     }
 
-    /**
-     * Centralized method to send a message. It checks for a simulation ID in the
-     * context and constructs the appropriate topic string before broadcasting.
-     *
-     * @param subTopic The specific sub-topic for the message (e.g., "items", "positions").
-     * @param payload  The object to be sent as the message body.
-     */
+    // --- HELPER ---
+
     private void sendToTopic(String subTopic, Object payload) {
         String simulationId = DatabaseContextHolder.getSimulationId();
         String topic = (simulationId != null)
-            ? String.format("/topic/simulations/%s/%s", simulationId, subTopic)
-            : String.format("/topic/%s", subTopic);
+                ? String.format("/topic/simulations/%s/%s", simulationId, subTopic)
+                : String.format("/topic/%s", subTopic);
 
         logger.debug("Broadcasting to {}: {}", topic, payload);
         messagingTemplate.convertAndSend(topic, payload);
     }
-
-    private enum CrudOperation { CREATED, DELETED }
-    private enum PositionStatus { UPDATED, LOST }
-
-    private record PositionUpdate(String itemId, String locationId, PositionStatus status) {}
-    private record EntityMessage<T>(CrudOperation operation, T data) {}
-    private record ConnectionMessage(String from, String to, CrudOperation operation) {}
 }
