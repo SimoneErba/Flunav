@@ -1,9 +1,10 @@
 ### TODO
 
-eiting te graph is just for the initiala setup, remove items while in edit mode
+if speed changes, update animations
 calculate current item position int he path (timestamp + speed/length). save item progress
 uscite, attese, ricircoli
 see other simulations (with a name, be able to switch to them)
+eiting te graph is just for the initiala setup, remove items while in edit mode
 check the simulation heartbeat
 item state colors and mapping
 edit active simulations to see "what if"

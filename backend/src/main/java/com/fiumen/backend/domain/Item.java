@@ -3,6 +3,7 @@ package com.fiumen.backend.domain;
 import lombok.Getter;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -73,16 +74,16 @@ public class Item {
         }    
     }
 
-    public void updateSpeed(ItemSpeedChangedEvent event) {
-        Duration timeDelta = Duration.between(this.progressInfo.getDatetime(), event.getTimestamp());
+    public void updateSpeed(double speed, Instant time) {
+        Duration timeDelta = Duration.between(this.progressInfo.getDatetime(), time);
         double milliSecondsElapsed = timeDelta.toMillis();
         
         double progressDelta = milliSecondsElapsed * this.speed / this.location.getLength();
         double newProgress = this.progressInfo.getProgress() + progressDelta;
         
-        this.progressInfo = new ProgressInfo(newProgress, event.getTimestamp());
+        this.progressInfo = new ProgressInfo(newProgress, time);
         
-        this.speed = event.getSpeed();
+        this.speed = speed;
     }
 
     public void updateProperties(ItemPropertiesUpdatedEvent event) {

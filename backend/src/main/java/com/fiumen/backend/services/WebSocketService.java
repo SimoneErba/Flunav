@@ -65,10 +65,6 @@ public class WebSocketService {
         sendToTopic("locations", payload);
     }
 
-    /**
-     * NEW: Broadcasts all property updates for ANY location to a single topic.
-     * The payload includes the location's ID and the map of changed properties.
-     */
     public void broadcastLocationPropertiesUpdated(UpdateModel updateModel) {
         sendToTopic("locations/updates", updateModel);
     }

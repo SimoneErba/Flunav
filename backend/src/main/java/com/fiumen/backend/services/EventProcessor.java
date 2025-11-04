@@ -18,13 +18,17 @@ import fiumen.events.ItemSpeedChangedEvent;
 import fiumen.events.LocationConnectionCreatedEvent;
 import fiumen.events.LocationCreatedEvent;
 import fiumen.events.LocationDeletedEvent;
+import fiumen.events.LocationLengthChangedEvent;
 import fiumen.events.LocationPropertiesUpdatedEvent;
+import fiumen.events.LocationSpeedChangedEvent;
 
+import com.fiumen.backend.domain.Item;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -237,6 +241,42 @@ private <T> T executeWithRetry(Supplier<T> operation) {
                 locationService.updateLocation(new UpdateModel(location.getId(), updateData));
                 if (shouldBroadcast){
                     webSocketService.broadcastLocationPropertiesUpdated(new UpdateModel(location.getId(), Map.of("properties", location.getProperties())));
+                }
+                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+            }
+
+            case LocationSpeedChangedEvent e -> {
+                var location = locationService.getLocationById(e.getEntityId());
+                location.updateSpeed(e.getSpeed());
+
+                var updateModel = new UpdateModel(location.getId(), Map.of("speed", location.getSpeed()));
+                locationService.updateLocation(updateModel);
+                
+                if (shouldBroadcast){
+                    webSocketService.broadcastLocationPropertiesUpdated(updateModel);
+                }
+
+                var itemsOnLocation = itemService.getItemsByLocation(e.getEntityId());
+
+                if stuff is done at the forntend maybe we dont need to do anything here, just send thevent. but about progress?
+                maybe we send the current situation when a frontend connectes in the middle of items going
+
+                for (Item item : itemsOnLocation) {
+                    item.updateSpeed(item.getSpeed() + location.getSpeed(), e.getTimestamp());
+                }
+
+                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+            }
+
+            case LocationLengthChangedEvent e -> {
+                var location = locationService.getLocationById(e.getEntityId());
+                location.updateLength(e.getLength());
+
+                var updateModel = new UpdateModel(location.getId(), Map.of("length", location.getSpeed()));
+                locationService.updateLocation(updateModel);
+                
+                if (shouldBroadcast){
+                    webSocketService.broadcastLocationPropertiesUpdated(updateModel);
                 }
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }

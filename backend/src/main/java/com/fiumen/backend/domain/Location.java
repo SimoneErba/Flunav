@@ -1,13 +1,16 @@
 package com.fiumen.backend.domain;
 
+import fiumen.events.ItemSpeedChangedEvent;
 import fiumen.events.LocationActivatedEvent;
 import fiumen.events.LocationCreatedEvent;
 import fiumen.events.LocationDeactivatedEvent;
 import fiumen.events.LocationPropertiesUpdatedEvent;
+import fiumen.events.LocationSpeedChangedEvent;
 import fiumen.types.LocationType;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -97,6 +100,14 @@ public class Location {
     
     public boolean isTrack() {
         return this.length != null && this.length > 0;
+    }
+
+    public void updateSpeed(double newSpeed) {
+        this.speed = newSpeed;
+    }
+
+    public void updateLength(double newLength) {
+        this.length = newLength;
     }
 
     /**
