@@ -8,6 +8,7 @@ import com.rabbitmq.client.ConnectionFactory;
 import fiumen.events.DomainEvent;
 import fiumen.events.EntityEvent;
 import fiumen.events.ItemCreatedEvent;
+import fiumen.events.ItemDeletedEvent;
 import fiumen.events.ItemPositionChangedEvent;
 import fiumen.events.LocationConnectionCreatedEvent;
 import fiumen.events.LocationCreatedEvent;
@@ -124,9 +125,8 @@ public class App {
                 logger.info("Injecting new item '" + itemId + "' at entry point '" + entryPoint + "'");
 
                 // 1. Create the item
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, new HashMap<>()), "POST");
-                // 2. Place it at the start of the line
-                sendEvent(new ItemPositionChangedEvent(itemId, entryPoint), "POST");
+                sendEvent(new ItemDeletedEvent(itemId), "DELETE");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, new HashMap<>()), "POST");
             }
         }
     }
@@ -194,8 +194,7 @@ public class App {
                 String entryPoint = entrances.get(random.nextInt(entrances.size()));
 
                 logger.info("Injecting new item '" + itemId + "' at entry point '" + entryPoint + "'");
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, new HashMap<>()), "POST");
-                sendEvent(new ItemPositionChangedEvent(itemId, entryPoint), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, new HashMap<>()), "POST");
             }
         }
     }

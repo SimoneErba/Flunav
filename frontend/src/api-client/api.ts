@@ -205,6 +205,12 @@ export interface ItemInput {
     'active'?: boolean;
     /**
      * 
+     * @type {string}
+     * @memberof ItemInput
+     */
+    'locationId'?: string;
+    /**
+     * 
      * @type {{ [key: string]: object; }}
      * @memberof ItemInput
      */
@@ -1747,7 +1753,7 @@ export const PositionsApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+        async createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.createConnection(createConnection, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['PositionsApi.createConnection']?.[localVarOperationServerIndex]?.url;
@@ -1760,7 +1766,7 @@ export const PositionsApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteConnections(itemId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+        async deleteConnections(itemId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.deleteConnections(itemId, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['PositionsApi.deleteConnections']?.[localVarOperationServerIndex]?.url;
@@ -1773,7 +1779,7 @@ export const PositionsApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+        async moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.moveConnection(createConnection, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['PositionsApi.moveConnection']?.[localVarOperationServerIndex]?.url;
@@ -1796,7 +1802,7 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+        createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.createConnection(createConnection, options).then((request) => request(axios, basePath));
         },
         /**
@@ -1806,7 +1812,7 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteConnections(itemId: string, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+        deleteConnections(itemId: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.deleteConnections(itemId, options).then((request) => request(axios, basePath));
         },
         /**
@@ -1816,7 +1822,7 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<string> {
+        moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.moveConnection(createConnection, options).then((request) => request(axios, basePath));
         },
     };

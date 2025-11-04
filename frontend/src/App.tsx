@@ -255,7 +255,7 @@ return (
             <h3>{isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}</h3>
           </div>
         ) : (
-          <DisplayGraph initialGraphData={graphData} />
+          <DisplayGraph initialGraphData={graphData} simulationId={activeSimulation?.id} />
         )}
       </main>
     </div>

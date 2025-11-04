@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from './useApi';
-import { useWebSocket, PositionUpdate } from './useWebSocket';
-import { GraphData, Location, Item } from "../api-client/api";
+import { useWebSocket } from './useWebSocket';
+import { GraphData } from "../api-client/api";
 
 const emptyGraphData: GraphData = {
     locations: [],
@@ -10,7 +10,7 @@ const emptyGraphData: GraphData = {
 
 export const useGraph = () => {
     const { simulationApi, graphApi } = useApi();
-    const { connected, subscribeToLocationUpdates } = useWebSocket();
+    const { connected } = useWebSocket();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);
@@ -43,46 +43,6 @@ export const useGraph = () => {
     useEffect(() => {
         refetchGraphData();
     }, [refetchGraphData]); 
-
-    // Handle node updates
-    // useEffect(() => {
-    //     if (!connected) return;
-
-    //     const handleNodeUpdate = (update: NodeUpdate) => {
-    //         setGraphData((current: GraphData) => {
-    //             // Update location properties
-    //             const updatedLocations = current.locations.map((location: Location) =>
-    //                 location.id === update.id
-    //                     ? { ...location, ...update.properties }
-    //                     : location
-    //             );
-
-    //             // Update item properties
-    //             const locationsWithUpdatedItems = updatedLocations.map((location: Location) => {
-    //                 if (!location.items) return location;
-
-    //                 const updatedItems = location.items.map((item: Item) =>
-    //                     item.id === update.id
-    //                         ? { ...item, ...update.properties }
-    //                         : item
-    //                 );
-
-    //                 return {
-    //                     ...location,
-    //                     items: updatedItems
-    //                 };
-    //             });
-
-    //             return {
-    //                 ...current,
-    //                 locations: locationsWithUpdatedItems
-    //             };
-    //         });
-    //     };
-
-    //     const unsubscribe = subscribeToLocationUpdates(handleNodeUpdate);
-    //     return () => unsubscribe();
-    // }, [connected, subscribeToLocationUpdates]);
 
     return {
         graphData,

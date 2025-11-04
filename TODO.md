@@ -1,12 +1,15 @@
 ### TODO
 
+eiting te graph is just for the initiala setup, remove items while in edit mode
 calculate current item position int he path (timestamp + speed/length). save item progress
+uscite, attese, ricircoli
 see other simulations (with a name, be able to switch to them)
 check the simulation heartbeat
 item state colors and mapping
-uscite, attese, ricircoli
 edit active simulations to see "what if"
 outlet box: save to orient db only if websocket can be sent (transaction)
+page to see item history
+chatbot to ask about item history or location events
 
 ### Known Challenges
 

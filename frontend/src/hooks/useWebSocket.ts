@@ -2,54 +2,29 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Client, Message, StompSubscription } from '@stomp/stompjs';
 import { v4 as uuidv4 } from 'uuid';
 
-export enum CrudOperation {
-    CREATED = 'CREATED',
-    DELETED = 'DELETED',
-}
+// --- Import all our WebSocket DTOs ---
+import {
+    ConnectionMessage,
+    CrudOperation,
+    EntityMessage,
+    EntityUpdateMessage, // <-- NEW
+    ItemCreatedMessage,
+    ItemDeletedMessage,
+    LocationCreatedMessage,
+    LocationDeletedMessage,
+    PositionUpdate
+} from '../websocket-types/websocket-types'; // Adjust path if needed
 
-export enum PositionStatus {
-    UPDATED = 'UPDATED',
-    LOST = 'LOST',
-}
+// We still need these for typing the 'data' part of create messages
+import { ItemInput, LocationInput } from '../api-client/api';
 
-export interface PositionUpdate {
-    itemId: string;
-    locationId: string | null;
-    status: PositionStatus;
-}
-
+// A generic type for simulation status updates
 export interface SimulationStatusUpdate {
     status: string;
 }
 
-export interface EntityMessage<T> {
-    operation: CrudOperation;
-    data: T;
-}
-
-export interface EntityUpdate {
-    [key: string]: any;
-}
-
-export interface ConnectionMessage {
-    from: string;
-    to: string;
-    operation: CrudOperation;
-}
-
-export interface ItemData {
-    id: string;
-    [key: string]: any;
-}
-
-export interface LocationData {
-    id: string;
-    [key: string]: any;
-}
-
-
+// Internal types for the hook's subscription management logic
 type Handler = (message: any) => void;
-
 interface SubscriptionManager {
     subscription: StompSubscription;
     handlers: Map<string, Handler>;
@@ -60,6 +35,7 @@ export const useWebSocket = () => {
     const client = useRef<Client | null>(null);
     const subscriptions = useRef<Map<string, SubscriptionManager>>(new Map());
     const [connected, setConnected] = useState(false);
+
     const buildTopic = (baseTopic: string, simulationId?: string | null): string => {
         return simulationId
             ? `/topic/simulations/${simulationId}/${baseTopic}`
@@ -78,20 +54,17 @@ export const useWebSocket = () => {
         client.current.onConnect = (frame) => {
             console.log('%cSTOMP Connected', 'color: green', frame);
             setConnected(true);
-        };        
+        };
         client.current.onStompError = (frame) => console.error('%cSTOMP Error', 'color: red', frame);
         client.current.onWebSocketClose = (event) => {
             console.warn('%cWebSocket Closed', 'color: orange', event);
             setConnected(false);
-        };        
+        };
         client.current.onWebSocketError = (event) => console.error('%cWebSocket Error', 'color: red', event);
 
         client.current.activate();
     }, []);
 
-    /**
-     * A generic, underlying subscribe method that manages shared subscriptions.
-     */
     const subscribe = useCallback((topic: string, handler: Handler): (() => void) => {
         if (!client.current?.connected) {
             console.warn(`WebSocket not connected, cannot subscribe to ${topic}.`);
@@ -106,13 +79,8 @@ export const useWebSocket = () => {
         } else {
             const newManager: SubscriptionManager = {
                 subscription: client.current.subscribe(topic, (message: Message) => {
-                    subscriptions.current.get(topic)?.handlers.forEach(h => {
-                        try {
-                            h(JSON.parse(message.body));
-                        } catch (e) {
-                            console.error(`Failed to parse message on topic ${topic}`, e);
-                        }
-                    });
+                    const parsedBody = JSON.parse(message.body);
+                    subscriptions.current.get(topic)?.handlers.forEach(h => h(parsedBody));
                 }),
                 handlers: new Map([[handlerId, handler]]),
             };
@@ -132,6 +100,8 @@ export const useWebSocket = () => {
         };
     }, []);
 
+    // --- All subscription functions are now finalized ---
+
     const subscribeToSimulationStatus = useCallback((
         simulationId: string,
         handler: (update: SimulationStatusUpdate) => void
@@ -149,11 +119,11 @@ export const useWebSocket = () => {
     }, [subscribe]);
 
     const subscribeToItemCreated = useCallback((
-        handler: (item: ItemData) => void,
+        handler: (item: ItemInput) => void,
         simulationId?: string | null
     ) => {
         const topic = buildTopic('items', simulationId);
-        const filteredHandler = (message: EntityMessage<ItemData>) => {
+        const filteredHandler = (message: ItemCreatedMessage) => {
             if (message.operation === CrudOperation.CREATED) {
                 handler(message.data);
             }
@@ -166,29 +136,29 @@ export const useWebSocket = () => {
         simulationId?: string | null
     ) => {
         const topic = buildTopic('items', simulationId);
-        const filteredHandler = (message: EntityMessage<string>) => {
+        const filteredHandler = (message: ItemDeletedMessage) => {
             if (message.operation === CrudOperation.DELETED) {
                 handler(message.data);
             }
         };
         return subscribe(topic, filteredHandler);
     }, [subscribe]);
-
-    const subscribeToItemUpdates = useCallback((
-        itemId: string,
-        handler: (update: EntityUpdate) => void,
+    
+    // NEW: Subscribes to all item property updates
+    const subscribeToAllItemUpdates = useCallback((
+        handler: (update: EntityUpdateMessage) => void,
         simulationId?: string | null
     ) => {
-        const topic = buildTopic(`items/${itemId}`, simulationId);
+        const topic = buildTopic('items/updates', simulationId);
         return subscribe(topic, handler);
     }, [subscribe]);
 
     const subscribeToLocationCreated = useCallback((
-        handler: (location: LocationData) => void,
+        handler: (location: LocationInput) => void,
         simulationId?: string | null
     ) => {
         const topic = buildTopic('locations', simulationId);
-        const filteredHandler = (message: EntityMessage<LocationData>) => {
+        const filteredHandler = (message: LocationCreatedMessage) => {
             if (message.operation === CrudOperation.CREATED) {
                 handler(message.data);
             }
@@ -201,7 +171,7 @@ export const useWebSocket = () => {
         simulationId?: string | null
     ) => {
         const topic = buildTopic('locations', simulationId);
-        const filteredHandler = (message: EntityMessage<string>) => {
+        const filteredHandler = (message: LocationDeletedMessage) => {
             if (message.operation === CrudOperation.DELETED) {
                 handler(message.data);
             }
@@ -209,12 +179,12 @@ export const useWebSocket = () => {
         return subscribe(topic, filteredHandler);
     }, [subscribe]);
 
-    const subscribeToLocationUpdates = useCallback((
-        locationId: string,
-        handler: (update: EntityUpdate) => void,
+    // NEW: Subscribes to all location property updates
+    const subscribeToAllLocationUpdates = useCallback((
+        handler: (update: EntityUpdateMessage) => void,
         simulationId?: string | null
     ) => {
-        const topic = buildTopic(`locations/${locationId}`, simulationId);
+        const topic = buildTopic('locations/updates', simulationId);
         return subscribe(topic, handler);
     }, [subscribe]);
 
@@ -247,23 +217,22 @@ export const useWebSocket = () => {
     useEffect(() => {
         connect();
         return () => {
-            console.log("Deactivating WebSocket client and clearing all subscriptions.");
-            subscriptions.current.forEach(manager => manager.subscription.unsubscribe());
-            subscriptions.current.clear();
+            console.log("Deactivating WebSocket client.");
             client.current?.deactivate();
         };
     }, [connect]);
 
+    // The final, complete set of functions exported by the hook
     return {
         connected,
         subscribeToSimulationStatus,
         subscribeToPositionUpdates,
         subscribeToItemCreated,
         subscribeToItemDeleted,
-        subscribeToItemUpdates,
+        subscribeToAllItemUpdates,
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
-        subscribeToLocationUpdates,
+        subscribeToAllLocationUpdates,
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
     };

@@ -19,6 +19,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     @JsonSubTypes.Type(value = ItemCreatedEvent.class, name = "ITEM_CREATED"),
     @JsonSubTypes.Type(value = ItemDeactivatedEvent.class, name = "ITEM_DEACTIVATED"),
     @JsonSubTypes.Type(value = ItemPositionChangedEvent.class, name = "ITEM_POSITION_CHANGED"),
+    @JsonSubTypes.Type(value = ItemPositionCreatedEvent.class, name = "ITEM_POSITION_CREATED"),
+    @JsonSubTypes.Type(value = ItemPositionDeletedEvent.class, name = "ITEM_POSITION_DELETED"),
+
     @JsonSubTypes.Type(value = ItemPropertiesUpdatedEvent.class, name = "ITEM_PROPERTIES_UPDATED"),
     @JsonSubTypes.Type(value = ItemSpeedChangedEvent.class, name = "ITEM_SPEED_CHANGED"),
     @JsonSubTypes.Type(value = ItemDeletedEvent.class, name = "ITEM_DELETED"),
@@ -31,8 +34,6 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
 
     @JsonSubTypes.Type(value = ConnectionDeletedEvent.class, name = "CONNECTION_DELETED"),
-    @JsonSubTypes.Type(value = PositionChangedEvent.class, name = "POSITION_CHANGED"),
-    @JsonSubTypes.Type(value = PositionCreatedEvent.class, name = "POSITION_CREATED")
 
 })
 public abstract class DomainEvent {
