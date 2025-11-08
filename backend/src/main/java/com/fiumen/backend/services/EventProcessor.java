@@ -258,8 +258,7 @@ private <T> T executeWithRetry(Supplier<T> operation) {
 
                 var itemsOnLocation = itemService.getItemsByLocation(e.getEntityId());
 
-                if stuff is done at the forntend maybe we dont need to do anything here, just send thevent. but about progress?
-                maybe we send the current situation when a frontend connectes in the middle of items going
+
 
                 for (Item item : itemsOnLocation) {
                     item.updateSpeed(item.getSpeed() + location.getSpeed(), e.getTimestamp());
