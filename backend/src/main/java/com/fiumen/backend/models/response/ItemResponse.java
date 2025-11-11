@@ -1,5 +1,7 @@
 package com.fiumen.backend.models.response;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import lombok.AllArgsConstructor;
@@ -15,4 +17,8 @@ public class ItemResponse {
     private Double speed;
     private Boolean active;
     private Map<String, Object> properties;
+    private String lastKnownLocationId;
+    private Instant lastConfirmationTimestamp;
+    private List<String> destinations;
+    private ItemJourney currentJourney;
 } 

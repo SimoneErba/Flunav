@@ -97,7 +97,7 @@ public class LocationService {
     public Location fullUpdateLocation(Location location) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, location.getId());
-    
+
             locationVertex.setProperty("name", location.getName());
             locationVertex.setProperty("latitude", location.getLatitude());
             locationVertex.setProperty("longitude", location.getLongitude());
@@ -106,15 +106,14 @@ public class LocationService {
             locationVertex.setProperty("type", location.getType());
             locationVertex.setProperty("active", location.getActive());
             locationVertex.setProperty("properties", location.getProperties());
-            
+
             reconcileConnections(db, locationVertex, location.getOutboundConnectionIds());
-    
+
             locationVertex.save();
-            
+
             return vertexToLocation(locationVertex);
-    
-        }
-        catch (OConcurrentModificationException oce) {
+
+        } catch (OConcurrentModificationException oce) {
             throw oce;
         } catch (Exception e) {
             throw new RuntimeException("Error during full update of location with ID " + location.getId(), e);
@@ -123,6 +122,7 @@ public class LocationService {
 
     /**
      * Delete a location and all connections to it
+     * 
      * @param id
      */
     public void deleteLocation(String id) {
@@ -149,7 +149,8 @@ public class LocationService {
 
     /**
      * A helper method to efficiently update the 'ConnectedTo' edges for a location.
-     * It compares the current state in the DB with the desired state from the domain object
+     * It compares the current state in the DB with the desired state from the
+     * domain object
      * and only adds/removes the edges that have changed.
      */
     private void reconcileConnections(ODatabaseSession db, OVertex fromVertex, Set<String> desiredConnectionIds) {
@@ -164,7 +165,7 @@ public class LocationService {
 
         Set<String> idsToDelete = new HashSet<>(currentConnectionIds);
         idsToDelete.removeAll(desiredConnectionIds);
-        
+
         for (String idToDelete : idsToDelete) {
             OEdge edgeToDelete = currentEdges.get(idToDelete);
             edgeToDelete.delete();
@@ -188,16 +189,15 @@ public class LocationService {
         Integer capacity = vertex.getProperty("capacity");
 
         return new Location(
-            vertex.getProperty("customId"),
-            vertex.getProperty("name"),
-            LocationType.fromString(vertex.getProperty("type")),
-            vertex.getProperty("active"),
-            vertex.getProperty("properties"),
-            vertex.getProperty("latitude"),
-            vertex.getProperty("longitude"),
-            vertex.getProperty("length"),
-            vertex.getProperty("speed"),
-            capacity
-        );
+                vertex.getProperty("customId"),
+                vertex.getProperty("name"),
+                LocationType.fromString(vertex.getProperty("type")),
+                vertex.getProperty("active"),
+                vertex.getProperty("properties"),
+                vertex.getProperty("latitude"),
+                vertex.getProperty("longitude"),
+                vertex.getProperty("length"),
+                vertex.getProperty("speed"),
+                capacity);
     }
 }

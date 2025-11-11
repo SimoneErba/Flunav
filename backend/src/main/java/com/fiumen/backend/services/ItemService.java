@@ -24,6 +24,7 @@ import java.util.Objects;
 public class ItemService {
     private final OrientDBService orientDBService;
     private final UpdateService updateService;
+
     public ItemService(OrientDBService orientDBService, UpdateService updateService) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
@@ -44,10 +45,9 @@ public class ItemService {
         } catch (Exception e) {
             throw new RuntimeException("Error while fetching items: " + e.getMessage(), e);
         }
-    
+
         return items;
     }
-    
 
     public Item getItemById(String id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
@@ -76,62 +76,64 @@ public class ItemService {
             itemVertex.save();
 
             if (item.getLocationId() != null) {
-               OElement locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getLocationId());
-
+                OElement locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getLocationId());
 
                 if (locationVertex == null) {
                     db.rollback();
-                    throw new IllegalArgumentException("Location with ID ".concat(item.getLocationId()).concat(" not found."));
+                    throw new IllegalArgumentException(
+                            "Location with ID ".concat(item.getLocationId()).concat(" not found."));
                 }
                 itemVertex.asVertex().get().addEdge(locationVertex.asVertex().get(), "HasPosition");
                 itemVertex.save();
             }
-            
+
             db.commit();
 
             return vertexToItem(itemVertex);
 
         } catch (Exception e) {
-            orientDBService.getSession().rollback(); 
+            orientDBService.getSession().rollback();
             throw new RuntimeException(
                     "Error while creating item with ID ".concat(item.getId()).concat(": ").concat(e.getMessage()), e);
         }
     }
-    
 
     public Item updateItem(UpdateModel model) {
-        return  vertexToItem(this.updateService.updateVertex(model));
+        return vertexToItem(this.updateService.updateVertex(model));
     }
 
     public Item fullUpdateItem(Item item) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex itemVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getId());
-    
+
             // 1. Update the simple properties of the Item vertex
             itemVertex.setProperty("name", item.getName());
             itemVertex.setProperty("speed", item.getSpeed());
             itemVertex.setProperty("active", item.isActive());
+            itemVertex.setProperty("path", item.getPath());
+            itemVertex.setProperty("destination", item.getDestination());
+
             itemVertex.setProperty("properties", item.getProperties());
-    
+
             // 2. Reconcile the 'HasPosition' edge (the improved logic)
             OEdge positionEdge = reconcilePosition(db, itemVertex, item.getLocation());
-    
+
             // 3. Update the properties on the edge (progress, etc.)
-            //    The reconcilePosition method conveniently returns the correct edge to work with.
+            // The reconcilePosition method conveniently returns the correct edge to work
+            // with.
             if (positionEdge != null && item.getProgressInfo() != null) {
                 positionEdge.setProperty("progress", item.getProgressInfo().getProgress());
                 positionEdge.setProperty("datetime", item.getProgressInfo().getDatetime());
                 positionEdge.save();
             }
-            
+
             // 4. Save the item vertex itself
             itemVertex.save();
-            
+
             // 5. Return the fully persisted domain object
             return vertexToItem(itemVertex);
-    
-        }
-        catch (OConcurrentModificationException oce) {
+
+        } catch (OConcurrentModificationException oce) {
             throw oce;
         } catch (Exception e) {
             throw new RuntimeException("Error during full update of item with ID " + item.getId(), e);
@@ -139,17 +141,21 @@ public class ItemService {
     }
 
     /**
-     * Ensures the item's 'HasPosition' edge in the database correctly points to the desired location.
-     * This method performs a database write (delete or create) only if the item's location has actually changed.
+     * Ensures the item's 'HasPosition' edge in the database correctly points to the
+     * desired location.
+     * This method performs a database write (delete or create) only if the item's
+     * location has actually changed.
      *
-     * @param db The active ODatabaseSession.
-     * @param itemVertex The OVertex for the item being updated.
-     * @param desiredLocation The Location domain object representing the item's desired position. Can be null.
-     * @return The current and correct OEdge representing the item's position, or null if the item should have no position.
+     * @param db              The active ODatabaseSession.
+     * @param itemVertex      The OVertex for the item being updated.
+     * @param desiredLocation The Location domain object representing the item's
+     *                        desired position. Can be null.
+     * @return The current and correct OEdge representing the item's position, or
+     *         null if the item should have no position.
      */
     private OEdge reconcilePosition(ODatabaseSession db, OVertex itemVertex, Location desiredLocation) {
         // === Step 1: Get the current state from the database ===
-        
+
         // An item should only have one 'HasPosition' edge, but we query robustly.
         Iterator<OEdge> currentEdges = itemVertex.getEdges(ODirection.OUT, "HasPosition").iterator();
         OEdge currentEdge = currentEdges.hasNext() ? currentEdges.next() : null;
@@ -161,7 +167,7 @@ public class ItemService {
                 currentPositionId = currentTargetVertex.getProperty("id");
             }
         }
-        
+
         // === Step 2: Get the desired state from the domain object ===
         String desiredPositionId = (desiredLocation != null) ? desiredLocation.getId() : null;
 
@@ -191,7 +197,8 @@ public class ItemService {
             return itemVertex.addEdge(toLocationVertex, "HasPosition");
         }
 
-        // If we reach here, it means the desiredPositionId was null and the old edge has been deleted.
+        // If we reach here, it means the desiredPositionId was null and the old edge
+        // has been deleted.
         return null;
     }
 
@@ -203,19 +210,17 @@ public class ItemService {
             throw new RuntimeException("Error while deleting item with ID " + id + ": " + e.getMessage(), e);
         }
     }
-    
 
     private Item vertexToItem(OVertex vertex) {
         if (vertex == null) {
             throw new IllegalArgumentException("Attempted to convert a null vertex to item.");
         }
         return new Item(
-            vertex.getProperty("customId"),
-            vertex.getProperty("name"),
-            vertex.getProperty("speed"),
-            vertex.getProperty("active"),
-            vertex.getProperty("properties")
-        );
+                vertex.getProperty("customId"),
+                vertex.getProperty("name"),
+                vertex.getProperty("speed"),
+                vertex.getProperty("active"),
+                vertex.getProperty("properties"));
     }
-    
+
 }

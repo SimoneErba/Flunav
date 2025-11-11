@@ -6,17 +6,14 @@ import java.util.List;
 import com.fiumen.backend.models.response.ConnectionResponse;
 import com.fiumen.backend.models.response.LocationResponse;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 
 @Data
+@AllArgsConstructor
 public class GraphData {
     private List<LocationResponse> locations;
     private List<ConnectionResponse> connections;
-
-    public GraphData() {
-        this.locations = new ArrayList<>();
-        this.connections = new ArrayList<>();
-    }
 
     public void addLocation(LocationResponse location) {
         this.locations.add(location);

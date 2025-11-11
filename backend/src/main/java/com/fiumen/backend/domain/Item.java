@@ -5,11 +5,11 @@ import lombok.Getter;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import fiumen.events.ItemCreatedEvent;
 import fiumen.events.ItemPropertiesUpdatedEvent;
-import fiumen.events.ItemSpeedChangedEvent;
 
 @Getter
 public class Item {
@@ -19,15 +19,20 @@ public class Item {
     private boolean active;
     private Map<String, Object> properties;
     private Location location;
+    private String destination;
+    private List<String> path;
     private ProgressInfo progressInfo;
+    private Instant lastKnownLocationTimestamp;
 
-    public Item(String id, String name, Double speed, boolean active, Map<String, Object> properties, Location location) {
+    public Item(String id, String name, Double speed, boolean active, Map<String, Object> properties,
+            Location location, Instant time) {
         this.id = id;
         this.name = name;
         this.speed = speed;
         this.active = active;
         this.properties = properties;
         this.location = location;
+        this.lastKnownLocationTimestamp = time;
     }
 
     public Item(String id, String name, Double speed, boolean active, Map<String, Object> properties) {
@@ -38,7 +43,7 @@ public class Item {
         this.properties = properties;
     }
 
-    public  Item (ItemCreatedEvent event) {
+    public Item(ItemCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.speed = event.getSpeed();
@@ -58,31 +63,31 @@ public class Item {
         }
     }
 
-    public void updatePosition(Location newLocation) {
+    public void setPath(List<String> path) {
+        this.path = path;
+    }
+
+    public void setDestination(String destination) {
+        this.destination = destination;
+    }
+
+    public void updatePosition(Location newLocation, Instant time) {
         if (this.location == null) {
             this.location = newLocation;
+            this.lastKnownLocationTimestamp = time;
             return;
         }
-
-        if (this.location.canMoveTo(newLocation.getId())) {
-            this.location = newLocation;
-        } else {
-            throw new IllegalStateException(
-                "Cannot move item " + this.id + " from location " + this.location.getId() +
-                " to unconnected location " + newLocation.getId()
-            );
-        }    
     }
 
     public void updateSpeed(double speed, Instant time) {
         Duration timeDelta = Duration.between(this.progressInfo.getDatetime(), time);
         double milliSecondsElapsed = timeDelta.toMillis();
-        
+
         double progressDelta = milliSecondsElapsed * this.speed / this.location.getLength();
         double newProgress = this.progressInfo.getProgress() + progressDelta;
-        
+
         this.progressInfo = new ProgressInfo(newProgress, time);
-        
+
         this.speed = speed;
     }
 
@@ -93,5 +98,5 @@ public class Item {
             }
             this.properties.putAll(event.getProperties());
         }
-    }    
-} 
+    }
+}
