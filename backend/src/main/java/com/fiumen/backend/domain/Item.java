@@ -79,6 +79,10 @@ public class Item {
         }
     }
 
+    public void updateName(String name) {
+        this.name = name;
+    }
+
     public void updateSpeed(double speed, Instant time) {
         Duration timeDelta = Duration.between(this.progressInfo.getDatetime(), time);
         double milliSecondsElapsed = timeDelta.toMillis();

@@ -29,22 +29,23 @@ public class GraphService {
 
     public GraphData getGraphData() {
         Instant simulationTime = Instant.now();
-        
+
         Map<String, LocationResponse> locationsMap = new ConcurrentHashMap<>();
         List<ConnectionResponse> allConnections = new ArrayList<>();
         List<ItemResponse> allItems = new ArrayList<>();
 
         try (ODatabaseSession session = orientDBService.getSession()) {
             String query = "SELECT *, " +
-                           "in('HasPosition'):{*, customId, name, destinations, lastConfirmationTimestamp} as items, " +
-                           "out('ConnectedTo').customId as out_connections " +
-                           "FROM Location";
-            
+                    "in('HasPosition'):{*, customId, name, destinations, lastConfirmationTimestamp} as items, " +
+                    "out('ConnectedTo').customId as out_connections " +
+                    "FROM Location";
+
             try (OResultSet rs = session.query(query)) {
                 while (rs.hasNext()) {
                     OResult result = rs.next();
                     String locId = result.getProperty("customId");
-                    if (locId == null) continue; // Skip malformed records
+                    if (locId == null)
+                        continue; // Skip malformed records
 
                     // --- Process Location with Explicit Mapping ---
                     LocationResponse location = new LocationResponse();
@@ -54,14 +55,14 @@ public class GraphService {
                     location.setLongitude(result.getProperty("longitude"));
                     location.setActive(result.getProperty("active"));
                     location.setProperties(result.getProperty("properties"));
-                    
+
                     // Safely cast numeric types
                     Number length = result.getProperty("length");
                     location.setLength(length != null ? length.doubleValue() : 0.0);
 
                     Number speed = result.getProperty("speed");
                     location.setSpeed(speed != null ? speed.doubleValue() : 0.0);
-                    
+
                     Number capacity = result.getProperty("capacity");
                     location.setCapacity(capacity != null ? capacity.intValue() : -1);
 
@@ -75,7 +76,7 @@ public class GraphService {
                             System.err.println("Warning: Unknown LocationType '" + typeStr + "' for location " + locId);
                         }
                     }
-                    
+
                     locationsMap.put(locId, location);
 
                     // --- Process Outgoing Connections ---
@@ -99,7 +100,7 @@ public class GraphService {
                             item.setName(itemResult.getProperty("name"));
                             item.setLastKnownLocationId(locId);
                             item.setDestinations(itemResult.getProperty("destinations"));
-                            
+
                             Date timestamp = itemResult.getProperty("lastConfirmationTimestamp");
                             if (timestamp != null) {
                                 item.setLastConfirmationTimestamp(timestamp.toInstant());
@@ -113,35 +114,34 @@ public class GraphService {
             throw new RuntimeException("Error fetching graph data from OrientDB", e);
         }
 
-        // --- Simulation and Final Assembly (No changes needed here) ---
-
         allItems.parallelStream().forEach(item -> {
             ItemJourney journey = calculateCurrentJourney(item, locationsMap, simulationTime);
             item.setCurrentJourney(journey);
         });
-        
+
         Map<String, List<ItemResponse>> finalItemsByLocation = allItems.stream()
-            .filter(item -> item.getLastKnownLocationId() != null)
-            .collect(Collectors.groupingBy(ItemResponse::getLastKnownLocationId));
-            
-        locationsMap.values().forEach(loc -> loc.setItems(finalItemsByLocation.getOrDefault(loc.getId(), Collections.emptyList())));
+                .filter(item -> item.getLastKnownLocationId() != null)
+                .collect(Collectors.groupingBy(ItemResponse::getLastKnownLocationId));
+
+        locationsMap.values()
+                .forEach(loc -> loc.setItems(finalItemsByLocation.getOrDefault(loc.getId(), Collections.emptyList())));
 
         return new GraphData(new ArrayList<>(locationsMap.values()), allConnections);
     }
-    
+
     private ItemJourney calculateCurrentJourney(
-        ItemResponse item, Map<String, LocationResponse> locationMap, Instant simulationTime
-    ) {
+            ItemResponse item, Map<String, LocationResponse> locationMap, Instant simulationTime) {
         String lastKnownLocationId = item.getLastKnownLocationId();
         Instant lastConfirmationTime = item.getLastConfirmationTimestamp();
 
-        if (lastKnownLocationId == null || lastConfirmationTime == null) return null;
+        if (lastKnownLocationId == null || lastConfirmationTime == null)
+            return null;
 
         Duration totalTimeElapsed = Duration.between(lastConfirmationTime, simulationTime);
-        
+
         List<String> destinations = item.getDestinations();
         List<String> path = new ArrayList<>();
-        
+
         if (destinations != null && !destinations.isEmpty()) {
             path.addAll(destinations);
         } else {
@@ -151,15 +151,14 @@ public class GraphService {
         String currentLocId = lastKnownLocationId;
         for (int i = 0; i < path.size(); i++) {
             String targetLocId = path.get(i);
-            
+
             LocationResponse sourceLocation = locationMap.get(currentLocId);
             if (sourceLocation == null || sourceLocation.getSpeed() <= 0 || sourceLocation.getLength() <= 0) {
-                break; 
+                break;
             }
 
             Duration timeToTraverse = Duration.ofMillis(
-                (long) ((sourceLocation.getLength() / sourceLocation.getSpeed()) * 1000)
-            );
+                    (long) ((sourceLocation.getLength() / sourceLocation.getSpeed()) * 1000));
 
             if (totalTimeElapsed.compareTo(timeToTraverse) < 0) {
                 double progress = (double) totalTimeElapsed.toMillis() / timeToTraverse.toMillis();

@@ -22,8 +22,11 @@ import {
     ConnectionInput,
     UpdateModel,
     ItemInput,
+    CoordinatesUpdateRequest,
+    ItemControllerApi
 } from "../api-client/api";
 import { ConnectionMessage, EntityUpdateMessage } from "../websocket-types/websocket-types";
+import { useApi } from "../hooks/useApi";
 
 
 const hashToNumber = (s: string) => {
@@ -228,8 +231,7 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         subscribeToConnectionDeleted,
   } = useWebSocket();
   // --- API Client Instances ---
-  const locationApi = useRef(new LocationControllerApi()).current;
-  const connectionApi = useRef(new LocationConnectionControllerApi()).current;
+  const { locationApi, connectionApi, itemApi } = useApi();
 
   const draggedNodeRef = useRef<string | null>(null);
   const isDraggingRef = useRef<boolean>(false);
@@ -556,14 +558,13 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
   }, [
       connected,
       sigma,
-      // Add all subscription functions to the dependency array
       subscribeToPositionUpdates,
       subscribeToItemCreated,
       subscribeToItemDeleted,
-      subscribeToAllItemUpdates, // <-- UPDATED
+      subscribeToAllItemUpdates,
       subscribeToLocationCreated,
       subscribeToLocationDeleted,
-      subscribeToAllLocationUpdates, // <-- UPDATED
+      subscribeToAllLocationUpdates,
       subscribeToConnectionCreated,
       subscribeToConnectionDeleted,
   ]);
@@ -580,11 +581,9 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
     // Optimistic UI update
     graph.setNodeAttribute(sourceOfEdit, 'speed', finalSpeed);
     graph.setNodeAttribute(sourceOfEdit, 'length', finalLength);
-    console.log(finalSpeed, finalLength)
-    // API Call to update node properties
     try {
-        const updatePayload: UpdateModel = { id: sourceOfEdit, properties: { "speed": finalSpeed, "length": finalLength } };
-        await locationApi.updateLocation(updatePayload);
+        const updatePayload = { "speed": finalSpeed, "length": finalLength };
+        await locationApi.updateLocation(sourceOfEdit, updatePayload);
     } catch (error) {
         console.error("Failed to update edge properties (speed/length):", error);
         // TODO: Add UI feedback for failed save
@@ -596,16 +595,9 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         graph.dropEdge(edgeId);
         graph.addEdge(targetId, sourceId, { type: 'arrow', size: 5 });
 
-        // TODO: API CALL TO REVERSE EDGE
-        // This is complex because the current API client does not seem to support deleting a single edge.
-        // A robust implementation would require:
-        // 1. An API endpoint to DELETE a specific connection (e.g., DELETE /api/connections?from=A&to=B)
-        // 2. An API call here to delete the old edge.
-        // 3. An API call to create the new edge.
-        console.warn("Edge reversal in UI only. API call for deletion is not implemented due to API limitations.");
 
-        // We can still create the new edge in the backend
         try {
+            await connectionApi.deleteConnection(sourceId, targetId)
             const connectionPayload: ConnectionInput = { location1Id: targetId, location2Id: sourceId };
             await connectionApi.createConnection1(connectionPayload);
         } catch (error) {
@@ -627,8 +619,7 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
 
     // API Call
     try {
-        const updatePayload: UpdateModel = { id: nodeId, properties: { name } };
-        await locationApi.updateLocation(updatePayload);
+        await itemApi.updateItem(nodeId, {"name" : name});
     } catch (error) {
         console.error("Failed to update node name:", error);
         // TODO: Revert UI change and show error message
@@ -716,11 +707,12 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         }
         debounceTimeoutRef.current = setTimeout(async () => {
             try {
-                const updatePayload: UpdateModel = {
-                    id: nodeId,
-                    properties: { longitude: x, latitude: y }
-                };
-                await locationApi.updateLocation(updatePayload);
+                const updateRequest: CoordinatesUpdateRequest = {
+                latitude: y,
+                longitude: x
+              };
+              console.log("SENDING " + x + ", " + y)
+                await locationApi.updateLocationCoordinates(nodeId, updateRequest);
             } catch (error) {
                 console.error("Failed to update node position:", error);
                 // TODO: Add logic to revert the node's position in the UI

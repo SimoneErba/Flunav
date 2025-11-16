@@ -12,18 +12,19 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LocationInput {
-	private String id;
-	private String name;
-	private Double latitude;
-	private Double longitude;
-	private Double length;
+    private String id;
+    private String name;
+    private Double latitude;
+    private Double longitude;
+    private Double length;
     private Double speed;
     private LocationType type;
-    private Integer capactiy;
+    private Integer capacity;
     private Boolean active;
-	private Map<String, Object> properties;
+    private Boolean isMainPath;
+    private Map<String, Object> properties;
 
-	public LocationInput(LocationCreatedEvent event) {
+    public LocationInput(LocationCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.latitude = event.getLatitude();
@@ -32,7 +33,8 @@ public class LocationInput {
         this.speed = event.getSpeed();
         this.type = event.getType();
         this.active = event.getActive();
-        this.capactiy = event.getCapacity();
+        this.isMainPath = event.getIsMainPath();
+        this.capacity = event.getCapacity();
         this.properties = event.getProperties();
     }
 }

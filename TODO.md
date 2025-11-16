@@ -2,6 +2,10 @@
 
 addlast known location and path
 is main path
+
+test the above
+drop db and test
+
 if speed changes, update animations
 calculate current item position int he path (timestamp + speed/length). save item progress
 uscite, attese, ricircoli

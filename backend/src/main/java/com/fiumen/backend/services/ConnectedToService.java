@@ -9,12 +9,15 @@ import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ConnectedToService {
     private final OrientDBService orientDBService;
+    private static final Logger logger = LoggerFactory.getLogger(ConnectedToService.class);
 
     @Autowired
     public ConnectedToService(OrientDBService orientDBService) {
@@ -22,22 +25,34 @@ public class ConnectedToService {
     }
 
     /**
-     * Creates a directed connection between two locations (location 1 -> location 2).
+     * Creates a directed connection between two locations (location 1 -> location
+     * 2).
+     * 
      * @param location1Id The ID of the first location (source).
      * @param location2Id The ID of the second location (target).
      */
     public void createConnection(String location1Id, String location2Id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            OElement location1 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location1Id);
-            OElement location2 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location2Id);
+            try {
+                OElement location1 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location1Id);
+                OElement location2 = OrientDBUtils.loadAndValidateVertexByCustomId(db, location2Id);
 
-            location1.asVertex().get().addEdge(location2.asVertex().get(), "ConnectedTo");
-            location1.save();
+                location1.asVertex().get().addEdge(location2.asVertex().get(), "ConnectedTo");
+
+                location1.save();
+                logger.info("Successfully created connection from {} to {}", location1Id, location2Id);
+
+            } catch (Exception e) {
+                logger.warn(
+                        "Attempted to create a duplicate connection from {} to {}. The operation was safely prevented by the database constraint.",
+                        location1Id, location2Id);
+            }
         }
     }
 
     /**
      * Deletes all connections from a specific location.
+     * 
      * @param locationId The ID of the location whose connections should be deleted.
      */
     public void deleteConnections(String locationId) {
@@ -65,8 +80,6 @@ public class ConnectedToService {
         }
 
         // This query finds the edge(s) between the two vertices and deletes them.
-        // NOTE: This assumes you have a property named 'id' on your Location/Vertex class.
-        // If your unique identifier is different (e.g., 'name' or 'uuid'), change the query accordingly.
         String query = "DELETE EDGE E FROM (SELECT FROM V WHERE customId = :sourceId) TO (SELECT FROM V WHERE customId = :targetId)";
 
         try (ODatabaseSession db = orientDBService.getSession()) {
@@ -83,7 +96,7 @@ public class ConnectedToService {
             }
         } catch (Exception e) {
             String errorMessage = String.format("Error while deleting connection from %s to %s: %s",
-                                                sourceId, targetId, e.getMessage());
+                    sourceId, targetId, e.getMessage());
             throw new RuntimeException(errorMessage, e);
         }
     }

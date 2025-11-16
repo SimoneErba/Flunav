@@ -15,22 +15,26 @@ import fiumen.events.ItemPositionChangedEvent;
 import fiumen.events.ItemPositionCreatedEvent;
 import fiumen.events.ItemPositionDeletedEvent;
 import fiumen.events.ItemPropertiesUpdatedEvent;
+import fiumen.events.ItemRenamedEvent;
 import fiumen.events.ItemSpeedChangedEvent;
+import fiumen.events.LocationAddToMainPath;
+import fiumen.events.LocationCapacityChangedEvent;
 import fiumen.events.LocationConnectionCreatedEvent;
+import fiumen.events.LocationCoordinatesChangedEvent;
 import fiumen.events.LocationCreatedEvent;
 import fiumen.events.LocationDeletedEvent;
 import fiumen.events.LocationLengthChangedEvent;
 import fiumen.events.LocationPropertiesUpdatedEvent;
+import fiumen.events.LocationRemoveFromMainPath;
 import fiumen.events.LocationSpeedChangedEvent;
 
-import com.fiumen.backend.domain.Item;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 
-import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
@@ -46,18 +50,21 @@ public class EventProcessor {
     private final LocationService locationService;
     private final ConnectedToService connectionService;
     private final WebSocketService webSocketService;
+    private final PathfindingService pathfindingService;
 
     public EventProcessor(
             ClickHouseService clickHouseService,
             ItemService itemService,
             LocationService locationService,
             ConnectedToService connectionService,
-            WebSocketService webSocketService) {
+            WebSocketService webSocketService,
+            PathfindingService pathfindingService) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
         this.connectionService = connectionService;
         this.webSocketService = webSocketService;
+        this.pathfindingService = pathfindingService;
     }
 
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
@@ -66,7 +73,7 @@ public class EventProcessor {
             try {
                 clickHouseService.saveEvent(event);
 
-                resultMap = processEvent(event);
+                resultMap = processEvent(event, shouldBroadcast);
 
                 logger.info("Successfully processed event: {}",
                         event.getEventType());
@@ -140,7 +147,7 @@ public class EventProcessor {
                 case ItemPositionChangedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     var location = locationService.getLocationById(e.getLocationId());
-                    item.updatePosition(location);
+                    item.updatePosition(location, e.getTimestamp());
                     itemService.fullUpdateItem(item);
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
@@ -150,7 +157,7 @@ public class EventProcessor {
 
                 case ItemPositionDeletedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
-                    item.updatePosition(null);
+                    item.updatePosition(null, null);
                     itemService.fullUpdateItem(item);
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionLost(item.getId());
@@ -161,10 +168,21 @@ public class EventProcessor {
                 case ItemPositionCreatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     var location = locationService.getLocationById(e.getLocationId());
-                    item.updatePosition(location);
+                    item.updatePosition(location, e.getTimestamp());
                     itemService.fullUpdateItem(item);
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ItemRenamedEvent e -> {
+                    var item = itemService.getItemById(e.getEntityId());
+                    item.updateName(e.getNewName());
+                    itemService.fullUpdateItem(item);
+                    if (shouldBroadcast) {
+                        webSocketService
+                                .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("name", e.getNewName())));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -176,6 +194,28 @@ public class EventProcessor {
                     if (shouldBroadcast) {
                         webSocketService
                                 .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("speed", item.getSpeed())));
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case LocationAddToMainPath e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    location.setIsMainPath(true);
+                    var updateModel = new UpdateModel(location.getId(), Map.of("isMainPath", true));
+                    locationService.updateLocation(updateModel);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case LocationRemoveFromMainPath e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    location.setIsMainPath(false);
+                    var updateModel = new UpdateModel(location.getId(), Map.of("isMainPath", false));
+                    locationService.updateLocation(updateModel);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -231,9 +271,14 @@ public class EventProcessor {
                 case ItemDestinationEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     item.setDestination(e.getLocationId());
+                    List<String> calculatedPath = pathfindingService.calculateShortestPath(e.getEntityId(),
+                            e.getLocationId());
+
+                    item.setPath(calculatedPath);
                     Map<String, Object> updateData = new HashMap<>();
                     updateData.put("destination", e.getLocationId());
-                    calculate and set the path
+                    updateData.put("path", item.getPath());
+
                     var updateModel = new UpdateModel(item.getId(), updateData);
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(updateModel);
@@ -290,11 +335,39 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
-                case LocationConnectionCreatedEvent e -> {
-                    var fromLocation = locationService.getLocationById(e.getEntityId());
-                    fromLocation.addConnectionTo(e.getLocation2Id());
+                case LocationCoordinatesChangedEvent e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    location.updateCoordinates(e.getLatitude(), e.getLongitude());
 
-                    locationService.fullUpdateLocation(fromLocation);
+                    var updateModel = new UpdateModel(location.getId(),
+                            Map.of("latitude", location.getLatitude(), "longitude", location.getLongitude()));
+                    locationService.updateLocation(updateModel);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case LocationCapacityChangedEvent e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    location.updateCapacity(e.getCapacity());
+
+                    var updateModel = new UpdateModel(location.getId(),
+                            Map.of("capacity", location.getCapacity()));
+                    locationService.updateLocation(updateModel);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                // Here we dont use DDD because it's an operation on multiple elements and
+                // doesnt have particular logics
+                case LocationConnectionCreatedEvent e -> {
+                    connectionService.createConnection(e.getEntityId(), e.getLocation2Id());
+
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionCreated(e.getEntityId(), e.getLocation2Id());
                     }

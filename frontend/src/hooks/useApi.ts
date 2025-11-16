@@ -1,4 +1,4 @@
-import { GraphApi, ItemControllerApi, LocationControllerApi, PositionsApi, SimulationsApi } from '../api-client';
+import { GraphApi, ItemControllerApi, LocationConnectionControllerApi, LocationControllerApi, PositionsApi, SimulationsApi } from '../api-client';
 import { apiConfig } from '../api/config';
 import { useMemo } from 'react';
 
@@ -8,12 +8,14 @@ export const useApi = () => {
     const locationApi = useMemo(() => new LocationControllerApi(apiConfig), []);
     const positionsApi = useMemo(() => new PositionsApi(apiConfig), []);
     const simulationApi = useMemo(() => new SimulationsApi(apiConfig), []);
+    const connectionApi = useMemo(() => new LocationConnectionControllerApi(apiConfig), []);
 
     return { 
         graphApi,
         itemApi,
         locationApi,
         positionsApi,
-        simulationApi
+        simulationApi,
+        connectionApi
     };
 };

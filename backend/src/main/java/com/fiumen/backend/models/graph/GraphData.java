@@ -1,6 +1,5 @@
 package com.fiumen.backend.models.graph;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import com.fiumen.backend.models.response.ConnectionResponse;

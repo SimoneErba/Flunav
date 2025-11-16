@@ -26,6 +26,19 @@ import { BASE_PATH, COLLECTION_FORMATS, BaseAPI, RequiredError, operationServerM
 /**
  * 
  * @export
+ * @interface CapacityUpdateRequest
+ */
+export interface CapacityUpdateRequest {
+    /**
+     * 
+     * @type {number}
+     * @memberof CapacityUpdateRequest
+     */
+    'capacity'?: number;
+}
+/**
+ * 
+ * @export
  * @interface ConnectionInput
  */
 export interface ConnectionInput {
@@ -72,6 +85,25 @@ export interface ConnectionResponse {
      * @memberof ConnectionResponse
      */
     'properties'?: { [key: string]: object; };
+}
+/**
+ * 
+ * @export
+ * @interface CoordinatesUpdateRequest
+ */
+export interface CoordinatesUpdateRequest {
+    /**
+     * 
+     * @type {number}
+     * @memberof CoordinatesUpdateRequest
+     */
+    'latitude'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof CoordinatesUpdateRequest
+     */
+    'longitude'?: number;
 }
 /**
  * 
@@ -127,6 +159,19 @@ export interface GraphData {
 /**
  * 
  * @export
+ * @interface IsMainPathUpdateRequest
+ */
+export interface IsMainPathUpdateRequest {
+    /**
+     * 
+     * @type {boolean}
+     * @memberof IsMainPathUpdateRequest
+     */
+    'isMainPath'?: boolean;
+}
+/**
+ * 
+ * @export
  * @interface Item
  */
 export interface Item {
@@ -168,10 +213,28 @@ export interface Item {
     'location'?: Location;
     /**
      * 
+     * @type {string}
+     * @memberof Item
+     */
+    'destination'?: string;
+    /**
+     * 
+     * @type {Array<string>}
+     * @memberof Item
+     */
+    'path'?: Array<string>;
+    /**
+     * 
      * @type {ProgressInfo}
      * @memberof Item
      */
     'progressInfo'?: ProgressInfo;
+    /**
+     * 
+     * @type {string}
+     * @memberof Item
+     */
+    'lastKnownLocationTimestamp'?: string;
 }
 /**
  * 
@@ -219,6 +282,37 @@ export interface ItemInput {
 /**
  * 
  * @export
+ * @interface ItemJourney
+ */
+export interface ItemJourney {
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemJourney
+     */
+    'sourceId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemJourney
+     */
+    'targetId'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof ItemJourney
+     */
+    'progress'?: number;
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemJourney
+     */
+    'startTime'?: string;
+}
+/**
+ * 
+ * @export
  * @interface ItemResponse
  */
 export interface ItemResponse {
@@ -252,6 +346,43 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'properties'?: { [key: string]: object; };
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'lastKnownLocationId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'lastConfirmationTimestamp'?: string;
+    /**
+     * 
+     * @type {Array<string>}
+     * @memberof ItemResponse
+     */
+    'destinations'?: Array<string>;
+    /**
+     * 
+     * @type {ItemJourney}
+     * @memberof ItemResponse
+     */
+    'currentJourney'?: ItemJourney;
+}
+/**
+ * 
+ * @export
+ * @interface LengthUpdateRequest
+ */
+export interface LengthUpdateRequest {
+    /**
+     * 
+     * @type {number}
+     * @memberof LengthUpdateRequest
+     */
+    'length'?: number;
 }
 /**
  * 
@@ -283,6 +414,12 @@ export interface Location {
      * @memberof Location
      */
     'active'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Location
+     */
+    'isMainPath'?: boolean;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -415,13 +552,19 @@ export interface LocationInput {
      * @type {number}
      * @memberof LocationInput
      */
-    'capactiy'?: number;
+    'capacity'?: number;
     /**
      * 
      * @type {boolean}
      * @memberof LocationInput
      */
     'active'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof LocationInput
+     */
+    'isMainPath'?: boolean;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -567,6 +710,19 @@ export interface ProgressInfo {
 /**
  * 
  * @export
+ * @interface PropertyUpdateRequest
+ */
+export interface PropertyUpdateRequest {
+    /**
+     * 
+     * @type {{ [key: string]: object; }}
+     * @memberof PropertyUpdateRequest
+     */
+    'properties'?: { [key: string]: object; };
+}
+/**
+ * 
+ * @export
  * @interface SimulationStateResponse
  */
 export interface SimulationStateResponse {
@@ -600,21 +756,15 @@ export type SimulationStateResponseStatusEnum = typeof SimulationStateResponseSt
 /**
  * 
  * @export
- * @interface UpdateModel
+ * @interface SpeedUpdateRequest
  */
-export interface UpdateModel {
+export interface SpeedUpdateRequest {
     /**
      * 
-     * @type {string}
-     * @memberof UpdateModel
+     * @type {number}
+     * @memberof SpeedUpdateRequest
      */
-    'id'?: string;
-    /**
-     * 
-     * @type {{ [key: string]: object; }}
-     * @memberof UpdateModel
-     */
-    'properties'?: { [key: string]: object; };
+    'speed'?: number;
 }
 
 /**
@@ -856,13 +1006,52 @@ export const ItemControllerApiAxiosParamCreator = function (configuration?: Conf
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateItem: async (updateModel: UpdateModel, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'updateModel' is not null or undefined
-            assertParamExists('updateItem', 'updateModel', updateModel)
+        updateItem: async (id: string, requestBody: { [key: string]: object; }, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateItem', 'id', id)
+            // verify required parameter 'requestBody' is not null or undefined
+            assertParamExists('updateItem', 'requestBody', requestBody)
+            const localVarPath = `/api/items/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(requestBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateItemProperties: async (propertyUpdateRequest: PropertyUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'propertyUpdateRequest' is not null or undefined
+            assertParamExists('updateItemProperties', 'propertyUpdateRequest', propertyUpdateRequest)
             const localVarPath = `/api/items`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -882,7 +1071,7 @@ export const ItemControllerApiAxiosParamCreator = function (configuration?: Conf
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(updateModel, localVarRequestOptions, configuration)
+            localVarRequestOptions.data = serializeDataIfNeeded(propertyUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -948,14 +1137,27 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateItem(updateModel, options);
+        async updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateItem(id, requestBody, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItem']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateItemProperties(propertyUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItemProperties']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -1005,12 +1207,22 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateItem(updateModel, options).then((request) => request(axios, basePath));
+        updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateItem(id, requestBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateItemProperties(propertyUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1067,13 +1279,25 @@ export class ItemControllerApi extends BaseAPI {
 
     /**
      * 
-     * @param {UpdateModel} updateModel 
+     * @param {string} id 
+     * @param {{ [key: string]: object; }} requestBody 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof ItemControllerApi
      */
-    public updateItem(updateModel: UpdateModel, options?: RawAxiosRequestConfig) {
-        return ItemControllerApiFp(this.configuration).updateItem(updateModel, options).then((request) => request(this.axios, this.basePath));
+    public updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig) {
+        return ItemControllerApiFp(this.configuration).updateItem(id, requestBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {PropertyUpdateRequest} propertyUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ItemControllerApi
+     */
+    public updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ItemControllerApiFp(this.configuration).updateItemProperties(propertyUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -1401,14 +1625,18 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateLocation: async (updateModel: UpdateModel, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'updateModel' is not null or undefined
-            assertParamExists('updateLocation', 'updateModel', updateModel)
-            const localVarPath = `/api/locations`;
+        updateLocation: async (id: string, requestBody: { [key: string]: object; }, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocation', 'id', id)
+            // verify required parameter 'requestBody' is not null or undefined
+            assertParamExists('updateLocation', 'requestBody', requestBody)
+            const localVarPath = `/api/locations/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
             let baseOptions;
@@ -1427,7 +1655,241 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(updateModel, localVarRequestOptions, configuration)
+            localVarRequestOptions.data = serializeDataIfNeeded(requestBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CapacityUpdateRequest} capacityUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationCapacity: async (id: string, capacityUpdateRequest: CapacityUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationCapacity', 'id', id)
+            // verify required parameter 'capacityUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationCapacity', 'capacityUpdateRequest', capacityUpdateRequest)
+            const localVarPath = `/api/locations/{id}/capacity`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(capacityUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CoordinatesUpdateRequest} coordinatesUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationCoordinates: async (id: string, coordinatesUpdateRequest: CoordinatesUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationCoordinates', 'id', id)
+            // verify required parameter 'coordinatesUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationCoordinates', 'coordinatesUpdateRequest', coordinatesUpdateRequest)
+            const localVarPath = `/api/locations/{id}/coordinates`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(coordinatesUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationIsMainPath: async (id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationIsMainPath', 'id', id)
+            // verify required parameter 'isMainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationIsMainPath', 'isMainPathUpdateRequest', isMainPathUpdateRequest)
+            const localVarPath = `/api/locations/{id}/isMainPath`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(isMainPathUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationLength: async (id: string, lengthUpdateRequest: LengthUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationLength', 'id', id)
+            // verify required parameter 'lengthUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationLength', 'lengthUpdateRequest', lengthUpdateRequest)
+            const localVarPath = `/api/locations/{id}/length`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(lengthUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationProperties: async (id: string, propertyUpdateRequest: PropertyUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationProperties', 'id', id)
+            // verify required parameter 'propertyUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationProperties', 'propertyUpdateRequest', propertyUpdateRequest)
+            const localVarPath = `/api/locations/{id}/properties`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(propertyUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationSpeed: async (id: string, speedUpdateRequest: SpeedUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationSpeed', 'id', id)
+            // verify required parameter 'speedUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationSpeed', 'speedUpdateRequest', speedUpdateRequest)
+            const localVarPath = `/api/locations/{id}/speed`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(speedUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -1462,7 +1924,7 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async deleteLocation(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+        async deleteLocation(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.deleteLocation(id, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.deleteLocation']?.[localVarOperationServerIndex]?.url;
@@ -1493,14 +1955,93 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocation(updateModel, options);
+        async updateLocation(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocation(id, requestBody, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocation']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CapacityUpdateRequest} capacityUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationCapacity(id: string, capacityUpdateRequest: CapacityUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationCapacity(id, capacityUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationCapacity']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CoordinatesUpdateRequest} coordinatesUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationCoordinates(id: string, coordinatesUpdateRequest: CoordinatesUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationCoordinates(id, coordinatesUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationCoordinates']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationIsMainPath(id, isMainPathUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationIsMainPath']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationLength(id, lengthUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationLength']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationProperties(id: string, propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationProperties(id, propertyUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationProperties']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationSpeed(id, speedUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationSpeed']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -1528,7 +2069,7 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        deleteLocation(id: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+        deleteLocation(id: string, options?: RawAxiosRequestConfig): AxiosPromise<void> {
             return localVarFp.deleteLocation(id, options).then((request) => request(axios, basePath));
         },
         /**
@@ -1550,12 +2091,73 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
         },
         /**
          * 
-         * @param {UpdateModel} updateModel 
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateLocation(updateModel, options).then((request) => request(axios, basePath));
+        updateLocation(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateLocation(id, requestBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CapacityUpdateRequest} capacityUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationCapacity(id: string, capacityUpdateRequest: CapacityUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationCapacity(id, capacityUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {CoordinatesUpdateRequest} coordinatesUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationCoordinates(id: string, coordinatesUpdateRequest: CoordinatesUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationCoordinates(id, coordinatesUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationLength(id, lengthUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {PropertyUpdateRequest} propertyUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationProperties(id: string, propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationProperties(id, propertyUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationSpeed(id, speedUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1612,13 +2214,86 @@ export class LocationControllerApi extends BaseAPI {
 
     /**
      * 
-     * @param {UpdateModel} updateModel 
+     * @param {string} id 
+     * @param {{ [key: string]: object; }} requestBody 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof LocationControllerApi
      */
-    public updateLocation(updateModel: UpdateModel, options?: RawAxiosRequestConfig) {
-        return LocationControllerApiFp(this.configuration).updateLocation(updateModel, options).then((request) => request(this.axios, this.basePath));
+    public updateLocation(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocation(id, requestBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {CapacityUpdateRequest} capacityUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationCapacity(id: string, capacityUpdateRequest: CapacityUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationCapacity(id, capacityUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {CoordinatesUpdateRequest} coordinatesUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationCoordinates(id: string, coordinatesUpdateRequest: CoordinatesUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationCoordinates(id, coordinatesUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {LengthUpdateRequest} lengthUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationLength(id, lengthUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {PropertyUpdateRequest} propertyUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationProperties(id: string, propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationProperties(id, propertyUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {SpeedUpdateRequest} speedUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationSpeed(id, speedUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

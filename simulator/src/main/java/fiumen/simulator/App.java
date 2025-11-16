@@ -42,7 +42,6 @@ public class App {
     private static final Random random = new Random();
     private static final AtomicLong itemCounter = new AtomicLong(0);
 
-
     public static void main(String[] args) {
         if (args.length == 0) {
             logger.severe("Please specify a simulation to run. Usage: java App <line|loop>");
@@ -86,6 +85,7 @@ public class App {
      */
     interface Simulation {
         void setup() throws Exception;
+
         void run() throws Exception;
     }
 
@@ -101,7 +101,8 @@ public class App {
             logger.info("--- Setting up a line of " + NUM_LOCATIONS + " locations ---");
             for (int i = 0; i < NUM_LOCATIONS; i++) {
                 String locationName = "LineLoc-" + i;
-                sendEvent(new LocationCreatedEvent(locationName, locationName, true, 0.0, i * 15.0, 10.0, 2.0, LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
+                sendEvent(new LocationCreatedEvent(locationName, locationName, true, true, 0.0, i * 15.0, 10.0, 2.0,
+                        LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 locations.add(locationName);
             }
 
@@ -153,20 +154,23 @@ public class App {
                 double angle = 2 * Math.PI * i / NUM_MAIN_LOCATIONS;
                 double lat = LAYOUT_RADIUS * Math.sin(angle);
                 double lon = LAYOUT_RADIUS * Math.cos(angle);
-                sendEvent(new LocationCreatedEvent(locName, locName, true, lat, lon, 20.0, 5.0, LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
+                sendEvent(new LocationCreatedEvent(locName, locName, true, true, lat, lon, 20.0, 5.0,
+                        LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 mainLoopLocations.add(locName);
             }
 
             // 2. Create entrance and exit locations, placing them outside the main loop
             for (int i = 0; i < NUM_ENTRANCES; i++) {
                 String entranceName = "Entrance-" + i;
-                sendEvent(new LocationCreatedEvent(entranceName, entranceName, true, 0.0, -150 - (i * 20.0), 5.0, 2.0, LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
+                sendEvent(new LocationCreatedEvent(entranceName, entranceName, true, false, 0.0, -150 - (i * 20.0), 5.0,
+                        2.0, LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 entrances.add(entranceName);
             }
             for (int i = 0; i < NUM_EXITS; i++) {
                 String exitName = "Exit-" + i;
                 // Exits are of type CHUTE
-                sendEvent(new LocationCreatedEvent(exitName, exitName, true, 0.0, 150 + (i * 20.0), 5.0, 0.0, LocationType.CHUTE, 0, new HashMap<>()), "POST");
+                sendEvent(new LocationCreatedEvent(exitName, exitName, true, false, 0.0, 150 + (i * 20.0), 5.0, 0.0,
+                        LocationType.CHUTE, 0, new HashMap<>()), "POST");
             }
 
             // 3. Create connections
@@ -199,7 +203,6 @@ public class App {
         }
     }
 
-
     // --- Communication and Helper Methods ---
 
     private static void setupRabbit() throws Exception {
@@ -212,8 +215,10 @@ public class App {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
-                if (rabbitChannel != null && rabbitChannel.isOpen()) rabbitChannel.close();
-                if (rabbitConnection != null && rabbitConnection.isOpen()) rabbitConnection.close();
+                if (rabbitChannel != null && rabbitChannel.isOpen())
+                    rabbitChannel.close();
+                if (rabbitConnection != null && rabbitConnection.isOpen())
+                    rabbitConnection.close();
             } catch (Exception e) {
                 logger.log(Level.WARNING, "Error closing RabbitMQ resources", e);
             }
@@ -233,7 +238,8 @@ public class App {
             logger.info(() -> "Sent event to RabbitMQ with hashKey=" + hashKey + ": " + json);
         } else {
             String endpoint = getEndpointForEvent(event);
-            if (endpoint == null) return;
+            if (endpoint == null)
+                return;
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(new URI(BASE_URL + endpoint))
@@ -249,10 +255,14 @@ public class App {
     }
 
     private static String getEndpointForEvent(DomainEvent event) {
-        if (event instanceof ItemCreatedEvent) return "/items";
-        if (event instanceof LocationCreatedEvent) return "/locations";
-        if (event instanceof ItemPositionChangedEvent) return "/positions";
-        if (event instanceof LocationConnectionCreatedEvent) return "/connections";
+        if (event instanceof ItemCreatedEvent)
+            return "/items";
+        if (event instanceof LocationCreatedEvent)
+            return "/locations";
+        if (event instanceof ItemPositionChangedEvent)
+            return "/positions";
+        if (event instanceof LocationConnectionCreatedEvent)
+            return "/connections";
         return null;
     }
 

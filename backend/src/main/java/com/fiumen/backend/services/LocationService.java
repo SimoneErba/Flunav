@@ -82,6 +82,7 @@ public class LocationService {
             vertex.setProperty("speed", location.getSpeed());
             vertex.setProperty("type", location.getType());
             vertex.setProperty("active", location.getActive());
+            vertex.setProperty("isMainpath", location.getIsMainPath());
             vertex.save();
             return vertexToLocation(vertex);
         } catch (Exception e) {
@@ -105,6 +106,7 @@ public class LocationService {
             locationVertex.setProperty("speed", location.getSpeed());
             locationVertex.setProperty("type", location.getType());
             locationVertex.setProperty("active", location.getActive());
+            locationVertex.setProperty("isMainpath", location.getIsMainPath());
             locationVertex.setProperty("properties", location.getProperties());
 
             reconcileConnections(db, locationVertex, location.getOutboundConnectionIds());
@@ -158,7 +160,7 @@ public class LocationService {
         for (OEdge edge : fromVertex.getEdges(ODirection.OUT, "ConnectedTo")) {
             OVertex connectedVertex = edge.getTo();
             if (connectedVertex != null) {
-                currentEdges.put(connectedVertex.getProperty("id"), edge);
+                currentEdges.put(connectedVertex.getProperty("customId"), edge);
             }
         }
         Set<String> currentConnectionIds = currentEdges.keySet();
@@ -169,7 +171,7 @@ public class LocationService {
         for (String idToDelete : idsToDelete) {
             OEdge edgeToDelete = currentEdges.get(idToDelete);
             edgeToDelete.delete();
-            logger.info("Deleted connection from {} to {}", fromVertex.getProperty("id"), idToDelete);
+            logger.info("Deleted connection from {} to {}", fromVertex.getProperty("customId"), idToDelete);
         }
 
         Set<String> idsToAdd = new HashSet<>(desiredConnectionIds);
@@ -178,7 +180,7 @@ public class LocationService {
         for (String idToAdd : idsToAdd) {
             OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, idToAdd);
             fromVertex.addEdge(toLocationVertex, "ConnectedTo").save();
-            logger.info("Created connection from {} to {}", fromVertex.getProperty("id"), idToAdd);
+            logger.info("Created connection from {} to {}", fromVertex.getProperty("customId"), idToAdd);
         }
     }
 
@@ -193,6 +195,7 @@ public class LocationService {
                 vertex.getProperty("name"),
                 LocationType.fromString(vertex.getProperty("type")),
                 vertex.getProperty("active"),
+                vertex.getProperty("isMainPath"),
                 vertex.getProperty("properties"),
                 vertex.getProperty("latitude"),
                 vertex.getProperty("longitude"),
