@@ -20,10 +20,10 @@ import {
     LocationConnectionControllerApi,
     LocationInput,
     ConnectionInput,
-    UpdateModel,
     ItemInput,
     CoordinatesUpdateRequest,
-    ItemControllerApi
+    ItemControllerApi,
+    GraphData
 } from "../api-client/api";
 import { ConnectionMessage, EntityUpdateMessage } from "../websocket-types/websocket-types";
 import { useApi } from "../hooks/useApi";
@@ -38,22 +38,6 @@ const hashToNumber = (s: string) => {
   }
   return Math.abs(hash);
 };
-
-export interface GraphData {
-  locations: Array<{
-    id: string;
-    name: string;
-    longitude?: number;
-    latitude?: number;
-    speed: number;
-    length: number;
-    items?: Array<{ id: string; name: string }>;
-  }>;
-  connections: Array<{
-    sourceId: string;
-    targetId: string;
-  }>;
-}
 
 interface NodeEditorData {
   nodeId: string;
@@ -711,7 +695,6 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
                 latitude: y,
                 longitude: x
               };
-              console.log("SENDING " + x + ", " + y)
                 await locationApi.updateLocationCoordinates(nodeId, updateRequest);
             } catch (error) {
                 console.error("Failed to update node position:", error);
@@ -900,9 +883,15 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
 export const DisplayGraph = ({ initialGraphData, simulationId }: { initialGraphData: GraphData, simulationId?: string }) => {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
 
-  const edgeReducer = useCallback<EdgeReducer>((edge, attrs) => {
+  const edgeReducer = useCallback((edge: string, attrs: any) => {
+    console.log(edge)
     if (hoveredEdge === edge) {
       return { ...attrs, color: "#ff5500", size: 7 };
+    }
+    const edgeData = initialGraphData.locations?.find((e) => e.id === edge);
+
+    if (edgeData?.isMainPath) {
+      return { ...attrs, size: 15, color: "#0055ff" };
     }
     return attrs;
   }, [hoveredEdge]);

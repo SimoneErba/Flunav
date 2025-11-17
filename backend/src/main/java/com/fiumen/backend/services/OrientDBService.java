@@ -221,8 +221,16 @@ public class OrientDBService {
             }
             if (session.getClass("HasPosition") == null)
                 session.createEdgeClass("HasPosition");
-            if (session.getClass("ConnectedTo") == null)
-                session.createEdgeClass("ConnectedTo");
+            if (session.getClass("ConnectedTo") == null) {
+                var connectedToClass = session.createEdgeClass("ConnectedTo");
+
+                if (connectedToClass.getProperty("out") == null) {
+                    connectedToClass.createProperty("out", OType.LINK, session.getClass("V"));
+                }
+                if (connectedToClass.getProperty("in") == null) {
+                    connectedToClass.createProperty("in", OType.LINK, session.getClass("V"));
+                }
+            }
             logger.debug("Schema verified for database: {}", session.getName());
         }
 

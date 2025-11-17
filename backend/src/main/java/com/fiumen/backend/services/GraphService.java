@@ -54,6 +54,7 @@ public class GraphService {
                     location.setLatitude(result.getProperty("latitude"));
                     location.setLongitude(result.getProperty("longitude"));
                     location.setActive(result.getProperty("active"));
+                    location.setIsMainPath(result.getProperty("isMainPath"));
                     location.setProperties(result.getProperty("properties"));
 
                     // Safely cast numeric types

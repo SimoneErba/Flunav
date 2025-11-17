@@ -82,7 +82,7 @@ public class LocationService {
             vertex.setProperty("speed", location.getSpeed());
             vertex.setProperty("type", location.getType());
             vertex.setProperty("active", location.getActive());
-            vertex.setProperty("isMainpath", location.getIsMainPath());
+            vertex.setProperty("isMainPath", location.getIsMainPath());
             vertex.save();
             return vertexToLocation(vertex);
         } catch (Exception e) {
@@ -106,7 +106,7 @@ public class LocationService {
             locationVertex.setProperty("speed", location.getSpeed());
             locationVertex.setProperty("type", location.getType());
             locationVertex.setProperty("active", location.getActive());
-            locationVertex.setProperty("isMainpath", location.getIsMainPath());
+            locationVertex.setProperty("isMainPath", location.getIsMainPath());
             locationVertex.setProperty("properties", location.getProperties());
 
             reconcileConnections(db, locationVertex, location.getOutboundConnectionIds());

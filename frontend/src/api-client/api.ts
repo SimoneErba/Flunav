@@ -640,6 +640,12 @@ export interface LocationResponse {
     'active'?: boolean;
     /**
      * 
+     * @type {boolean}
+     * @memberof LocationResponse
+     */
+    'isMainPath'?: boolean;
+    /**
+     * 
      * @type {number}
      * @memberof LocationResponse
      */
