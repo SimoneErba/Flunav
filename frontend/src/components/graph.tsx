@@ -242,16 +242,17 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
     const graph = new MultiDirectedGraph();
     console.log("Building graph with data:", initialGraphData); // Log the incoming data
 
-    initialGraphData.locations.forEach(location => {
+    initialGraphData?.locations?.forEach(location => {
       graph.addNode(location.id, {
         x: location.longitude ?? hashToNumber(location.id),
         y: location.latitude ?? hashToNumber(location.id + "random"),
         label: location.name, size: 10, color: "#69b3a2",
         speed: location.speed, length: location.length,
-        id: location.id
+        id: location.id,
+        isMainPath: location.isMainPath
       });
     });
-    initialGraphData.locations.forEach(location => {
+    initialGraphData?.locations?.forEach(location => {
       (location.items || []).forEach(item => {
         graph.addNode(item.id, {
           x: location.longitude ?? hashToNumber(location.id),
@@ -262,9 +263,14 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         });
       });
     });
-    initialGraphData.connections.forEach(c => {
+    initialGraphData?.connections?.forEach(c => {
       if (graph.hasNode(c.sourceId) && graph.hasNode(c.targetId)) {
-        graph.addEdge(c.sourceId, c.targetId, { type: 'arrow', size: 5 });
+        const attrs = graph.getNodeAttributes(c.sourceId);
+        let size = 5;
+        if (attrs.isMainPath) {
+          size = 8;
+        }
+        graph.addEdge(c.sourceId, c.targetId, { type: 'arrow', size: size });
       }
     });
     loadGraph(graph);
@@ -883,18 +889,6 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
 export const DisplayGraph = ({ initialGraphData, simulationId }: { initialGraphData: GraphData, simulationId?: string }) => {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
 
-  const edgeReducer = useCallback((edge: string, attrs: any) => {
-    console.log(edge)
-    if (hoveredEdge === edge) {
-      return { ...attrs, color: "#ff5500", size: 7 };
-    }
-    const edgeData = initialGraphData.locations?.find((e) => e.id === edge);
-
-    if (edgeData?.isMainPath) {
-      return { ...attrs, size: 15, color: "#0055ff" };
-    }
-    return attrs;
-  }, [hoveredEdge]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -905,7 +899,6 @@ export const DisplayGraph = ({ initialGraphData, simulationId }: { initialGraphD
           enableEdgeEvents: true,
           autoRescale: true
         }}
-        edgeReducer={edgeReducer}
       >
         <GraphEvents initialGraphData={initialGraphData} setHoveredEdge={setHoveredEdge} simulationId={simulationId} />
       </SigmaContainer>

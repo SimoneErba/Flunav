@@ -3,8 +3,9 @@
 addlast known location and path
 is main path
 
-test the above
-drop db and test
+--test the above--
+--need to fix the drawing for onveyours. they should be the onyl way to build arrow. connections from be are only needed to see which conveyour goes where. when adding a point, it will a conjunctor. whn adding an arrow, it will be a conveyour.. need to mnove conveyour bnames over the edges.. .
+conjunctions may also not have a name--
 
 if speed changes, update animations
 calculate current item position int he path (timestamp + speed/length). save item progress
