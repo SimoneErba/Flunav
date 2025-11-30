@@ -29,11 +29,8 @@ public class LocationInput {
         this.name = event.getName();
         this.latitude = event.getLatitude();
         this.longitude = event.getLongitude();
-        this.length = event.getLength();
-        this.speed = event.getSpeed();
         this.type = event.getType();
         this.active = event.getActive();
-        this.isMainPath = event.getIsMainPath();
         this.capacity = event.getCapacity();
         this.properties = event.getProperties();
     }

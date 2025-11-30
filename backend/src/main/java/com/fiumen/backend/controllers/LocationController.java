@@ -72,11 +72,8 @@ public class LocationController {
                 location.getId(),
                 location.getName(),
                 location.getActive(),
-                location.getIsMainPath(),
                 location.getLatitude(),
                 location.getLongitude(),
-                location.getLength(),
-                location.getSpeed(),
                 location.getType(),
                 location.getCapacity(),
                 location.getProperties());
@@ -113,7 +110,7 @@ public class LocationController {
                             value.getClass().getSimpleName());
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
-                events.add(new LocationSpeedChangedEvent(id, ((Number) value).doubleValue()));
+                events.add(new ConnectionSpeedChangedEvent(id, ((Number) value).doubleValue()));
             }
 
             if (updates.containsKey("length")) {
@@ -123,7 +120,7 @@ public class LocationController {
                             value.getClass().getSimpleName());
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
-                events.add(new LocationLengthChangedEvent(id, ((Number) value).doubleValue()));
+                events.add(new ConnectionLengthChangedEvent(id, ((Number) value).doubleValue()));
             }
 
             if (updates.containsKey("capacity")) {
@@ -143,7 +140,7 @@ public class LocationController {
                             value.getClass().getSimpleName());
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
-                events.add((Boolean) value ? new LocationAddToMainPath(id) : new LocationRemoveFromMainPath(id));
+                events.add((Boolean) value ? new LocationAddToMainPath(id) : new ConnectionRemoveFromMainPath(id));
             }
 
             if (updates.containsKey("coordinates")) {
@@ -204,7 +201,7 @@ public class LocationController {
     @PutMapping("/{id}/speed")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationSpeed(
             @PathVariable String id, @RequestBody SpeedUpdateRequest request) {
-        var event = new LocationSpeedChangedEvent(id, request.speed());
+        var event = new ConnectionSpeedChangedEvent(id, request.speed());
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> ResponseEntity.ok(result));
     }
@@ -212,7 +209,7 @@ public class LocationController {
     @PutMapping("/{id}/length")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationLength(
             @PathVariable String id, @RequestBody LengthUpdateRequest request) {
-        var event = new LocationLengthChangedEvent(id, request.length());
+        var event = new ConnectionLengthChangedEvent(id, request.length());
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> ResponseEntity.ok(result));
     }
@@ -229,7 +226,7 @@ public class LocationController {
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationIsMainPath(
             @PathVariable String id, @RequestBody IsMainPathUpdateRequest request) {
         var event = request.isMainPath() ? new LocationAddToMainPath(id)
-                : new LocationRemoveFromMainPath(id);
+                : new ConnectionRemoveFromMainPath(id);
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> ResponseEntity.ok(result));
     }

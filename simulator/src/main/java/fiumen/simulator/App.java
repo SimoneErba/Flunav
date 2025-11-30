@@ -5,13 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
-import fiumen.events.DomainEvent;
-import fiumen.events.EntityEvent;
-import fiumen.events.ItemCreatedEvent;
-import fiumen.events.ItemDeletedEvent;
-import fiumen.events.ItemPositionChangedEvent;
-import fiumen.events.LocationConnectionCreatedEvent;
-import fiumen.events.LocationCreatedEvent;
+import fiumen.events.*; // Importing all events including the new ConnectionCreatedEvent
 import fiumen.types.LocationType;
 
 import java.net.URI;
@@ -22,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -101,14 +96,19 @@ public class App {
             logger.info("--- Setting up a line of " + NUM_LOCATIONS + " locations ---");
             for (int i = 0; i < NUM_LOCATIONS; i++) {
                 String locationName = "LineLoc-" + i;
-                sendEvent(new LocationCreatedEvent(locationName, locationName, true, true, 0.0, i * 15.0, 10.0, 2.0,
+                // Note: Locations are now just points (Nodes). Physics (speed/length) are on
+                // the connection.
+                // We still pass some defaults if the LocationCreatedEvent requires them, but
+                // they might be ignored for logic.
+                sendEvent(new LocationCreatedEvent(locationName, locationName, true, 0.0, i * 15.0,
                         LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 locations.add(locationName);
             }
 
             logger.info("--- Creating connections to form a line ---");
             for (int i = 0; i < NUM_LOCATIONS - 1; i++) {
-                createLocationConnection(locations.get(i), locations.get(i + 1));
+                // Create a conveyor between i and i+1 with specific physics
+                createConveyor(locations.get(i), locations.get(i + 1), 10.0, 2.0);
             }
         }
 
@@ -126,7 +126,14 @@ public class App {
                 logger.info("Injecting new item '" + itemId + "' at entry point '" + entryPoint + "'");
 
                 // 1. Create the item
-                sendEvent(new ItemDeletedEvent(itemId), "DELETE");
+                // Note: Items are usually created via POST /api/items, not DELETE first.
+                // If you need to ensure cleanup, DELETE is fine, but standard flow is just
+                // CREATE.
+                try {
+                    sendEvent(new ItemDeletedEvent(itemId), "DELETE");
+                } catch (Exception ignored) {
+                } // Ignore if it didn't exist
+
                 sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, new HashMap<>()), "POST");
             }
         }
@@ -148,43 +155,47 @@ public class App {
             logger.info("--- Setting up a conveyor loop with entrances and exits ---");
             List<String> mainLoopLocations = new ArrayList<>();
 
-            // 1. Create the main circular conveyor locations
+            // 1. Create the main circular conveyor locations (Nodes)
             for (int i = 0; i < NUM_MAIN_LOCATIONS; i++) {
                 String locName = "LoopLoc-" + i;
                 double angle = 2 * Math.PI * i / NUM_MAIN_LOCATIONS;
                 double lat = LAYOUT_RADIUS * Math.sin(angle);
                 double lon = LAYOUT_RADIUS * Math.cos(angle);
-                sendEvent(new LocationCreatedEvent(locName, locName, true, true, lat, lon, 20.0, 5.0,
+
+                sendEvent(new LocationCreatedEvent(locName, locName, true, lat, lon,
                         LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 mainLoopLocations.add(locName);
             }
 
-            // 2. Create entrance and exit locations, placing them outside the main loop
+            // 2. Create entrance and exit locations
             for (int i = 0; i < NUM_ENTRANCES; i++) {
                 String entranceName = "Entrance-" + i;
-                sendEvent(new LocationCreatedEvent(entranceName, entranceName, true, false, 0.0, -150 - (i * 20.0), 5.0,
-                        2.0, LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
+                sendEvent(new LocationCreatedEvent(entranceName, entranceName, true, 0.0, -150 - (i * 20.0),
+                        LocationType.CONVEYOR, 0, new HashMap<>()), "POST");
                 entrances.add(entranceName);
             }
             for (int i = 0; i < NUM_EXITS; i++) {
                 String exitName = "Exit-" + i;
-                // Exits are of type CHUTE
-                sendEvent(new LocationCreatedEvent(exitName, exitName, true, false, 0.0, 150 + (i * 20.0), 5.0, 0.0,
+                sendEvent(new LocationCreatedEvent(exitName, exitName, true, 0.0, 150 + (i * 20.0),
                         LocationType.CHUTE, 0, new HashMap<>()), "POST");
             }
 
-            // 3. Create connections
+            // 3. Create connections (Conveyors)
             logger.info("--- Creating connections for the loop ---");
-            // Connect main loop in a circle
+
+            // Connect main loop in a circle (Speed 5.0, Length 20.0)
             for (int i = 0; i < NUM_MAIN_LOCATIONS; i++) {
-                createLocationConnection(mainLoopLocations.get(i), mainLoopLocations.get((i + 1) % NUM_MAIN_LOCATIONS));
+                createConveyor(mainLoopLocations.get(i), mainLoopLocations.get((i + 1) % NUM_MAIN_LOCATIONS), 20.0,
+                        5.0);
             }
-            // Connect entrances to the main loop
-            createLocationConnection("Entrance-0", "LoopLoc-0");
-            createLocationConnection("Entrance-1", "LoopLoc-1");
-            // Connect main loop to exits
-            createLocationConnection("LoopLoc-4", "Exit-0");
-            createLocationConnection("LoopLoc-5", "Exit-1");
+
+            // Connect entrances to the main loop (Slower speed 2.0)
+            createConveyor("Entrance-0", "LoopLoc-0", 15.0, 2.0);
+            createConveyor("Entrance-1", "LoopLoc-1", 15.0, 2.0);
+
+            // Connect main loop to exits (Fast speed 5.0)
+            createConveyor("LoopLoc-4", "Exit-0", 10.0, 5.0);
+            createConveyor("LoopLoc-5", "Exit-1", 10.0, 5.0);
         }
 
         @Override
@@ -238,8 +249,10 @@ public class App {
             logger.info(() -> "Sent event to RabbitMQ with hashKey=" + hashKey + ": " + json);
         } else {
             String endpoint = getEndpointForEvent(event);
-            if (endpoint == null)
+            if (endpoint == null) {
+                logger.warning("No endpoint mapped for event type: " + event.getClass().getSimpleName());
                 return;
+            }
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(new URI(BASE_URL + endpoint))
@@ -261,13 +274,43 @@ public class App {
             return "/locations";
         if (event instanceof ItemPositionChangedEvent)
             return "/positions";
-        if (event instanceof LocationConnectionCreatedEvent)
-            return "/connections";
+        // UPDATED: Map ConnectionCreatedEvent to the new /conveyors endpoint
+        if (event instanceof ConnectionCreatedEvent)
+            return "/conveyors";
+
+        // Fallback for deletion events if they are sent to specific endpoints
+        if (event instanceof ItemDeletedEvent)
+            return "/items/" + event.getEntityId();
+        // Note: Connection deletion usually requires query params (sourceId, targetId),
+        // so generic mapping might need adjustment if you use DELETE method here for
+        // connections.
+
         return null;
     }
 
-    private static void createLocationConnection(String from, String to) throws Exception {
-        logger.info(() -> String.format("Creating connection from %s to %s", from, to));
-        sendEvent(new LocationConnectionCreatedEvent(from, to), "POST");
+    /**
+     * Helper to create a conveyor connection with specific physics.
+     */
+    private static void createConveyor(String from, String to, double length, double speed) throws Exception {
+        logger.info(
+                () -> String.format("Creating conveyor from %s to %s [Len: %.1f, Spd: %.1f]", from, to, length, speed));
+
+        String connectionId = UUID.randomUUID().toString();
+        long timeToTraverse = (long) ((length / speed) * 1000);
+
+        // Using the new ConnectionCreatedEvent
+        ConnectionCreatedEvent event = new ConnectionCreatedEvent(
+                connectionId,
+                from,
+                to,
+                length,
+                speed,
+                timeToTraverse,
+                false, // isMainPath
+                "Conveyor " + from + "->" + to,
+                true // isActive
+        );
+
+        sendEvent(event, "POST");
     }
 }

@@ -38,8 +38,6 @@ public class OrientDBService {
 
     private final Set<String> activeSimulations = ConcurrentHashMap.newKeySet();
 
-    // --- NEW: A ThreadLocal specifically for managing an active transactional
-    // session ---
     private static final ThreadLocal<ODatabaseSession> transactionalSession = new ThreadLocal<>();
 
     @PostConstruct
@@ -66,24 +64,13 @@ public class OrientDBService {
         logger.info("OrientDB service has been shut down.");
     }
 
-    /**
-     * The primary, context-aware method for acquiring a database session.
-     * --- REFACTORED ---
-     * It now prioritizes reusing an existing transactional session from the
-     * ThreadLocal context.
-     * If none exists, it falls back to the original logic of checking the
-     * simulationId.
-     * This is the core of the transaction propagation pattern.
-     */
     public ODatabaseSession getSession() {
-        // 1. Check for an active transactional session on this thread first.
         ODatabaseSession session = transactionalSession.get();
         if (session != null && !session.isClosed()) {
             logger.trace("Reusing existing transactional session for this thread.");
             return session;
         }
 
-        // 2. If no transactional session, fall back to the normal context-aware logic.
         String simulationId = DatabaseContextHolder.getSimulationId();
         if (simulationId != null) {
             if (!activeSimulations.contains(simulationId)) {
@@ -99,7 +86,6 @@ public class OrientDBService {
     }
 
     public ODatabaseSession getSession(String dbName) {
-        // This method remains useful for direct access when needed.
         if (dbName != null) {
             return orientDB.open(dbName, username, password);
         } else {
@@ -107,18 +93,9 @@ public class OrientDBService {
         }
     }
 
-    /**
-     * --- NEW: The robust "Unit of Work" method for batch operations. ---
-     * This method manages the entire lifecycle of a transaction.
-     * It acquires a new session, binds it to the ThreadLocal context,
-     * executes the callback, and guarantees commit/rollback and cleanup.
-     */
     public void withTransaction(TransactionalCallback callback) {
-        // We always start with a fresh session for a transaction to ensure isolation.
         try (ODatabaseSession session = getSession()) {
-            // Bind this session to the current thread for the duration of the transaction.
             transactionalSession.set(session);
-
             try {
                 session.begin();
                 callback.execute(session);
@@ -138,23 +115,11 @@ public class OrientDBService {
                 throw new RuntimeException("Transactional callback failed, operation was rolled back.", e);
             }
         } finally {
-            // CRITICAL: Always clear the ThreadLocal after the transaction is complete.
             transactionalSession.remove();
         }
     }
 
-    /**
-     * Utility method to execute a block of code within a managed, single-use
-     * session.
-     * --- REFACTORED ---
-     * This is now intended for non-transactional or single-statement operations.
-     * It's a simple wrapper for getting and closing a session.
-     */
     public void withSession(SessionCallback callback) {
-        // The getSession() call here will now correctly check the ThreadLocal first.
-        // If this is called *inside* a withTransaction block, it will reuse the
-        // session.
-        // If called standalone, it will create a new one.
         try (ODatabaseSession session = getSession()) {
             callback.execute(session);
         } catch (Exception e) {
@@ -163,20 +128,15 @@ public class OrientDBService {
         }
     }
 
-    // --- NEW: Functional interface for the transactional method ---
     @FunctionalInterface
     public interface TransactionalCallback {
         void execute(ODatabaseSession session);
     }
 
-    // Existing functional interface, still useful.
     @FunctionalInterface
     public interface SessionCallback {
         void execute(ODatabaseSession session);
     }
-
-    // --- The rest of your service methods are unchanged, but I've included them
-    // for completeness ---
 
     public void createInMemoryDatabase(String dbName) {
         try {
@@ -211,26 +171,29 @@ public class OrientDBService {
 
     private void ensureSchemaExists() {
         try (ODatabaseSession session = getSession()) {
+            // 1. Location (Node/Waypoint)
             if (session.getClass("Location") == null) {
                 OClass locationClass = session.createVertexClass("Location");
                 locationClass.createProperty("customId", OType.STRING).setNotNull(true);
             }
+
+            // 2. Item (Metadata)
             if (session.getClass("Item") == null) {
                 OClass itemClass = session.createVertexClass("Item");
                 itemClass.createProperty("customId", OType.STRING).setNotNull(true);
             }
-            if (session.getClass("HasPosition") == null)
-                session.createEdgeClass("HasPosition");
-            if (session.getClass("ConnectedTo") == null) {
-                var connectedToClass = session.createEdgeClass("ConnectedTo");
 
-                if (connectedToClass.getProperty("out") == null) {
-                    connectedToClass.createProperty("out", OType.LINK, session.getClass("V"));
-                }
-                if (connectedToClass.getProperty("in") == null) {
-                    connectedToClass.createProperty("in", OType.LINK, session.getClass("V"));
-                }
+            // 3. Conveyor (Edge) - REPLACES ConnectedTo
+            if (session.getClass("Conveyor") == null) {
+                OClass conveyorClass = session.createEdgeClass("Conveyor");
+                conveyorClass.createProperty("customId", OType.STRING).setNotNull(true);
+                conveyorClass.createProperty("length", OType.DOUBLE);
+                conveyorClass.createProperty("speed", OType.DOUBLE);
             }
+
+            // REMOVED: HasPosition (We use Redis now)
+            // REMOVED: ConnectedTo (We use Conveyor now)
+
             logger.debug("Schema verified for database: {}", session.getName());
         }
 
@@ -239,29 +202,27 @@ public class OrientDBService {
 
     @Async
     public void createIndexes(String simulationId) {
-        // Note: Creating a new OrientDB instance in an @Async method can be tricky.
-        // This is okay for a one-off task, but for heavy use, consider passing the
-        // OrientDB factory bean.
         OrientDB localOrientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
         try (ODatabaseSession session = localOrientDB.open(simulationId != null ? simulationId : mainDbName, username,
                 password)) {
             logger.info("Starting asynchronous index creation for database: {}", session.getName());
 
+            // Location Index
             OClass locationClass = session.getClass("Location");
             if (locationClass != null && locationClass.getClassIndex("Location_customId_idx") == null) {
                 locationClass.createIndex("Location_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
             }
 
+            // Item Index
             OClass itemClass = session.getClass("Item");
             if (itemClass != null && itemClass.getClassIndex("Item_customId_idx") == null) {
                 itemClass.createIndex("Item_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
             }
 
-            OClass connectedToClass = session.getClass("ConnectedTo");
-            if (connectedToClass != null && connectedToClass.getClassIndex("ConnectedTo_out_in_idx") == null) {
-                connectedToClass.createIndex("ConnectedTo_out_in_idx", OClass.INDEX_TYPE.UNIQUE, "out", "in");
-                logger.info("Created UNIQUE composite index on ConnectedTo(out, in) for database: {}",
-                        session.getName());
+            // Conveyor Index (NEW)
+            OClass conveyorClass = session.getClass("Conveyor");
+            if (conveyorClass != null && conveyorClass.getClassIndex("Conveyor_customId_idx") == null) {
+                conveyorClass.createIndex("Conveyor_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
             }
 
             logger.info("Asynchronous index creation finished for database: {}", session.getName());

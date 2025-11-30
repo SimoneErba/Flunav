@@ -1,213 +1,209 @@
 package com.fiumen.backend.services;
 
 import com.fiumen.backend.domain.Item;
-import com.fiumen.backend.domain.Location;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
+import com.fiumen.backend.repositories.LiveItemRepository;
 import com.fiumen.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
-import com.orientechnologies.orient.core.record.ODirection;
-import com.orientechnologies.orient.core.record.OEdge;
-import com.orientechnologies.orient.core.record.OElement;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ItemService {
+    private static final Logger logger = LoggerFactory.getLogger(ItemService.class);
+
     private final OrientDBService orientDBService;
     private final UpdateService updateService;
+    private final LiveItemRepository redisRepository;
 
-    public ItemService(OrientDBService orientDBService, UpdateService updateService) {
+    public ItemService(OrientDBService orientDBService,
+            UpdateService updateService,
+            LiveItemRepository redisRepository) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
+        this.redisRepository = redisRepository;
     }
 
+    /**
+     * Fetches all items.
+     * 1. Gets static metadata from OrientDB.
+     * 2. Gets live positions from Redis.
+     * 3. Merges them.
+     */
     public List<Item> getAllItems() {
         List<Item> items = new ArrayList<>();
+
+        // 1. Fetch Metadata from OrientDB
         try (ODatabaseSession db = orientDBService.getSession()) {
             try (OResultSet rs = db.query("SELECT * FROM Item")) {
                 while (rs.hasNext()) {
                     OResult row = rs.next();
                     row.getVertex().ifPresent(vertex -> {
-                        Item item = vertexToItem(vertex);
-                        items.add(item);
+                        items.add(vertexToItem(vertex));
                     });
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error while fetching items: " + e.getMessage(), e);
+            throw new RuntimeException("Error while fetching items from OrientDB: " + e.getMessage(), e);
+        }
+
+        // 2. Fetch Live State from Redis (Bulk)
+        List<Map<String, Object>> liveStates = redisRepository.getAllActiveItems();
+
+        // Convert List to Map for O(1) lookup
+        Map<String, Map<String, Object>> liveStateMap = liveStates.stream()
+                .collect(Collectors.toMap(m -> (String) m.get("id"), m -> m));
+
+        // 3. Merge
+        for (Item item : items) {
+            Map<String, Object> state = liveStateMap.get(item.getId());
+            if (state != null) {
+                item.setCurrentEdgeId((String) state.get("edgeId"));
+                item.setDestinationId((String) state.get("destinationId"));
+
+                Object ts = state.get("entryTimestamp");
+                if (ts instanceof Long) {
+                    item.setEntryTimestamp(Instant.ofEpochMilli((Long) ts));
+                }
+            }
         }
 
         return items;
     }
 
     public Item getItemById(String id) {
+        // 1. Fetch Metadata
+        Item item;
         try (ODatabaseSession db = orientDBService.getSession()) {
             var itemInDb = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
-            Item item = vertexToItem(itemInDb);
-            return item;
+            item = vertexToItem(itemInDb);
         } catch (Exception e) {
-            throw new RuntimeException("Error while fetching item with ID " + id + ": " + e.getMessage(), e);
+            throw new RuntimeException("Error while fetching item with ID " + id, e);
         }
+
+        // 2. Fetch Live State
+        Map<String, String> redisState = redisRepository.getItemState(id);
+
+        // 3. Merge
+        if (!redisState.isEmpty()) {
+            item.setCurrentEdgeId(redisState.get("e"));
+            item.setDestinationId(redisState.get("d"));
+            String tsStr = redisState.get("t");
+            if (tsStr != null) {
+                item.setEntryTimestamp(Instant.ofEpochMilli(Long.parseLong(tsStr)));
+            }
+        }
+
+        return item;
     }
 
-    public Item createItem(ItemInput item) {
+    public Item createItem(ItemInput itemInput) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
 
-            if (OrientDBUtils.checkIfAlreadyExists(db, item.getId())) {
-                throw new IllegalArgumentException("Item with ID ".concat(item.getId()).concat(" already exists."));
+            if (OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
+                throw new IllegalArgumentException("Item with ID " + itemInput.getId() + " already exists.");
             }
 
+            // 1. Create Master Record in OrientDB
             OVertex itemVertex = db.newVertex("Item");
-            itemVertex.setProperty("customId", item.getId());
-            itemVertex.setProperty("name", item.getName());
-            itemVertex.setProperty("speed", item.getSpeed());
-            itemVertex.setProperty("active", item.getActive());
-            itemVertex.setProperty("properties", item.getProperties());
+            itemVertex.setProperty("customId", itemInput.getId());
+            itemVertex.setProperty("name", itemInput.getName());
+            itemVertex.setProperty("active", itemInput.getActive());
+            itemVertex.setProperty("properties", itemInput.getProperties());
+            // Note: We do NOT store position in OrientDB anymore.
+
             itemVertex.save();
-
-            if (item.getLocationId() != null) {
-                OElement locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getLocationId());
-
-                if (locationVertex == null) {
-                    db.rollback();
-                    throw new IllegalArgumentException(
-                            "Location with ID ".concat(item.getLocationId()).concat(" not found."));
-                }
-                itemVertex.asVertex().get().addEdge(locationVertex.asVertex().get(), "HasPosition");
-                itemVertex.save();
-            }
-
             db.commit();
 
-            return vertexToItem(itemVertex);
+            // 2. Create Live State in Redis
+            redisRepository.saveItemState(
+                    itemInput.getId(),
+                    itemInput.getLocationId(),
+                    Instant.now(),
+                    null,
+                    itemInput.getName());
+
+            // Return the merged object
+            Item createdItem = vertexToItem(itemVertex);
+            createdItem.setCurrentEdgeId(itemInput.getLocationId());
+            createdItem.setEntryTimestamp(Instant.now());
+            return createdItem;
 
         } catch (Exception e) {
-            orientDBService.getSession().rollback();
-            throw new RuntimeException(
-                    "Error while creating item with ID ".concat(item.getId()).concat(": ").concat(e.getMessage()), e);
+            throw new RuntimeException("Error creating item " + itemInput.getId(), e);
         }
     }
 
+    /**
+     * High-frequency update method for the Event Processor.
+     * Only touches Redis.
+     */
+    public void updateItemPosition(String itemId, String edgeId, Instant timestamp) {
+        redisRepository.updatePosition(itemId, edgeId, timestamp);
+    }
+
     public Item updateItem(UpdateModel model) {
-        return vertexToItem(this.updateService.updateVertex(model));
+        // Standard property update (OrientDB)
+        Item updatedItem = vertexToItem(this.updateService.updateVertex(model));
+
+        // If name changed, update Redis cache
+        if (model.getProperties().containsKey("name")) {
+            String newName = (String) model.getProperties().get("name");
+            redisRepository.updateName(model.getId(), newName);
+        }
+
+        return updatedItem;
     }
 
     public Item fullUpdateItem(Item item) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex itemVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getId());
 
-            // 1. Update the simple properties of the Item vertex
+            // 1. Update OrientDB
             itemVertex.setProperty("name", item.getName());
-            itemVertex.setProperty("speed", item.getSpeed());
             itemVertex.setProperty("active", item.isActive());
-            itemVertex.setProperty("path", item.getPath());
-            itemVertex.setProperty("destination", item.getDestination());
-
             itemVertex.setProperty("properties", item.getProperties());
 
-            // 2. Reconcile the 'HasPosition' edge (the improved logic)
-            OEdge positionEdge = reconcilePosition(db, itemVertex, item.getLocation());
-
-            // 3. Update the properties on the edge (progress, etc.)
-            // The reconcilePosition method conveniently returns the correct edge to work
-            // with.
-            if (positionEdge != null && item.getProgressInfo() != null) {
-                positionEdge.setProperty("progress", item.getProgressInfo().getProgress());
-                positionEdge.setProperty("datetime", item.getProgressInfo().getDatetime());
-                positionEdge.save();
-            }
-
-            // 4. Save the item vertex itself
             itemVertex.save();
 
-            // 5. Return the fully persisted domain object
+            // 2. Update Redis (Live State)
+            if (item.getCurrentEdgeId() != null) {
+                redisRepository.updatePosition(
+                        item.getId(),
+                        item.getCurrentEdgeId(),
+                        item.getEntryTimestamp() != null ? item.getEntryTimestamp() : Instant.now());
+            }
+
             return vertexToItem(itemVertex);
 
         } catch (OConcurrentModificationException oce) {
             throw oce;
         } catch (Exception e) {
-            throw new RuntimeException("Error during full update of item with ID " + item.getId(), e);
+            throw new RuntimeException("Error during full update of item " + item.getId(), e);
         }
-    }
-
-    /**
-     * Ensures the item's 'HasPosition' edge in the database correctly points to the
-     * desired location.
-     * This method performs a database write (delete or create) only if the item's
-     * location has actually changed.
-     *
-     * @param db              The active ODatabaseSession.
-     * @param itemVertex      The OVertex for the item being updated.
-     * @param desiredLocation The Location domain object representing the item's
-     *                        desired position. Can be null.
-     * @return The current and correct OEdge representing the item's position, or
-     *         null if the item should have no position.
-     */
-    private OEdge reconcilePosition(ODatabaseSession db, OVertex itemVertex, Location desiredLocation) {
-        // === Step 1: Get the current state from the database ===
-
-        // An item should only have one 'HasPosition' edge, but we query robustly.
-        Iterator<OEdge> currentEdges = itemVertex.getEdges(ODirection.OUT, "HasPosition").iterator();
-        OEdge currentEdge = currentEdges.hasNext() ? currentEdges.next() : null;
-        String currentPositionId = null;
-
-        if (currentEdge != null) {
-            OVertex currentTargetVertex = currentEdge.getTo();
-            if (currentTargetVertex != null) {
-                currentPositionId = currentTargetVertex.getProperty("id");
-            }
-        }
-
-        // === Step 2: Get the desired state from the domain object ===
-        String desiredPositionId = (desiredLocation != null) ? desiredLocation.getId() : null;
-
-        // === Step 3: Compare states and execute the correct logic ===
-
-        // Case A: The position has NOT changed. The state is already correct.
-        // This handles both cases where the ID is the same, and where both are null.
-        if (Objects.equals(currentPositionId, desiredPositionId)) {
-            // Do nothing. Return the existing edge so its properties can be updated.
-            return currentEdge;
-        }
-
-        // From this point on, we know a change is required.
-
-        // Case B: The item had a position, but now it should have none (or is moving).
-        // In either case, the old edge must be deleted.
-        if (currentEdge != null) {
-            currentEdge.delete();
-        }
-
-        // Case C: The item needs to be moved to a new location.
-        // This handles both moving from null -> new, and from old -> new.
-        if (desiredPositionId != null) {
-            // Load the vertex for the new location.
-            OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, desiredPositionId);
-            // Create the new edge and return it.
-            return itemVertex.addEdge(toLocationVertex, "HasPosition");
-        }
-
-        // If we reach here, it means the desiredPositionId was null and the old edge
-        // has been deleted.
-        return null;
     }
 
     public void deleteItem(String id) {
+        redisRepository.deleteItem(id);
+
         try (ODatabaseSession db = orientDBService.getSession()) {
-            OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
-            toLocationVertex.delete();
+            OVertex itemVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
+            itemVertex.delete();
         } catch (Exception e) {
-            throw new RuntimeException("Error while deleting item with ID " + id + ": " + e.getMessage(), e);
+            throw new RuntimeException("Error deleting item " + id, e);
         }
     }
 
@@ -215,12 +211,11 @@ public class ItemService {
         if (vertex == null) {
             throw new IllegalArgumentException("Attempted to convert a null vertex to item.");
         }
+
         return new Item(
                 vertex.getProperty("customId"),
                 vertex.getProperty("name"),
-                vertex.getProperty("speed"),
                 vertex.getProperty("active"),
                 vertex.getProperty("properties"));
     }
-
 }

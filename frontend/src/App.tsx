@@ -1,50 +1,74 @@
 import './App.css'
 import { DisplayGraph } from './components/graph'
 import { useGraph } from './hooks/useGraph';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   SimulationsApi, SimulationStateResponse, SimulationStateResponseStatusEnum
 } from "./api-client/api";
 import { useWebSocket } from './hooks/useWebSocket';
 import { PlaybackControls } from './components/PlaybackControls';
 
+// 1. Move API client outside or useMemo. 
+// If it doesn't hold state, outside is fine.
+const simulationClient = new SimulationsApi();
+
 function App() {
+  // State
   const [activeSimulation, setActiveSimulation] = useState<SimulationStateResponse | null>(null);
-  const { graphData, loading, refetchGraphData } = useGraph();
-  const client = new SimulationsApi();
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const { connected, subscribeToSimulationStatus } = useWebSocket();
   const [isRestoring, setIsRestoring] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  
+  // Hooks
+  const { graphData, loading: graphLoading, refetchGraphData } = useGraph();
+  const { connected, subscribeToSimulationStatus } = useWebSocket();
 
-  const toDateTimeLocal = (date: Date) => {
-    const offset = date.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(date.getTime() - offset)).toISOString().slice(0, 16);
-    return localISOTime;
+  // Refs (to avoid effect re-runs)
+  const activeSimulationIdRef = useRef<string | null>(null);
+  activeSimulationIdRef.current = activeSimulation?.id || null;
+
+  // --- Helpers ---
+
+  // Memoize date conversion to prevent recalculation on every render
+  const dateTimeLocal = useMemo(() => {
+    const offset = selectedDate.getTimezoneOffset() * 60000;
+    return (new Date(selectedDate.getTime() - offset)).toISOString().slice(0, 16);
+  }, [selectedDate]);
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.value) return;
+    setSelectedDate(new Date(e.target.value));
   };
 
+  // --- Handlers ---
+
   const handleRestore = async () => {
+    if (isRestoring) return; // Prevent double clicks
     if (!selectedDate) {
       alert('Please select a valid date and time.');
       return;
     }
 
+    // Optimistic / UI updates first
+    setIsRestoring(true);
+    setPlaybackSpeed(1.0);
+
+    // Cleanup previous if exists
     if (activeSimulation) {
         try {
-            await client.destroySimulation(activeSimulation.id);
+            await simulationClient.destroySimulation(activeSimulation.id);
         } catch (e) {
             console.warn("Failed to destroy previous simulation", e);
         }
     }
 
     console.log(`Restoring system to: ${selectedDate.toISOString()}`);
-    setIsRestoring(true);
-    setPlaybackSpeed(1.0);
 
     try {
-      const result = await client.createSimulation({timestamp: selectedDate.toISOString()});
+      const result = await simulationClient.createSimulation({timestamp: selectedDate.toISOString()});
       setActiveSimulation(result.data);
     } catch (error) {
+      console.error(error);
       alert(`Error while initiating the restore: ${error}`);
       setIsRestoring(false);
       setActiveSimulation(null);
@@ -54,129 +78,136 @@ function App() {
   const handleReturnToLive = async () => {
     if (activeSimulation) {
         try {
-            await client.destroySimulation(activeSimulation.id);
+            await simulationClient.destroySimulation(activeSimulation.id);
         } catch (error) {
-            console.error("Error destroying simulation on backend:", error);
+            console.error("Error destroying simulation:", error);
         }
     }
-
     setActiveSimulation(null);
     setIsRestoring(false);
-    refetchGraphData();
+    refetchGraphData(); // Fetch live data
   };
 
   const handleTogglePlayback = async () => {
     if (!activeSimulation) return;
-
     const isPlaying = activeSimulation.status === SimulationStateResponseStatusEnum.Playing;
 
     try {
       if (isPlaying) {
-        await client.cancelPlayback(activeSimulation.id);
+        await simulationClient.cancelPlayback(activeSimulation.id);
+        // Optimistic update (optional, but makes UI snappy)
+        setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Ready } : null);
       } else {
-        await client.startPlayback(activeSimulation.id, { speedFactor: playbackSpeed });
+        await simulationClient.startPlayback(activeSimulation.id, { speedFactor: playbackSpeed });
+        setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Playing } : null);
       }
     } catch (error) {
-      console.error(`Failed to ${isPlaying ? 'cancel' : 'start'} playback`, error);
+      console.error(`Failed to toggle playback`, error);
       alert(`Error: Could not update playback state.`);
     }
   };
 
   const handleSetSpeed = async (speed: number) => {
     if (!activeSimulation) return;
-
-    setPlaybackSpeed(speed);
-
+    setPlaybackSpeed(speed); // Update UI immediately
     try {
-      await client.startPlayback(activeSimulation.id, { speedFactor: speed });
+      await simulationClient.startPlayback(activeSimulation.id, { speedFactor: speed });
     } catch (error) {
       console.error("Failed to set simulation speed", error);
-      alert("Error: Could not update the simulation speed.");
     }
   };
 
-useEffect(() => {
-      if (!connected || !activeSimulation || 
-          activeSimulation.status === SimulationStateResponseStatusEnum.Ready || 
-          activeSimulation.status === SimulationStateResponseStatusEnum.Playing ||
-          activeSimulation.status === SimulationStateResponseStatusEnum.Failed) {
-        return;
-    }
+  // --- Effects ---
 
-    console.log(`Subscribing to status updates for simulation: ${activeSimulation.id}`);
-    const unsubscribe = subscribeToSimulationStatus(activeSimulation.id, (update) => {
-        console.log('Received simulation status update:', update);
+  // 2. Optimized Status Subscription
+  // Only re-run if the Simulation ID changes, or connection status changes.
+  // NOT when the simulation status changes (we handle that inside).
+  useEffect(() => {
+    const simId = activeSimulation?.id;
+    
+    // Don't subscribe if we are already in a terminal state or no simulation
+    if (!connected || !simId) return;
+    
+    // If we are already Ready/Failed, we might not need to subscribe, 
+    // BUT if we want to catch "Playing" -> "Ready" transitions, we should stay subscribed.
+    // Let's only skip if we are null.
+
+    console.log(`Subscribing to status updates for simulation: ${simId}`);
+
+    const handleStatusUpdate = (update: any) => {
+        console.log('Received status update:', update);
         
-          setActiveSimulation(prev => prev ? ({ ...prev, status: update.status }) : null);
+        setActiveSimulation(prev => {
+            // Guard: ensure we are updating the correct simulation
+            if (prev?.id !== simId) return prev;
+            return { ...prev, status: update.status };
+        });
 
-          if (update.status === SimulationStateResponseStatusEnum.Ready) {
-              refetchGraphData(activeSimulation.id)
+        if (update.status === SimulationStateResponseStatusEnum.Ready) {
+            refetchGraphData(simId);
             setIsRestoring(false);
-              unsubscribe();
         } else if (update.status === SimulationStateResponseStatusEnum.Failed) {
-            alert(`Simulation build failed: ${update.message || 'Unknown error'}`);
+            alert(`Simulation failed: ${update.message}`);
             setIsRestoring(false);
-            setActiveSimulation(null);
-              unsubscribe();
+            // Optional: setActiveSimulation(null);
         }
-    });
+    };
 
-      client.getSimulationStatus(activeSimulation.id)
+    const unsubscribe = subscribeToSimulationStatus(simId, handleStatusUpdate);
+
+    // Initial Poll to ensure we didn't miss a socket event between creation and subscription
+    simulationClient.getSimulationStatus(simId)
       .then(response => {
-        const status = response.data.status;
-        console.log("Polled simulation status:", status);
-
-        if (status === SimulationStateResponseStatusEnum.Ready) {
-          refetchGraphData(activeSimulation.id);
-          setIsRestoring(false);
-        unsubscribe();
-        } else if (status === SimulationStateResponseStatusEnum.Failed) {
-          alert(`Simulation build failed: ${response.data.message || 'Unknown error'}`);
-          setIsRestoring(false);
-          setActiveSimulation(null);
-          unsubscribe();
+        // Only update if we are still looking at the same simulation
+        if (activeSimulationIdRef.current === simId) {
+            const status = response.data.status;
+            setActiveSimulation(prev => prev ? { ...prev, status } : null);
+            
+            if (status === SimulationStateResponseStatusEnum.Ready) {
+                refetchGraphData(simId);
+                setIsRestoring(false);
+            }
         }
       })
-      .catch(error => {
-        console.warn("Error polling simulation status", error);
-      });
+      .catch(console.warn);
 
-      return () => unsubscribe();
+    return () => {
+        unsubscribe();
+    };
+  }, [connected, activeSimulation?.id, subscribeToSimulationStatus, refetchGraphData]); 
+  // ^ Key change: depend on .id, not the whole object
 
-  }, [connected, activeSimulation, subscribeToSimulationStatus]);
-
+  // 3. Optimized Heartbeat
   useEffect(() => {
-    if (!activeSimulation) return;
+    if (!activeSimulation?.id) return;
+    const simId = activeSimulation.id;
 
     const intervalId = setInterval(() => {
-      console.log(`Sending heartbeat for simulation: ${activeSimulation.id}`);
-      client.sendHeartbeat(activeSimulation.id)
-        .catch(err => console.warn("Failed to send heartbeat:", err));
+      // Use the captured simId variable, so we don't need activeSimulation in dependency
+      console.log(`Sending heartbeat for: ${simId}`);
+      simulationClient.sendHeartbeat(simId).catch(console.warn);
     }, 30_000);
 
     return () => clearInterval(intervalId);
-  }, [activeSimulation]);
+  }, [activeSimulation?.id]); 
+
+  // --- Render Logic ---
 
   const canShowPlaybackControls = activeSimulation && !isRestoring && (
     activeSimulation.status === SimulationStateResponseStatusEnum.Ready ||
     activeSimulation.status === SimulationStateResponseStatusEnum.Playing
   );
 
-return (
+  const isLoading = graphLoading || isRestoring;
+
+  return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5' }}>
       
-      {/* This top-level div is your header. It's a flex container that will space out its two children. */}
       <header style={{ 
-        padding: '16px', 
-        background: 'white', 
-        borderBottom: '1px solid #ddd',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between', // This will push the left and right divs apart
-        flexShrink: 0
+        padding: '16px', background: 'white', borderBottom: '1px solid #ddd',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0
       }}>
         
-        {/* --- CONTAINER 1: Left-Side Controls --- */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <img src="/logo.svg" alt="Logo" style={{ width: 250 }} />
             <h2 style={{ margin: 0, color: '#333' }}>
@@ -185,23 +216,20 @@ return (
             
             <input
               type="datetime-local"
-              value={toDateTimeLocal(selectedDate)}
-              onChange={(e) => setSelectedDate(new Date(e.target.value))}
-              disabled={loading || isRestoring}
+              value={dateTimeLocal}
+              onChange={handleDateChange}
+              disabled={isLoading}
               style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
             
             <button
               onClick={handleRestore}
-              disabled={loading || isRestoring}
+              disabled={isLoading}
               style={{ 
-                  padding: '8px 16px', 
-                  border: 'none', 
-                  borderRadius: '4px', 
-                  background: '#007bff', 
-                  color: 'white',
-                  cursor: loading || isRestoring ? 'not-allowed' : 'pointer',
-                  opacity: loading || isRestoring ? 0.7 : 1
+                  padding: '8px 16px', border: 'none', borderRadius: '4px', 
+                  background: '#007bff', color: 'white',
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
+                  opacity: isLoading ? 0.7 : 1
               }}
             >
               {isRestoring ? 'Building...' : 'Restore to this Time'}
@@ -214,8 +242,6 @@ return (
             )}
         </div>
         
-        {/* --- CONTAINER 2: Right-Side Controls --- */}
-        {/* This is a new div that is a direct child of the header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {canShowPlaybackControls && (
                 <PlaybackControls
@@ -230,24 +256,18 @@ return (
                 <button
                     onClick={handleReturnToLive}
                     style={{ 
-                        padding: '8px 16px', 
-                        border: '1px solid #dc3545', 
-                        borderRadius: '4px', 
-                        background: 'white', 
-                        color: '#dc3545',
-                        cursor: 'pointer',
-                        fontWeight: 'bold'
+                        padding: '8px 16px', border: '1px solid #dc3545', borderRadius: '4px', 
+                        background: 'white', color: '#dc3545', cursor: 'pointer', fontWeight: 'bold'
                     }}
                 >
                     Return to Live
                 </button>
             )}
         </div>
-      </header> {/* I've renamed the div to header for semantic clarity */}
+      </header>
 
-      {/* This main content area will now correctly fill the remaining space */}
       <main style={{ flex: 1, position: 'relative' }}>
-        {loading || isRestoring ? (
+        {isLoading ? (
           <div style={{ 
               position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
               textAlign: 'center', color: '#666' 

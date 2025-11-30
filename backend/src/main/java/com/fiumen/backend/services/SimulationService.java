@@ -42,8 +42,9 @@ public class SimulationService {
     private final Semaphore buildPermits = new Semaphore(2); // Example: Allow 2 concurrent builds
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
-    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer, WebSocketService webSocketService,
-                            @Lazy HistoricalGraphBuilder historicalGraphBuilder) {
+    public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
+            WebSocketService webSocketService,
+            @Lazy HistoricalGraphBuilder historicalGraphBuilder) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
@@ -69,9 +70,10 @@ public class SimulationService {
     public void startPlayback(String simulationId, double speedFactor) {
         SimulationState state = getSimulationState(simulationId);
         if (state.getStatus() != SimulationStatus.READY) {
-            throw new IllegalStateException("Simulation is not ready for playback. Current status: " + state.getStatus());
+            throw new IllegalStateException(
+                    "Simulation is not ready for playback. Current status: " + state.getStatus());
         }
-        
+
         cancelPlayback(simulationId);
         Instant simulationStartTime = state.getTimestamp();
         state.setStatus(SimulationStatus.PLAYING);
@@ -80,7 +82,7 @@ public class SimulationService {
         var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
         activePlaybacks.put(simulationId, playbackFuture);
     }
-    
+
     /**
      * Cancels an active playback task for a given simulation.
      */
@@ -89,17 +91,17 @@ public class SimulationService {
         SimulationState state = simulationCache.get(simulationId);
         if (playbackFuture != null && !playbackFuture.isDone()) {
             logger.warn("Attempting to cancel playback for simulation {}", simulationId);
-            
+
             if (state != null) {
                 state.setStatus(SimulationStatus.STOPPED);
             }
 
             boolean cancelled = playbackFuture.cancel(true);
             if (cancelled) {
-                if (playbackFuture.isCancelled()){
+                if (playbackFuture.isCancelled()) {
                     logger.info("Successfully sent cancellation signal to playback task for {}", simulationId);
                     activePlaybacks.remove(simulationId);
-                }else{
+                } else {
                     logger.warn("Playback task for {} was not cancelled", simulationId);
                     activePlaybacks.remove(simulationId);
                 }
@@ -110,7 +112,8 @@ public class SimulationService {
     }
 
     /**
-     * Completely destroys a simulation, its in-memory DB, and cancels any active playback.
+     * Completely destroys a simulation, its in-memory DB, and cancels any active
+     * playback.
      */
     public void destroySimulation(String simulationId) {
         cancelPlayback(simulationId);
@@ -156,7 +159,8 @@ public class SimulationService {
             if (buildPermits.tryAcquire()) {
                 SimulationRequest request = waitingQueue.poll();
                 if (request != null) {
-                    logger.info("Build permit acquired for queued simulation {}. Starting build.", request.simulationId());
+                    logger.info("Build permit acquired for queued simulation {}. Starting build.",
+                            request.simulationId());
                     updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING);
                     orientDBService.createInMemoryDatabase(request.simulationId());
                     historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
@@ -168,16 +172,17 @@ public class SimulationService {
             }
         }
     }
-    
+
     /**
-     * Periodically runs to clean up simulations that have been abandoned (no heartbeat).
+     * Periodically runs to clean up simulations that have been abandoned (no
+     * heartbeat).
      */
     @Scheduled(fixedRate = 300_000) // Run every 5 minutes
     public void cleanupAbandonedSimulations() {
         logger.info("Running cleanup job for abandoned simulations...");
         Instant now = Instant.now();
         int abandonedCount = 0;
-        
+
         // Use an iterator to safely remove items from the cache while iterating
         for (Iterator<Map.Entry<String, SimulationState>> it = simulationCache.entrySet().iterator(); it.hasNext();) {
             Map.Entry<String, SimulationState> entry = it.next();
@@ -206,10 +211,12 @@ public class SimulationService {
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
         SimulationState state = getSimulationState(simulationId);
         state.setSpeedFactor(newSpeedFactor);
-        logger.info("Updated playback speed for simulation {} to {}x and notified player.", simulationId, newSpeedFactor);
-        //TODO: notify others
+        logger.info("Updated playback speed for simulation {} to {}x and notified player.", simulationId,
+                newSpeedFactor);
+        // TODO: notify others
     }
 
+    // TODO: add time to the state to be used when resuming?
     public void pauseSimulation(String simulationId) {
         // 1. Find the state and the running task.
         SimulationState state = simulationCache.get(simulationId);
@@ -220,7 +227,8 @@ public class SimulationService {
             throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
         }
         if (state.getStatus() != SimulationStatus.PLAYING) {
-            throw new IllegalStateException("Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
+            throw new IllegalStateException(
+                    "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
         }
 
         logger.info("Pausing simulation {}", simulationId);
@@ -240,5 +248,6 @@ public class SimulationService {
         activePlaybacks.remove(simulationId);
     }
 
-    public record SimulationRequest(String simulationId, Instant timestamp) {}
+    public record SimulationRequest(String simulationId, Instant timestamp) {
+    }
 }

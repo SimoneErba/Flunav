@@ -39,14 +39,14 @@ public class ClickHouseService {
 
     private final Client client;
     private final ObjectMapper objectMapper;
-    private static final DateTimeFormatter CLICKHOUSE_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+            .withZone(ZoneOffset.UTC);
+
     public ClickHouseService(
             @Value("${clickhouse.url}") String clickhouseUrl,
             @Value("${clickhouse.username}") String username,
             @Value("${clickhouse.password}") String password,
-            ObjectMapper objectMapper
-    ) {
+            ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         try {
             this.client = new Client.Builder()
@@ -112,9 +112,10 @@ public class ClickHouseService {
 
     /**
      * Saves a graph snapshot to the 'snapshots' table in ClickHouse.
+     * 
      * @param snapshotId The unique ID for the snapshot.
-     * @param timestamp The time the snapshot was taken.
-     * @param graphData The graph data object to be serialized and stored.
+     * @param timestamp  The time the snapshot was taken.
+     * @param graphData  The graph data object to be serialized and stored.
      */
     public void saveSnapshot(String snapshotId, Instant timestamp, GraphData graphData) {
         try {
@@ -123,8 +124,9 @@ public class ClickHouseService {
 
             clickHouseRow.put("snapshot_id", snapshotId);
             clickHouseRow.put("timestamp", CLICKHOUSE_FORMATTER.format(timestamp));
-            
-            // Let Jackson serialize the rich GraphData object into a nested JSON object for the 'graph_data' column.
+
+            // Let Jackson serialize the rich GraphData object into a nested JSON object for
+            // the 'graph_data' column.
             clickHouseRow.put("graph_data", graphData);
 
             // Serialize the entire row map into a single JSON string for insertion.
@@ -143,14 +145,18 @@ public class ClickHouseService {
         }
     }
 
-    public record Snapshot(GraphData graphData, Instant timestamp) {}
+    public record Snapshot(GraphData graphData, Instant timestamp) {
+    }
 
     /**
-     * Retrieves the most recent graph snapshot from ClickHouse at or before a given point in time.
-     * The method returns a Snapshot object containing both the graph data and its timestamp.
+     * Retrieves the most recent graph snapshot from ClickHouse at or before a given
+     * point in time.
+     * The method returns a Snapshot object containing both the graph data and its
+     * timestamp.
      *
      * @param timestamp The point in time to find the latest snapshot for.
-     * @return An Optional containing the Snapshot if one is found, otherwise an empty Optional.
+     * @return An Optional containing the Snapshot if one is found, otherwise an
+     *         empty Optional.
      */
     public Optional<Snapshot> getMostRecentSnapshotBefore(Instant timestamp) {
         String formattedTimestamp = CLICKHOUSE_FORMATTER.format(timestamp);
@@ -159,22 +165,21 @@ public class ClickHouseService {
         logger.debug("Executing query to find most recent snapshot before {}", formattedTimestamp);
 
         try (QueryResponse response = client.query(query, Map.of("ts", formattedTimestamp)).get()) {
-        
 
             try (InputStream inputStream = response.getInputStream()) {
 
                 var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
-                
-                try{
+
+                try {
                     Map<String, Object> row = objectMapper.readValue(inputStream, mapType);
-        
+
                     GraphData graphData = objectMapper.convertValue(row.get("graph_data"), GraphData.class);
                     String timestampString = (String) row.get("timestamp");
                     LocalDateTime localDateTime = LocalDateTime.parse(timestampString, CLICKHOUSE_FORMATTER);
                     Instant snapshotTimestamp = localDateTime.toInstant(ZoneOffset.UTC);
-        
+
                     Snapshot result = new Snapshot(graphData, snapshotTimestamp);
-                    
+
                     logger.info("Successfully retrieved and deserialized snapshot.");
                     return Optional.of(result);
                 } catch (EOFException | MismatchedInputException e) {
@@ -192,47 +197,89 @@ public class ClickHouseService {
         }
     }
 
-     /**
-     * Retrieves all events from ClickHouse that occurred strictly after a given timestamp.
+    /**
+     * Retrieves all events from ClickHouse that occurred strictly after a given
+     * timestamp.
      * The events are returned in chronological order, ready for replay.
      *
-     * @param timestamp The exclusive start time. Events after this point will be fetched.
+     * @param timestamp The exclusive start time. Events after this point will be
+     *                  fetched.
      * @return A List of DomainEvent objects, ordered by timestamp.
      */
     public List<DomainEvent> getEventsBetween(Instant startTime, Instant endTime) {
         String formattedStartTimestamp = CLICKHOUSE_FORMATTER.format(startTime);
         String formattedEndTimestamp = CLICKHOUSE_FORMATTER.format(endTime);
-    
+
         String query = "SELECT data FROM Events WHERE timestamp_processed >= {ts_start:Datetime64(3)} AND timestamp_processed < {ts_end:Datetime64(3)} ORDER BY timestamp_processed ASC FORMAT JSONEachRow";
-        
+
         logger.info("Executing query to find events between {} and {}", formattedStartTimestamp, formattedEndTimestamp);
-        
+
         List<DomainEvent> events = new ArrayList<>();
-    
-        try (QueryResponse response = client.query(query, Map.of("ts_start", formattedStartTimestamp, "ts_end", formattedEndTimestamp)).get()) {
-    
-            try (InputStream inputStream = response.getInputStream()) {                
+
+        try (QueryResponse response = client
+                .query(query, Map.of("ts_start", formattedStartTimestamp, "ts_end", formattedEndTimestamp)).get()) {
+
+            try (InputStream inputStream = response.getInputStream()) {
                 var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
                 MappingIterator<Map<String, Object>> it = objectMapper.readerFor(mapType).readValues(inputStream);
 
                 while (it.hasNext()) {
                     Map<String, Object> row = it.next();
                     Object eventData = row.get("data");
-    
+
                     DomainEvent event = objectMapper.convertValue(eventData, DomainEvent.class);
 
-                    if(!(event instanceof UnknownEvent)){
+                    if (!(event instanceof UnknownEvent)) {
                         events.add(event);
                     }
                 }
             }
-    
+
             logger.info("Successfully retrieved {} events between the specified timestamps.", events.size());
             return events;
-    
+
         } catch (Exception e) {
-            logger.error("Failed to retrieve events from ClickHouse between {} and {}", formattedStartTimestamp, formattedEndTimestamp, e);
+            logger.error("Failed to retrieve events from ClickHouse between {} and {}", formattedStartTimestamp,
+                    formattedEndTimestamp, e);
             throw new RuntimeException("Failed to retrieve events", e);
+        }
+    }
+
+    /**
+     * Executes a raw SQL query and returns the result as a List of Maps.
+     * Useful for ad-hoc queries like state rehydration.
+     * Automatically appends 'FORMAT JSONEachRow' if not present to ensure parsing
+     * works.
+     *
+     * @param sql The SQL query to execute.
+     * @return A list of rows, where each row is a Map of column names to values.
+     */
+    public List<Map<String, Object>> queryForList(String sql) {
+        // Ensure we request JSON format so Jackson can parse it
+        String finalSql = sql.trim();
+        if (!finalSql.toUpperCase().endsWith("FORMAT JSONEACHROW")) {
+            finalSql += " FORMAT JSONEachRow";
+        }
+
+        logger.debug("Executing generic query: {}", finalSql);
+
+        List<Map<String, Object>> results = new ArrayList<>();
+
+        try (QueryResponse response = client.query(finalSql).get()) {
+            try (InputStream inputStream = response.getInputStream()) {
+                // Use Jackson to read the stream of JSON objects (NDJSON)
+                MappingIterator<Map<String, Object>> it = objectMapper
+                        .readerFor(Map.class)
+                        .readValues(inputStream);
+
+                while (it.hasNext()) {
+                    results.add(it.next());
+                }
+            }
+            return results;
+        } catch (Exception e) {
+            logger.error("Failed to execute generic query: {}", finalSql, e);
+            throw new RuntimeException("Generic query failed", e);
         }
     }
 }

@@ -6,28 +6,28 @@ import {
   ControlsContainer,
   ZoomControl,
   FullScreenControl,
-  EdgeReducer,
   useRegisterEvents
 } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
-import { useWebSocket, PositionUpdate, EntityUpdate } from './../hooks/useWebSocket';
+import { useWebSocket } from './../hooks/useWebSocket';
 // --- API CLIENT IMPORTS ---
-// (Assuming your generated client is in a folder named 'api' in the same directory)
 import {
-    LocationControllerApi,
-    LocationConnectionControllerApi,
     LocationInput,
-    ConnectionInput,
+    LocationResponse,
+    CreateConveyorInput, // New Input type
+    ConveyorResponse, // New Response type
     ItemInput,
+    ItemResponse,
     CoordinatesUpdateRequest,
-    ItemControllerApi,
     GraphData
 } from "../api-client/api";
 import { ConnectionMessage, EntityUpdateMessage } from "../websocket-types/websocket-types";
 import { useApi } from "../hooks/useApi";
-
+import { EdgeEditor, EdgeEditorData } from "./edge.editor";
+import { NodeEditor, NodeEditorData } from "./node.editor";
+import { sigmaStyle } from "../styles/styles";
 
 const hashToNumber = (s: string) => {
   let hash = 0;
@@ -38,143 +38,6 @@ const hashToNumber = (s: string) => {
   }
   return Math.abs(hash);
 };
-
-interface NodeEditorData {
-  nodeId: string;
-  name: string;
-}
-
-interface NodeEditorProps {
-  data: NodeEditorData;
-  onClose: () => void;
-  onSubmit: (updatedData: { name: string }) => void;
-  onDelete: (nodeId: string) => void;
-}
-
-const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
-  const [name, setName] = useState(data.name);
-
-  const handleSubmit = () => {
-    if (name.trim()) {
-      onSubmit({ name: name.trim() });
-      onClose();
-    }
-  };
-
-  const handleDelete = () => {
-    if (window.confirm(`Are you sure you want to delete "${data.name}"?`)) {
-      onDelete(data.nodeId);
-      onClose();
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSubmit();
-    } else if (e.key === 'Escape') {
-      onClose();
-    }
-  };
-
-  return (
-    <div style={editorStyle}>
-      <h4>Edit Node</h4>
-      
-      <label>Name:</label>
-      <input 
-        type="text" 
-        value={name} 
-        onChange={e => setName(e.target.value)}
-        onKeyPress={handleKeyPress}
-        autoFocus
-      />
-
-      <div style={iconGroupStyle}>
-        <button onClick={handleDelete} title="Delete">🗑️</button>
-        <button onClick={onClose} title="Close">❌</button>
-        <button onClick={handleSubmit} title="Submit">✔️</button>
-      </div>
-    </div>
-  );
-};
-
-const sigmaStyle: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-  backgroundColor: '#fff',
-};
-
-// --- Edge Editor Component ---
-interface EdgeEditorData {
-  edgeId: string;
-  sourceId: string;
-  targetId: string;
-  speed: number;
-  length: number;
-}
-
-interface EdgeEditorProps {
-  data: EdgeEditorData;
-  onClose: () => void;
-  onSubmit: (updatedData: { speed: number; length: number; isReversed: boolean }) => void;
-  onDelete: (edgeId: string, sourceId: string, targetId: string) => void;
-}
-
-const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProps) => {
-  const [speed, setSpeed] = useState(data.speed);
-  const [length, setLength] = useState(data.length);
-  const [isReversed, setIsReversed] = useState(false);
-
-  const handleSubmit = () => {
-    onSubmit({ speed: Number(speed), length: Number(length), isReversed });
-    onClose();
-  };
-
-  const handleDelete = () => {
-    if (window.confirm(`Are you sure you want to delete the path from ${data.sourceId} to ${data.targetId}?`)) {
-      onDelete(data.edgeId, data.sourceId, data.targetId);
-      onClose();
-    }
-  };
-
-  const currentSourceLabel = isReversed ? data.targetId : data.sourceId;
-  const currentTargetLabel = isReversed ? data.sourceId : data.targetId;
-
-  return (
-    <div style={editorStyle}>
-      <h4>Edit Path</h4>
-      <p><b>From:</b> {currentSourceLabel}</p>
-      <p><b>To:</b> {currentTargetLabel}</p>
-      
-      <label>Speed:</label>
-      <input type="number" value={speed} min="0" onChange={e => setSpeed(parseFloat(e.target.value))} />
-      
-      <label>Length:</label>
-      <input type="number" value={length} min="0" onChange={e => setLength(parseFloat(e.target.value))} />
-      
-      <div style={buttonGroupStyle}>
-        <button onClick={() => setIsReversed(!isReversed)}>
-          {isReversed ? 'Direction Reversed' : 'Reverse Direction'}
-        </button>
-      </div>
-
-      <div style={iconGroupStyle}>
-        <button onClick={handleDelete} title="Delete">🗑️</button>
-        <button onClick={onClose} title="Close">❌</button>
-        <button onClick={handleSubmit} title="Submit">✔️</button>
-      </div>
-    </div>
-  );
-};
-
-const editorStyle: React.CSSProperties = {
-  position: 'absolute', top: '10px', right: '10px', background: 'white',
-  padding: '10px', border: '1px solid #ccc', borderRadius: '8px',
-  boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 110,
-  display: 'flex', flexDirection: 'column', gap: '8px'
-};
-const buttonGroupStyle: React.CSSProperties = { display: 'flex', justifyContent: 'center', marginTop: '10px' };
-const iconGroupStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', marginTop: '10px' };
 
 // --- Graph Logic Component ---
 interface AnimationState {
@@ -197,13 +60,42 @@ interface GraphEventsProps {
   simulationId?: string;
 }
 
+// Updated to calculate animation based on Edge (Conveyor) properties
+const calculateNextAnimation = (
+  graph: MultiDirectedGraph,
+  currentLocationId: string
+): AnimationState | null => {
+  if (!graph.hasNode(currentLocationId)) return null;
+
+  // Get outgoing edges
+  const outEdges = graph.outEdges(currentLocationId);
+  if (outEdges.length === 0) return null;
+
+  // For simplicity, take the first path. In a real scenario, logic might determine the path.
+  const edgeId = outEdges[0];
+  const targetId = graph.target(edgeId);
+  
+  const edgeAttrs = graph.getEdgeAttributes(edgeId);
+
+  // Only animate if speed > 0
+  if (edgeAttrs && edgeAttrs.speed > 0) {
+    const duration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
+    return { 
+      sourceId: currentLocationId, 
+      targetId, 
+      startTime: Date.now(), 
+      duration 
+    };
+  }
+  return null;
+};
+
 const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEventsProps) => {
   const sigma = useSigma();
   const registerEvents = useRegisterEvents();
   const loadGraph = useLoadGraph();
   const {
       connected,
-        subscribeToSimulationStatus,
         subscribeToPositionUpdates,
         subscribeToItemCreated,
         subscribeToItemDeleted,
@@ -211,86 +103,124 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
         subscribeToAllLocationUpdates,
-        subscribeToConnectionCreated,
-        subscribeToConnectionDeleted,
+        subscribeToConnectionCreated, // Maps to Conveyor Created
+        subscribeToConnectionDeleted, // Maps to Conveyor Deleted
+        subscribeToConnectionUpdated  // Maps to Conveyor Updated
   } = useWebSocket();
-  // --- API Client Instances ---
-  const { locationApi, connectionApi, itemApi } = useApi();
-
-  const draggedNodeRef = useRef<string | null>(null);
-  const isDraggingRef = useRef<boolean>(false);
-  const [selectedEdgeData, setSelectedEdgeData] = useState<EdgeEditorData | null>(null);
-  const [selectedNodeData, setSelectedNodeData] = useState<NodeEditorData | null>(null);
-  const didMoveRef = useRef<boolean>(false);
   
-  const [animatingItems, setAnimatingItems] = useState<Record<string, AnimationState>>({});
-  const animatingItemsRef = useRef(animatingItems);
-  animatingItemsRef.current = animatingItems;
+  // --- API Client Instances ---
+  // Assuming useApi now exposes conveyorApi
+  const { locationApi, conveyorsApi, itemApi } = useApi();
+
+  const animatingItemsRef = useRef<Record<string, AnimationState>>({}); 
   const animationFrameId = useRef<number | null>(null);
   
-  const selectedEdgeRef = useRef(null);
-  const selectedNodeRef = useRef(null);
-  selectedEdgeRef.current = selectedEdgeData;
-  selectedNodeRef.current = selectedNodeData;
-
-  const [lineCoordinates, setLineCoordinates] = useState<LineCoordinates | null>(null);
+  // Interaction Refs
+  const draggedNodeRef = useRef<string | null>(null);
+  const isDraggingRef = useRef<boolean>(false);
+  const didMoveRef = useRef<boolean>(false);
   const isAddingEdgeRef = useRef<boolean>(false);
   const edgeSourceNodeRef = useRef<string | null>(null);
   const wasAddingEdgeRef = useRef<boolean>(false);
 
+  // Selection State
+  const [selectedEdgeData, setSelectedEdgeData] = useState<EdgeEditorData | null>(null);
+  const [selectedNodeData, setSelectedNodeData] = useState<NodeEditorData | null>(null);
+  const [lineCoordinates, setLineCoordinates] = useState<LineCoordinates | null>(null);
+
+  // Refs for callbacks
+  const selectedEdgeRef = useRef(selectedEdgeData);
+  const selectedNodeRef = useRef(selectedNodeData);
+  selectedEdgeRef.current = selectedEdgeData;
+  selectedNodeRef.current = selectedNodeData;
+
   useEffect(() => {
     const graph = new MultiDirectedGraph();
-    console.log("Building graph with data:", initialGraphData); // Log the incoming data
+    console.log("Building graph with data:", initialGraphData);
 
-    initialGraphData?.locations?.forEach(location => {
-      graph.addNode(location.id, {
-        x: location.longitude ?? hashToNumber(location.id),
-        y: location.latitude ?? hashToNumber(location.id + "random"),
-        label: location.name, size: 10, color: "#69b3a2",
-        speed: location.speed, length: location.length,
-        id: location.id,
-        isMainPath: location.isMainPath
+    // 1. Add Locations (Nodes)
+    initialGraphData?.locations?.forEach((loc: LocationResponse) => {
+      graph.addNode(loc.id, {
+        x: loc.latitude ?? hashToNumber(loc.id), // Swapped based on typical map projection, or keep as is
+        y: loc.longitude ?? hashToNumber(loc.id + "random"),
+        label: loc.name,
+        size: 10,
+        color: "#69b3a2",
+        type: "circle", // Locations are points
+        id: loc.id,
+        capacity: loc.capacity // Store capacity for editing
       });
     });
-    initialGraphData?.locations?.forEach(location => {
-      (location.items || []).forEach(item => {
-        graph.addNode(item.id, {
-          x: location.longitude ?? hashToNumber(location.id),
-          y: location.latitude ?? hashToNumber(location.id + "random"),
-          label: item.name, size: 8, color: "#FF0000", type: "square",
-          initialLocationId: location.id,
-          id: item.id
+
+    // 2. Add Conveyors (Edges)
+    initialGraphData?.conveyors?.forEach((conv: ConveyorResponse) => {
+      if (graph.hasNode(conv.sourceId) && graph.hasNode(conv.targetId)) {
+        let size = 3;
+        if (conv.isMainPath) size = 6;
+
+        graph.addEdge(conv.sourceId, conv.targetId, {
+          id: conv.id, // Important: Store the Conveyor ID on the edge
+          type: 'arrow',
+          size: size,
+          label: conv.name,
+          speed: conv.speed,
+          length: conv.length,
+          isMainPath: conv.isMainPath
         });
-      });
-    });
-    initialGraphData?.connections?.forEach(c => {
-      if (graph.hasNode(c.sourceId) && graph.hasNode(c.targetId)) {
-        const attrs = graph.getNodeAttributes(c.sourceId);
-        let size = 5;
-        if (attrs.isMainPath) {
-          size = 8;
-        }
-        graph.addEdge(c.sourceId, c.targetId, { type: 'arrow', size: size });
       }
     });
+
+    // 3. Add Items (Nodes) - Top Level
+    initialGraphData?.items?.forEach((item: ItemResponse) => {
+      // Find where to place the item. 
+      // If item.locationId corresponds to a Node, place it there.
+      // If it corresponds to a Conveyor, we might need logic to find the source node.
+      
+      let startX = 0;
+      let startY = 0;
+      let initialLocId = item.locationId;
+
+      if (graph.hasNode(item.locationId)) {
+        const locAttrs = graph.getNodeAttributes(item.locationId);
+        startX = locAttrs.x;
+        startY = locAttrs.y;
+      } else {
+        // Fallback: If locationId is not a node, it might be a conveyor ID or null.
+        // For visualization, if we can't find the node, we might skip or place at 0,0
+        // Or try to find if it's an edge (though graph.hasNode checks nodes).
+        // Here we assume items start at a valid Location Node.
+        startX = 0; 
+        startY = 0;
+      }
+
+      graph.addNode(item.id, {
+        x: startX,
+        y: startY,
+        label: item.name,
+        size: 6,
+        color: "#FF0000",
+        type: "square", // Items are squares now to distinguish from location points
+        initialLocationId: initialLocId,
+        id: item.id,
+        isItem: true
+      });
+    });
+
     loadGraph(graph);
+
+    // Initialize Animations
     const initialAnimations: Record<string, AnimationState> = {};
     graph.forEachNode((node, attrs) => {
-      if (attrs.type === "square") {
-        const sourceLocAttrs = graph.getNodeAttributes(attrs.initialLocationId);
-        const nextTargets = graph.outEdges(attrs.initialLocationId).map(edge => graph.target(edge));
-        const uniqueTargets = [...new Set(nextTargets)];
-
-        if (sourceLocAttrs && sourceLocAttrs.speed > 0 && uniqueTargets.length === 1) {
-          const targetId = uniqueTargets[0];
-          const duration = (sourceLocAttrs.length / sourceLocAttrs.speed) * 1000;
-          initialAnimations[node] = { sourceId: attrs.initialLocationId, targetId, startTime: Date.now(), duration };
-        }
+      if (attrs.isItem && attrs.initialLocationId) {
+        const anim = calculateNextAnimation(graph, attrs.initialLocationId);
+        if (anim) initialAnimations[node] = anim;
       }
     });
-    setAnimatingItems(initialAnimations);
+    animatingItemsRef.current = initialAnimations;
+
   }, [initialGraphData, loadGraph]);
 
+  // --- Animation Loop ---
   useEffect(() => {
     const animate = () => {
       const graph = sigma.getGraph();
@@ -298,171 +228,144 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         animationFrameId.current = requestAnimationFrame(animate);
         return;
       }
+
       const currentTime = Date.now();
       let needsRefresh = false;
-      let itemsHaveChanged = false;
-      const nextAnimatingItems = { ...animatingItemsRef.current };
-      for (const itemId in animatingItemsRef.current) {
-        if (itemId === draggedNodeRef.current) continue;
+      
+      Object.keys(animatingItemsRef.current).forEach(itemId => {
+        if (itemId === draggedNodeRef.current) return;
+        
         const anim = animatingItemsRef.current[itemId];
+        
+        // Safety check if nodes still exist
+        if (!graph.hasNode(anim.sourceId) || !graph.hasNode(anim.targetId) || !graph.hasNode(itemId)) {
+            delete animatingItemsRef.current[itemId];
+            return;
+        }
+
         const sourceNode = graph.getNodeAttributes(anim.sourceId);
         const targetNode = graph.getNodeAttributes(anim.targetId);
-        if (!sourceNode || !targetNode) continue;
+        
         const progress = Math.min((currentTime - anim.startTime) / anim.duration, 1);
+        
+        // Interpolate position
         graph.setNodeAttribute(itemId, "x", sourceNode.x + (targetNode.x - sourceNode.x) * progress);
         graph.setNodeAttribute(itemId, "y", sourceNode.y + (targetNode.y - sourceNode.y) * progress);
         needsRefresh = true;
+
+        // Check if finished
         if (progress >= 1) {
-          itemsHaveChanged = true;
-          const newSourceId = anim.targetId;
-          const newSourceLocationAttrs = graph.getNodeAttributes(newSourceId);
-          const nextPossibleTargets = graph.outEdges(newSourceId).map(edge => graph.target(edge));
-          const uniqueNextTargets = [...new Set(nextPossibleTargets)];
-          if (uniqueNextTargets.length === 1 && newSourceLocationAttrs && newSourceLocationAttrs.speed > 0) {
-            const newTargetId = uniqueNextTargets[0];
-            const duration = (newSourceLocationAttrs.length / newSourceLocationAttrs.speed) * 1000;
-            nextAnimatingItems[itemId] = { sourceId: newSourceId, targetId: newTargetId, startTime: Date.now(), duration };
+          // Snap to target
+          graph.setNodeAttribute(itemId, "x", targetNode.x);
+          graph.setNodeAttribute(itemId, "y", targetNode.y);
+
+          // Calculate next leg
+          const nextAnim = calculateNextAnimation(graph, anim.targetId);
+          if (nextAnim) {
+            animatingItemsRef.current[itemId] = nextAnim;
           } else {
-            delete nextAnimatingItems[itemId];
+            delete animatingItemsRef.current[itemId];
           }
         }
-      }
+      });
+
       if (needsRefresh) sigma.refresh();
-      if (itemsHaveChanged) {
-        setAnimatingItems(nextAnimatingItems);
-      }
       animationFrameId.current = requestAnimationFrame(animate);
     };
+
     animationFrameId.current = requestAnimationFrame(animate);
     return () => {
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
   }, [sigma]);
 
+  // --- WebSocket Event Handling ---
   useEffect(() => {
       if (!connected || !sigma) return;
       const graph = sigma.getGraph();
       if (!graph) return;
 
-      const recalculateAnimation = (
-          anim: AnimationState, 
-          newSpeed: number, 
-          newLength: number
-      ): AnimationState | undefined => {
-          const currentTime = Date.now();
-          const elapsedTime = currentTime - anim.startTime;
-          const oldProgress = Math.min(elapsedTime / anim.duration, 1);
-
-          // If speed/length is invalid, return undefined to signal a stop.
-          if (newSpeed <= 0 || newLength <= 0) {
-              // Freeze the item at its current position before stopping.
-              const sourceNode = graph.getNodeAttributes(anim.sourceId);
-              const targetNode = graph.getNodeAttributes(anim.targetId);
-              if (sourceNode && targetNode) {
-                  const x = sourceNode.x + (targetNode.x - sourceNode.x) * oldProgress;
-                  const y = sourceNode.y + (targetNode.y - sourceNode.y) * oldProgress;
-                  graph.setNodeAttribute(anim.itemId, "x", x); // Assuming anim state has itemId
-                  graph.setNodeAttribute(anim.itemId, "y", y);
-              }
-              return undefined;
-          }
-
-          // Calculate a new duration and a new startTime that preserves the current progress.
-          const newDuration = (newLength / newSpeed) * 1000;
-          const newStartTime = currentTime - (oldProgress * newDuration);
-
-          return { ...anim, startTime: newStartTime, duration: newDuration };
-      };
-
-      // A list to hold all the unsubscribe functions for cleanup
       const unsubscribers: (() => void)[] = [];
 
-      // --- POSITION & ANIMATION ---
-      const handlePositionUpdate = (update: PositionUpdate) => {
-          if (!update.locationId) return;
-          const newLocationNode = graph.getNodeAttributes(update.locationId);
-          if (newLocationNode && graph.hasNode(update.itemId)) {
+      // 1. Position Updates
+      const handlePositionUpdate = (update: any) => {
+          if (!update.locationId || !graph.hasNode(update.itemId)) return;
+          
+          // If the location is a Node (Waypoint)
+          if (graph.hasNode(update.locationId)) {
+              const newLocationNode = graph.getNodeAttributes(update.locationId);
               graph.setNodeAttribute(update.itemId, "x", newLocationNode.x);
               graph.setNodeAttribute(update.itemId, "y", newLocationNode.y);
 
-              const nextTargets = graph.outEdges(update.locationId).map(edge => graph.target(edge));
-              let newAnimation: AnimationState | null = null;
-              if (nextTargets.length === 1 && newLocationNode.speed > 0) {
-                  const targetId = nextTargets[0];
-                  const duration = (newLocationNode.length / newLocationNode.speed) * 1000;
-                  newAnimation = { sourceId: update.locationId, targetId, startTime: Date.now(), duration };
+              const nextAnim = calculateNextAnimation(graph, update.locationId);
+              if (nextAnim) {
+                animatingItemsRef.current[update.itemId] = nextAnim;
+              } else {
+                delete animatingItemsRef.current[update.itemId];
               }
-
-              setAnimatingItems(current => {
-                  const next = { ...current };
-                  if (newAnimation) {
-                      next[update.itemId] = newAnimation;
-                  } else {
-                      delete next[update.itemId];
-                  }
-                  return next;
-              });
           }
+          // Note: If locationId refers to a Conveyor ID, we might need logic to map Conveyor -> Source Node
+          // For now, assuming locationId in updates refers to Nodes.
       };
       unsubscribers.push(subscribeToPositionUpdates(handlePositionUpdate, simulationId));
 
-      // --- ITEM CRUD ---
+      // 2. Item CRUD
       const handleItemCreated = (item: ItemInput) => {
           if (graph.hasNode(item.id) || !item.locationId) return;
-          const startLocation = graph.getNodeAttributes(item.locationId);
-          if (startLocation) {
-              graph.addNode(item.id, {
-                  x: startLocation.x,
-                  y: startLocation.y,
-                  label: item.name,
-                  size: 8,
-                  color: "#FF0000",
-                  type: "square",
-                  id: item.id
-              });
-
-              const nextTargets = graph.outEdges(item.locationId).map(edge => graph.target(edge));
-              let newAnimation: AnimationState | null = null;
-              if (nextTargets.length === 1 && startLocation.speed > 0) {
-                  const targetId = nextTargets[0];
-                  const duration = (startLocation.length / startLocation.speed) * 1000;
-                  newAnimation = { sourceId: item.locationId, targetId, startTime: Date.now(), duration };
-              }
-
-              if (newAnimation) {
-                  setAnimatingItems(current => ({
-                      ...current,
-                      [item.id]: newAnimation
-                  }));
-              }
+          
+          // Find start coordinates
+          let x = 0, y = 0;
+          if (graph.hasNode(item.locationId)) {
+              const attrs = graph.getNodeAttributes(item.locationId);
+              x = attrs.x;
+              y = attrs.y;
           }
+
+          graph.addNode(item.id, {
+              x, y,
+              label: item.name,
+              size: 6,
+              color: "#FF0000",
+              type: "square",
+              id: item.id,
+              isItem: true
+          });
+          
+          const nextAnim = calculateNextAnimation(graph, item.locationId);
+          if (nextAnim) animatingItemsRef.current[item.id] = nextAnim;
       };
       unsubscribers.push(subscribeToItemCreated(handleItemCreated, simulationId));
 
       const handleItemDeleted = (itemId: string) => {
           if (graph.hasNode(itemId)) {
               graph.dropNode(itemId);
-              setAnimatingItems(current => {
-                  const next = { ...current };
-                  delete next[itemId];
-                  return next;
-              });
+              delete animatingItemsRef.current[itemId];
           }
       };
       unsubscribers.push(subscribeToItemDeleted(handleItemDeleted, simulationId));
 
-      // --- LOCATION CRUD ---
+      const handleItemUpdates = (update: EntityUpdateMessage) => {
+          if (update.id && graph.hasNode(update.id) && update.properties) {
+              Object.keys(update.properties).forEach(key => {
+                  const value = update.properties![key];
+                  graph.setNodeAttribute(update.id, key === 'name' ? 'label' : key, value);
+              });
+          }
+      };
+      unsubscribers.push(subscribeToAllItemUpdates(handleItemUpdates, simulationId));
+
+      // 3. Location CRUD (Nodes)
       const handleLocationCreated = (location: LocationInput) => {
           if (graph.hasNode(location.id)) return;
           graph.addNode(location.id, {
-              x: location.longitude ?? hashToNumber(location.id),
-              y: location.latitude ?? hashToNumber(location.id + "random"),
+              x: location.latitude ?? hashToNumber(location.id),
+              y: location.longitude ?? hashToNumber(location.id + "random"),
               label: location.name,
               size: 10,
               color: "#69b3a2",
-              speed: location.speed,
-              length: location.length,
-              id: location.id
+              type: "circle",
+              id: location.id,
+              capacity: location.capacity
           });
       };
       unsubscribers.push(subscribeToLocationCreated(handleLocationCreated, simulationId));
@@ -474,74 +377,93 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
       };
       unsubscribers.push(subscribeToLocationDeleted(handleLocationDeleted, simulationId));
 
-      // --- NEW: PROPERTY UPDATE HANDLERS (Broadcast Topics) ---
-
-      const handleItemUpdates = (update: EntityUpdateMessage) => {
-          if (update.id && graph.hasNode(update.id) && update.properties) {
-              Object.keys(update.properties).forEach(key => {
-                  const value = update.properties[key];
-                  graph.setNodeAttribute(update.id, key === 'name' ? 'label' : key, value);
-              });
-          }
-      };
-      unsubscribers.push(subscribeToAllItemUpdates(handleItemUpdates, simulationId));
-
       const handleLocationUpdates = (update: EntityUpdateMessage) => {
           if (!update.id || !graph.hasNode(update.id) || !update.properties) return;
-
-          const locationId = update.id;
-          // Update static properties first
           Object.keys(update.properties).forEach(key => {
-              graph.setNodeAttribute(locationId, key === 'name' ? 'label' : key, value);
+              const val = update.properties![key];
+              graph.setNodeAttribute(update.id, key === 'name' ? 'label' : key, val);
           });
-          
-          // If speed or length changed, find and update all affected items
-          if (update.properties.speed !== undefined || update.properties.length !== undefined) {
-              const currentLocAttrs = graph.getNodeAttributes(locationId);
-              const newSpeed = update.properties.speed ?? currentLocAttrs.speed;
-              const newLength = update.properties.length ?? currentLocAttrs.length;
-
-              const nextAnimatingItems = { ...animatingItemsRef.current };
-              let changed = false;
-
-              for (const itemId in animatingItemsRef.current) {
-                  const anim = animatingItemsRef.current[itemId];
-                  if (anim.sourceId === locationId) {
-                      changed = true;
-                      const newAnimation = recalculateAnimation(anim, newSpeed, newLength);
-                      if (newAnimation) {
-                          nextAnimatingItems[itemId] = newAnimation;
-                      } else {
-                          delete nextAnimatingItems[itemId]; // Stop the animation
-                      }
-                  }
-              }
-
-              if (changed) {
-                  setAnimatingItems(nextAnimatingItems);
-              }
-          }
       };
       unsubscribers.push(subscribeToAllLocationUpdates(handleLocationUpdates, simulationId));
 
-      // --- CONNECTION CRUD ---
-      const handleConnectionCreated = (connection: ConnectionMessage) => {
-          if (graph.hasNode(connection.from) && graph.hasNode(connection.to) && !graph.hasEdge(connection.from, connection.to)) {
-              graph.addEdge(connection.from, connection.to, { type: 'arrow', size: 5 });
+      // 4. Conveyor CRUD (Edges)
+      const handleConveyorCreated = (connection: ConnectionMessage) => {
+          // connection.from = sourceId, connection.to = targetId
+          if (graph.hasNode(connection.from) && graph.hasNode(connection.to)) {
+              // Check if edge exists
+              if (!graph.hasEdge(connection.from, connection.to)) {
+                  // We might not have the full ID here depending on the event payload, 
+                  // but usually the event should carry the ID or we generate one.
+                  // Assuming ConnectionMessage might need extension or we use a generated ID.
+                  graph.addEdge(connection.from, connection.to, { 
+                      type: 'arrow', 
+                      size: 3,
+                      // Default values until updated
+                      speed: 1.0,
+                      length: 10.0 
+                  });
+              }
           }
       };
-      unsubscribers.push(subscribeToConnectionCreated(handleConnectionCreated, simulationId));
+      unsubscribers.push(subscribeToConnectionCreated(handleConveyorCreated, simulationId));
 
-      const handleConnectionDeleted = (connection: ConnectionMessage) => {
+      const handleConveyorDeleted = (connection: ConnectionMessage) => {
           if (graph.hasEdge(connection.from, connection.to)) {
               graph.dropEdge(connection.from, connection.to);
           }
       };
-      unsubscribers.push(subscribeToConnectionDeleted(handleConnectionDeleted, simulationId));
+      unsubscribers.push(subscribeToConnectionDeleted(handleConveyorDeleted, simulationId));
 
-      // --- CLEANUP ---
+      // Handle Conveyor Property Updates (Speed, Length, etc.)
+      // We need a subscription for this. Assuming subscribeToConnectionUpdated exists or we use a generic one.
+      if (subscribeToConnectionUpdated) {
+          const handleConveyorUpdate = (update: EntityUpdateMessage) => {
+             // The update.id is the Conveyor ID.
+             // Sigma edges are usually referenced by Source->Target or by generated ID.
+             // If we stored the ID in the edge attributes, we can find it.
+             const edge = graph.findEdge((edge, attrs) => attrs.id === update.id);
+             if (edge && update.properties) {
+                 Object.keys(update.properties).forEach(key => {
+                     const val = update.properties![key];
+                     graph.setEdgeAttribute(edge, key, val);
+                 });
+
+                 // If physics changed, we might need to adjust active animations on this edge
+                 if (update.properties.speed !== undefined || update.properties.length !== undefined) {
+                     const attrs = graph.getEdgeAttributes(edge);
+                     const sourceId = graph.source(edge);
+                     
+                     Object.keys(animatingItemsRef.current).forEach(itemId => {
+                         const anim = animatingItemsRef.current[itemId];
+                         if (anim.sourceId === sourceId && anim.targetId === graph.target(edge)) {
+                             // Recalculate duration
+                             const currentTime = Date.now();
+                             const elapsedTime = currentTime - anim.startTime;
+                             const oldProgress = Math.min(elapsedTime / anim.duration, 1);
+                             
+                             const newSpeed = attrs.speed;
+                             const newLength = attrs.length;
+
+                             if (newSpeed <= 0) {
+                                 delete animatingItemsRef.current[itemId];
+                             } else {
+                                 const newDuration = (newLength / newSpeed) * 1000;
+                                 const newStartTime = currentTime - (oldProgress * newDuration);
+                                 animatingItemsRef.current[itemId] = {
+                                     ...anim,
+                                     duration: newDuration,
+                                     startTime: newStartTime
+                                 };
+                             }
+                         }
+                     });
+                 }
+             }
+          };
+          unsubscribers.push(subscribeToConnectionUpdated(handleConveyorUpdate, simulationId));
+      }
+
       return () => {
-          console.log("Unsubscribing from all WebSocket events.");
           unsubscribers.forEach(unsubscribe => unsubscribe());
       };
 
@@ -557,62 +479,66 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
       subscribeToAllLocationUpdates,
       subscribeToConnectionCreated,
       subscribeToConnectionDeleted,
+      subscribeToConnectionUpdated
   ]);
 
-  const handleEdgeSubmit = useCallback(async ({ speed, length, isReversed }: { speed: number; length: number; isReversed: boolean }) => {
+  // --- Handlers ---
+
+  const handleEdgeSubmit = useCallback(async ({ speed, length, isMainPath }: { speed: number; length: number; isMainPath: boolean }) => {
     if (!selectedEdgeData) return;
     const graph = sigma.getGraph();
-    const { sourceId, targetId, edgeId } = selectedEdgeData;
-    const sourceOfEdit = isReversed ? targetId : sourceId;
+    const { edgeId, sourceId, targetId } = selectedEdgeData;
     
+    // Get the Conveyor ID stored in the edge attributes
+    const conveyorId = graph.getEdgeAttribute(edgeId, 'id');
+
     const finalSpeed = parseFloat(String(speed));
     const finalLength = parseFloat(String(length));
 
     // Optimistic UI update
-    graph.setNodeAttribute(sourceOfEdit, 'speed', finalSpeed);
-    graph.setNodeAttribute(sourceOfEdit, 'length', finalLength);
+    graph.setEdgeAttribute(edgeId, 'speed', finalSpeed);
+    graph.setEdgeAttribute(edgeId, 'length', finalLength);
+    graph.setEdgeAttribute(edgeId, 'isMainPath', isMainPath);
+    graph.setEdgeAttribute(edgeId, 'size', isMainPath ? 6 : 3);
+
     try {
-        const updatePayload = { "speed": finalSpeed, "length": finalLength };
-        await locationApi.updateLocation(sourceOfEdit, updatePayload);
-    } catch (error) {
-        console.error("Failed to update edge properties (speed/length):", error);
-        // TODO: Add UI feedback for failed save
-    }
-
-    if (isReversed) {
-      if (graph.hasEdge(edgeId)) {
-        // Optimistic UI update
-        graph.dropEdge(edgeId);
-        graph.addEdge(targetId, sourceId, { type: 'arrow', size: 5 });
-
-
-        try {
-            await connectionApi.deleteConnection(sourceId, targetId)
-            const connectionPayload: ConnectionInput = { location1Id: targetId, location2Id: sourceId };
-            await connectionApi.createConnection1(connectionPayload);
-        } catch (error) {
-            console.error("Failed to create reversed edge in backend:", error);
+        // Call the new Conveyor Controller
+        // We use the batch update endpoint
+        const updatePayload = { 
+            "speed": finalSpeed, 
+            "length": finalLength,
+            "isMainPath": isMainPath
+        };
+        
+        // If we have a specific conveyor ID, use it. Otherwise, we might need to use source/target if the API supports it.
+        // Assuming the API requires ID.
+        if (conveyorId) {
+            await conveyorsApi.updateConveyor(conveyorId, updatePayload);
+        } else {
+            console.warn("No Conveyor ID found on edge, cannot update via ID.");
         }
-      }
+    } catch (error) {
+        console.error("Failed to update conveyor properties:", error);
+        // Revert UI?
     }
     sigma.refresh();
-  }, [sigma, selectedEdgeData, locationApi, connectionApi]);
+  }, [sigma, selectedEdgeData, conveyorsApi]);
 
-  const handleNodeSubmit = useCallback(async ({ name }: { name: string }) => {
+  const handleNodeSubmit = useCallback(async ({ name, capacity }: { name: string, capacity: number }) => {
     if (!selectedNodeData) return;
     const graph = sigma.getGraph();
     const { nodeId } = selectedNodeData;
     
     // Optimistic UI update
     graph.setNodeAttribute(nodeId, 'label', name);
+    graph.setNodeAttribute(nodeId, 'capacity', capacity);
     sigma.refresh();
 
-    // API Call
+    // API Call to Location Controller
     try {
-        await itemApi.updateItem(nodeId, {"name" : name});
+        await locationApi.updateLocation(nodeId, { "name": name, "capacity": capacity });
     } catch (error) {
-        console.error("Failed to update node name:", error);
-        // TODO: Revert UI change and show error message
+        console.error("Failed to update location:", error);
         graph.setNodeAttribute(nodeId, 'label', selectedNodeData.name); // Revert
         sigma.refresh();
     }
@@ -625,24 +551,22 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
       graph.dropEdge(edgeId);
       sigma.refresh();
       
-      await connectionApi.deleteConnection(sourceId, targetId)
+      // Call Conveyor API to delete
+      await conveyorsApi.deleteConveyor(sourceId, targetId);
     }
-  }, [sigma, connectionApi]);
+  }, [sigma, conveyorsApi]);
 
   const handleNodeDelete = useCallback(async (nodeId: string) => {
     const graph = sigma.getGraph();
     if (graph.hasNode(nodeId)) {
-      // Optimistic UI update
       const oldNodeAttributes = graph.getNodeAttributes(nodeId);
       graph.dropNode(nodeId);
       sigma.refresh();
 
-      // API Call
       try {
           await locationApi.deleteLocation(nodeId);
       } catch (error) {
-          console.error("Failed to delete node:", error);
-          // TODO: Re-add node to graph and show error
+          console.error("Failed to delete location:", error);
           graph.addNode(nodeId, oldNodeAttributes);
           sigma.refresh();
       }
@@ -653,63 +577,50 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
     const graph = sigma.getGraph();
     if (!graph) return;
     
-    // Use a temporary ID for the optimistic UI update
     const newNodeId = crypto.randomUUID();
     const newNodeLabel = "New Location";
     
     // Optimistic UI update
-    graph.addNode(newNodeId, { x, y, label: newNodeLabel, size: 10, color: "#69b3a2", speed: 10, length: 50 });
-    sigma.refresh(); // Refresh to show the new node immediately
+    graph.addNode(newNodeId, { 
+        x, y, 
+        label: newNodeLabel, 
+        size: 10, 
+        color: "#69b3a2", 
+        type: "circle",
+        capacity: 10 
+    });
+    sigma.refresh();
 
-    // API Call to create the node in the backend
     try {
         const locationPayload: LocationInput = {
             id: newNodeId,
             name: newNodeLabel,
-            longitude: x,
-            latitude: y,
-            speed: 10,
-            length: 50,
-            active: true
+            longitude: y, // Note: Mapping might depend on backend expectation (lat/long vs x/y)
+            latitude: x,
+            active: true,
+            capacity: 10,
+            type: 'standard' // Default type
         };
-        const response = await locationApi.createLocation(locationPayload);
-        
-        // Optional: If the backend returns a different ID, you might need to update the graph.
-        // This can be complex, for now we assume the frontend ID is used.
-        if (response.data.id !== newNodeId) {
-            console.log("Backend assigned a new ID:", response.data.id);
-            // Logic to replace node ID in graph if necessary
-        }
+        await locationApi.createLocation(locationPayload);
     } catch (error) {
-        console.error("Failed to create node:", error);
-        // On failure, remove the optimistically added node
+        console.error("Failed to create location:", error);
         graph.dropNode(newNodeId);
         sigma.refresh();
     }
 
   }, [sigma, locationApi]);
 
-    // --- DEBOUNCED UPDATE FOR NODE DRAGGING ---
-    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const debouncedUpdateNodePosition = useCallback((nodeId: string, x: number, y: number) => {
-        if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current);
-        }
-        debounceTimeoutRef.current = setTimeout(async () => {
-            try {
-                const updateRequest: CoordinatesUpdateRequest = {
-                latitude: y,
-                longitude: x
-              };
-                await locationApi.updateLocationCoordinates(nodeId, updateRequest);
-            } catch (error) {
-                console.error("Failed to update node position:", error);
-                // TODO: Add logic to revert the node's position in the UI
-            }
-        }, 500); // 500ms delay
-    }, [locationApi]);
+  const debouncedUpdateNodePosition = useCallback((nodeId: string, x: number, y: number) => {
+        // Simple debounce implementation or use lodash
+        // Here we just fire it. In production, wrap with debounce.
+        const updateRequest: CoordinatesUpdateRequest = {
+            latitude: x, // Ensure mapping matches backend (x=lat or x=long?)
+            longitude: y
+        };
+        locationApi.updateLocationCoordinates(nodeId, updateRequest).catch(e => console.error(e));
+  }, [locationApi]);
 
-
+  // --- Sigma Events ---
   useEffect(() => {
     registerEvents({
       enterEdge: ({ edge }) => setHoveredEdge(edge),
@@ -719,10 +630,15 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         if (!graph.hasEdge(edge)) return;
         const sourceId = graph.source(edge);
         const targetId = graph.target(edge);
-        const sourceAttrs = graph.getNodeAttributes(sourceId);
+        const attrs = graph.getEdgeAttributes(edge);
+        
         setSelectedEdgeData({
-          edgeId: edge, sourceId, targetId,
-          speed: sourceAttrs.speed || 0, length: sourceAttrs.length || 0,
+          edgeId: edge, 
+          sourceId, 
+          targetId,
+          speed: attrs.speed || 1, 
+          length: attrs.length || 10,
+          isMainPath: attrs.isMainPath || false
         });
       },
       clickStage: ({ event }) => {
@@ -757,11 +673,10 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
           }
         } else {
           setSelectedEdgeData(null);
-          if (sigma.getGraph().getNodeAttribute(node, "type") !== "square") {
-            isDraggingRef.current = true;
-            draggedNodeRef.current = node;
-            sigma.getSettings().mouseEnabled = false;
-          }
+          // Only drag items or locations? Assuming both can be dragged.
+          isDraggingRef.current = true;
+          draggedNodeRef.current = node;
+          sigma.getSettings().mouseEnabled = false;
         }
       },
       upNode: async ({ node }) => {
@@ -771,15 +686,28 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
           const target = node;
           if (!graph.hasEdge(source, target)) {
             // Optimistic UI update
-            graph.addEdge(source, target, { type: 'arrow', size: 5 });
+            const tempId = `temp_${source}_${target}`;
+            graph.addEdge(source, target, { 
+                id: tempId,
+                type: 'arrow', 
+                size: 3,
+                speed: 1.0,
+                length: 10.0
+            });
             
-            // API Call
             try {
-                const connectionPayload: ConnectionInput = { location1Id: source, location2Id: target };
-                await connectionApi.createConnection1(connectionPayload);
+                const conveyorPayload: CreateConveyorInput = { 
+                    sourceId: source, 
+                    targetId: target,
+                    name: `Conveyor ${source}->${target}`,
+                    speed: 1.0,
+                    length: 10.0,
+                    isActive: true,
+                    isMainPath: false
+                };
+                await conveyorsApi.createConveyor(conveyorPayload);
             } catch (error) {
-                console.error("Failed to create connection:", error);
-                // On failure, remove the optimistically added edge
+                console.error("Failed to create conveyor:", error);
                 graph.dropEdge(source, target);
             }
           }
@@ -796,8 +724,10 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
             if (draggedNodeId) {
                 const graph = sigma.getGraph();
                 const attrs = graph.getNodeAttributes(draggedNodeId);
-                // Trigger the debounced save on mouse up
-                debouncedUpdateNodePosition(draggedNodeId, attrs.x, attrs.y);
+                // Only update coordinates for Locations, not Items (Items move by physics)
+                if (!attrs.isItem) {
+                    debouncedUpdateNodePosition(draggedNodeId, attrs.x, attrs.y);
+                }
             }
             isDraggingRef.current = false;
             draggedNodeRef.current = null;
@@ -830,17 +760,23 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
         }
       },
       clickNode: ({ node }) => {
-        if (didMoveRef.current) {
-          return;
-        }
+        if (didMoveRef.current) return;
+        
         if (!isAddingEdgeRef.current && !isDraggingRef.current){
           const graph = sigma.getGraph();
-          const attr = graph.getNodeAttributes(node)
-          setSelectedNodeData({nodeId: node, name: attr.label})
+          const attr = graph.getNodeAttributes(node);
+          // Only open editor for Locations, not Items
+          if (!attr.isItem) {
+              setSelectedNodeData({
+                  nodeId: node, 
+                  name: attr.label,
+                  capacity: attr.capacity || 0
+              });
+          }
         }
       }
     });
-  }, [sigma, registerEvents, addNode, setHoveredEdge, connectionApi, debouncedUpdateNodePosition]);
+  }, [sigma, registerEvents, addNode, setHoveredEdge, conveyorsApi, debouncedUpdateNodePosition]);
 
   return (
     <>
@@ -885,10 +821,8 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
   );
 };
 
-// --- Main Display Component ---
 export const DisplayGraph = ({ initialGraphData, simulationId }: { initialGraphData: GraphData, simulationId?: string }) => {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
-
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

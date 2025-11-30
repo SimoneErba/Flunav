@@ -11,16 +11,27 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.HashMap;
 
-enum CrudOperation { CREATED, DELETED }
-enum PositionStatus { UPDATED, LOST }
+enum CrudOperation {
+    CREATED, DELETED
+}
 
-record PositionUpdate(String itemId, String locationId, PositionStatus status) {}
-record ConnectionMessage(String from, String to, CrudOperation operation) {}
-record EntityMessage<T>(CrudOperation operation, T data) {}
+enum PositionStatus {
+    UPDATED, LOST
+}
 
+// CHANGED: Added 'timestamp' and renamed locationId to edgeId for clarity
+record PositionUpdate(String itemId, String edgeId, long timestamp, PositionStatus status) {
+}
+
+record ConnectionMessage(String from, String to, CrudOperation operation) {
+}
+
+record EntityMessage<T>(CrudOperation operation, T data) {
+}
 
 @Service
 public class WebSocketService {
@@ -36,7 +47,14 @@ public class WebSocketService {
         message.put("status", status);
         messagingTemplate.convertAndSend("/topic/simulation-status/" + simulationId, message);
     }
-    
+
+    // NEW: Broadcast global playback speed (e.g., 1.0x, 5.0x)
+    public void broadcastSpeedUpdate(String simulationId, double speedFactor) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("speed", speedFactor);
+        messagingTemplate.convertAndSend("/topic/simulation-speed/" + simulationId, message);
+    }
+
     // --- ITEM EVENTS ---
 
     public void broadcastItemCreated(ItemInput item) {
@@ -52,8 +70,8 @@ public class WebSocketService {
     public void broadcastItemUpdated(UpdateModel updateModel) {
         sendToTopic("items/updates", updateModel);
     }
-    
-    // --- LOCATION EVENTS ---
+
+    // --- LOCATION EVENTS (Nodes) ---
 
     public void broadcastLocationCreated(LocationInput location) {
         EntityMessage<LocationInput> payload = new EntityMessage<>(CrudOperation.CREATED, location);
@@ -69,28 +87,44 @@ public class WebSocketService {
         sendToTopic("locations/updates", updateModel);
     }
 
-    // --- CONNECTION EVENTS ---
+    // --- CONNECTION EVENTS (Conveyors/Edges) ---
 
     public void broadcastConnectionCreated(String fromLocationId, String toLocationId) {
+        // Note: The frontend might need to fetch the full conveyor details after this,
+        // or you could pass the full Conveyor object here instead of just IDs.
         ConnectionMessage payload = new ConnectionMessage(fromLocationId, toLocationId, CrudOperation.CREATED);
         sendToTopic("connections", payload);
     }
-
 
     public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId) {
         ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED);
         sendToTopic("connections", payload);
     }
 
-    // --- POSITION EVENTS ---
+    // NEW: Handle updates to Conveyors (Speed, Length, Active status)
+    public void broadcastConnectionUpdated(UpdateModel updateModel) {
+        sendToTopic("connections/updates", updateModel);
+    }
 
-    public void broadcastPositionUpdate(String itemId, String locationId) {
-        PositionUpdate payload = new PositionUpdate(itemId, locationId, PositionStatus.UPDATED);
+    // --- POSITION EVENTS (The Physics) ---
+
+    // CHANGED: Now accepts Timestamp
+    public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp) {
+        PositionUpdate payload = new PositionUpdate(
+                itemId,
+                edgeId,
+                timestamp.toEpochMilli(),
+                PositionStatus.UPDATED);
         sendToTopic("positions", payload);
     }
 
     public void broadcastPositionLost(String itemId) {
-        PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST);
+        // Timestamp doesn't matter for LOST, but we pass 0 or now
+        PositionUpdate payload = new PositionUpdate(
+                itemId,
+                null,
+                Instant.now().toEpochMilli(),
+                PositionStatus.LOST);
         sendToTopic("positions", payload);
     }
 

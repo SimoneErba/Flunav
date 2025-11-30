@@ -7,6 +7,14 @@ is main path
 --need to fix the drawing for onveyours. they should be the onyl way to build arrow. connections from be are only needed to see which conveyour goes where. when adding a point, it will a conjunctor. whn adding an arrow, it will be a conveyour.. need to mnove conveyour bnames over the edges.. .
 conjunctions may also not have a name--
 
+
+---
+
+need to change the edit edge. rn its updating the source location. need to move properties to the edge.
+
+in BE, do we remove lat, long from conveyours? and they use the ones of the conjunctions? 
+---
+
 if speed changes, update animations
 calculate current item position int he path (timestamp + speed/length). save item progress
 uscite, attese, ricircoli
@@ -17,7 +25,7 @@ edit active simulations to see "what if"
 outlet box: save to orient db only if websocket can be sent (transaction)
 page to see item history
 chatbot to ask about item history or location events
-
+puppygraph or ckickgraph for analytics (BI) - 
 
 
                 // if stuff is done at the forntend maybe we dont need to do anything here, just send thevent. but about progress?
@@ -55,6 +63,11 @@ Domain B: The Sorting Plant (e.g., Logistics Hub, Mail Center, Baggage Handling)
     Error Handling: The "Return to Loop" logic for failed exits is critical here.
     Real-time Tracking: Events are often per-item (barcode scans at every junction).
 
+
+### Regarding db design
+
+conveyours are nodes and not edges becuase otherwise we can't connect multiple conveyours? but we can use conjunction points.. 
+and we can say item is at conjunction wit progress x%.. 
 
 
 ### Known Challenges
@@ -193,3 +206,13 @@ B) External Data Ingestion for Context
 What It Is: The reverse of the above. An API that allows customers to push their own business data into Fiumen to be displayed alongside the flow data.
 How Fiumen Does It: For example, a customer could push their order fulfillment data. When you click on an item in the Fiumen UI, the sidebar could show not only its physical history but also the associated order_id, customer_name, and delivery_deadline.
 Value: This transforms Fiumen from a purely operational tool into a business visibility platform. A manager can now see not just a jam, but that the jam is holding up the order for their most important customer. This contextual information is immensely valuable.
+
+
+
+AI instructions
+
+avoid useless comments related to the promtp like "this was already correct". only add codmmens that exmplain the code. and add it just at the beginning of a method, or in the most compx parts. not on each line
+
+avoid examples to explain concepts
+
+always give full code files dont omit things for brevity

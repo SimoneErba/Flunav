@@ -1,176 +1,213 @@
 package com.fiumen.backend.services;
 
-import com.fiumen.backend.models.graph.*;
-import com.fiumen.backend.models.response.ConnectionResponse;
-import com.fiumen.backend.models.response.ItemJourney;
+import com.fiumen.backend.models.graph.GraphData;
+import com.fiumen.backend.models.response.ConveyorResponse;
 import com.fiumen.backend.models.response.ItemResponse;
 import com.fiumen.backend.models.response.LocationResponse;
+import com.fiumen.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-
 import fiumen.types.LocationType;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 @Service
 public class GraphService {
-    private final OrientDBService orientDBService;
+    private static final Logger logger = LoggerFactory.getLogger(GraphService.class);
 
-    public GraphService(OrientDBService orientDBService) {
+    private final OrientDBService orientDBService;
+    private final LiveItemRepository redisRepository;
+
+    public GraphService(OrientDBService orientDBService, LiveItemRepository redisRepository) {
         this.orientDBService = orientDBService;
+        this.redisRepository = redisRepository;
     }
 
     public GraphData getGraphData() {
-        Instant simulationTime = Instant.now();
+        Instant now = Instant.now();
 
-        Map<String, LocationResponse> locationsMap = new ConcurrentHashMap<>();
-        List<ConnectionResponse> allConnections = new ArrayList<>();
-        List<ItemResponse> allItems = new ArrayList<>();
+        List<LocationResponse> nodes = new ArrayList<>();
+        Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
+        List<ItemResponse> activeItems = new ArrayList<>();
 
+        // 1. FETCH TOPOLOGY (From OrientDB)
         try (ODatabaseSession session = orientDBService.getSession()) {
-            String query = "SELECT *, " +
-                    "in('HasPosition'):{*, customId, name, destinations, lastConfirmationTimestamp} as items, " +
-                    "out('ConnectedTo').customId as out_connections " +
-                    "FROM Location";
 
-            try (OResultSet rs = session.query(query)) {
+            // A. Fetch Nodes (Waypoints)
+            String nodeQuery = "SELECT customId, name, latitude, longitude, type, active, capacity, properties FROM Location";
+            try (OResultSet rs = session.query(nodeQuery)) {
                 while (rs.hasNext()) {
-                    OResult result = rs.next();
-                    String locId = result.getProperty("customId");
-                    if (locId == null)
-                        continue; // Skip malformed records
+                    OResult res = rs.next();
+                    LocationResponse loc = new LocationResponse();
+                    loc.setId(res.getProperty("customId"));
+                    loc.setName(res.getProperty("name"));
+                    loc.setLatitude(res.getProperty("latitude"));
+                    loc.setLongitude(res.getProperty("longitude"));
+                    loc.setActive(res.getProperty("active"));
+                    loc.setCapacity(res.getProperty("capacity"));
+                    loc.setProperties(res.getProperty("properties"));
 
-                    // --- Process Location with Explicit Mapping ---
-                    LocationResponse location = new LocationResponse();
-                    location.setId(locId);
-                    location.setName(result.getProperty("name"));
-                    location.setLatitude(result.getProperty("latitude"));
-                    location.setLongitude(result.getProperty("longitude"));
-                    location.setActive(result.getProperty("active"));
-                    location.setIsMainPath(result.getProperty("isMainPath"));
-                    location.setProperties(result.getProperty("properties"));
-
-                    // Safely cast numeric types
-                    Number length = result.getProperty("length");
-                    location.setLength(length != null ? length.doubleValue() : 0.0);
-
-                    Number speed = result.getProperty("speed");
-                    location.setSpeed(speed != null ? speed.doubleValue() : 0.0);
-
-                    Number capacity = result.getProperty("capacity");
-                    location.setCapacity(capacity != null ? capacity.intValue() : -1);
-
-                    // Assuming LocationType is an enum stored as a string
-                    String typeStr = result.getProperty("type");
+                    String typeStr = res.getProperty("type");
                     if (typeStr != null) {
                         try {
-                            location.setType(LocationType.valueOf(typeStr.toUpperCase()));
+                            loc.setType(LocationType.valueOf(typeStr));
                         } catch (IllegalArgumentException e) {
-                            // Log a warning for unknown types
-                            System.err.println("Warning: Unknown LocationType '" + typeStr + "' for location " + locId);
+                            loc.setType(LocationType.GENERIC);
                         }
                     }
+                    nodes.add(loc);
+                }
+            }
 
-                    locationsMap.put(locId, location);
+            // B. Fetch Edges (Conveyors)
+            // We need source and target IDs to build the graph visually
+            String edgeQuery = "SELECT customId, length, speed, type, active, isMainPath, capacity, out.customId as src, in.customId as tgt FROM Conveyor";
+            try (OResultSet rs = session.query(edgeQuery)) {
+                while (rs.hasNext()) {
+                    OResult res = rs.next();
+                    ConveyorResponse conv = new ConveyorResponse();
+                    conv.setId(res.getProperty("customId"));
+                    conv.setSourceId(res.getProperty("src"));
+                    conv.setTargetId(res.getProperty("tgt"));
+                    conv.setLength(res.getProperty("length"));
+                    conv.setSpeed(res.getProperty("speed"));
+                    conv.setType(res.getProperty("type"));
+                    conv.setActive(res.getProperty("active"));
+                    conv.setIsMainPath(res.getProperty("isMainPath"));
+                    conv.setCapacity(res.getProperty("capacity"));
 
-                    // --- Process Outgoing Connections ---
-                    List<String> outConnections = result.getProperty("out_connections");
-                    if (outConnections != null) {
-                        for (String targetId : outConnections) {
-                            ConnectionResponse conn = new ConnectionResponse();
-                            conn.setSourceId(locId);
-                            conn.setTargetId(targetId);
-                            conn.setDirection("out");
-                            allConnections.add(conn);
-                        }
-                    }
-
-                    // --- Process Items at this Location ---
-                    List<OResult> itemResults = result.getProperty("items");
-                    if (itemResults != null) {
-                        for (OResult itemResult : itemResults) {
-                            ItemResponse item = new ItemResponse();
-                            item.setId(itemResult.getProperty("customId"));
-                            item.setName(itemResult.getProperty("name"));
-                            item.setLastKnownLocationId(locId);
-                            item.setDestinations(itemResult.getProperty("destinations"));
-
-                            Date timestamp = itemResult.getProperty("lastConfirmationTimestamp");
-                            if (timestamp != null) {
-                                item.setLastConfirmationTimestamp(timestamp.toInstant());
-                            }
-                            allItems.add(item);
-                        }
-                    }
+                    conveyorMap.put(conv.getId(), conv);
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error fetching graph data from OrientDB", e);
+            throw new RuntimeException("Error fetching topology from OrientDB", e);
         }
 
-        allItems.parallelStream().forEach(item -> {
-            ItemJourney journey = calculateCurrentJourney(item, locationsMap, simulationTime);
-            item.setCurrentJourney(journey);
-        });
+        // 2. FETCH LIVE STATE (From Redis)
+        List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
 
-        Map<String, List<ItemResponse>> finalItemsByLocation = allItems.stream()
-                .filter(item -> item.getLastKnownLocationId() != null)
-                .collect(Collectors.groupingBy(ItemResponse::getLastKnownLocationId));
+        // 3. MERGE & SIMULATE (The "Ghost" Logic)
+        for (Map<String, Object> rawItem : liveRawItems) {
+            try {
+                String id = (String) rawItem.get("id");
+                String edgeId = (String) rawItem.get("edgeId");
+                Long tsLong = (Long) rawItem.get("entryTimestamp");
+                String destId = (String) rawItem.get("destinationId");
 
-        locationsMap.values()
-                .forEach(loc -> loc.setItems(finalItemsByLocation.getOrDefault(loc.getId(), Collections.emptyList())));
+                // Optional: Name might be in Redis or we might need to fetch it.
+                // For now assuming it's either in Redis or we send ID and frontend handles it.
+                // If you stored 'n' in Redis, retrieve it here.
 
-        return new GraphData(new ArrayList<>(locationsMap.values()), allConnections);
+                if (edgeId == null || tsLong == null)
+                    continue;
+
+                Instant entryTime = Instant.ofEpochMilli(tsLong);
+
+                // Parse Path (if available in Redis)
+                // Assuming path is stored as List<String> or comma-separated string in Redis
+                // For this example, we assume simple logic or that path is not strictly
+                // required for static display
+                List<String> path = new ArrayList<>(); // TODO: Parse from rawItem if you stored it
+
+                // CALCULATE CURRENT POSITION
+                // This handles the "Blind Spot" if the item moved while we weren't looking
+                ItemResponse simulatedItem = calculateCurrentState(
+                        id, edgeId, entryTime, path, conveyorMap, now);
+
+                if (simulatedItem != null) {
+                    simulatedItem.setDestinationId(destId);
+                    // Set other metadata if available
+                    activeItems.add(simulatedItem);
+                }
+
+            } catch (Exception e) {
+                logger.warn("Failed to process live item state for item", e);
+            }
+        }
+
+        return new GraphData(nodes, new ArrayList<>(conveyorMap.values()), activeItems);
     }
 
-    private ItemJourney calculateCurrentJourney(
-            ItemResponse item, Map<String, LocationResponse> locationMap, Instant simulationTime) {
-        String lastKnownLocationId = item.getLastKnownLocationId();
-        Instant lastConfirmationTime = item.getLastConfirmationTimestamp();
+    /**
+     * Performs "Dead Reckoning" to find where the item is RIGHT NOW.
+     * It traverses the path based on speed/length and time elapsed.
+     */
+    private ItemResponse calculateCurrentState(
+            String itemId,
+            String startEdgeId,
+            Instant entryTime,
+            List<String> path,
+            Map<String, ConveyorResponse> conveyorMap,
+            Instant now) {
 
-        if (lastKnownLocationId == null || lastConfirmationTime == null)
-            return null;
+        Duration timeElapsed = Duration.between(entryTime, now);
 
-        Duration totalTimeElapsed = Duration.between(lastConfirmationTime, simulationTime);
+        // Construct the full sequence of edges to check
+        List<String> edgeSequence = new ArrayList<>();
+        edgeSequence.add(startEdgeId);
+        if (path != null)
+            edgeSequence.addAll(path);
 
-        List<String> destinations = item.getDestinations();
-        List<String> path = new ArrayList<>();
+        for (String edgeId : edgeSequence) {
+            ConveyorResponse conveyor = conveyorMap.get(edgeId);
 
-        if (destinations != null && !destinations.isEmpty()) {
-            path.addAll(destinations);
-        } else {
-            return null; // No path to simulate
-        }
+            // If conveyor missing from map (topology changed?), abort
+            if (conveyor == null)
+                return null;
 
-        String currentLocId = lastKnownLocationId;
-        for (int i = 0; i < path.size(); i++) {
-            String targetLocId = path.get(i);
+            double speed = (conveyor.getSpeed() != null) ? conveyor.getSpeed() : 0.0;
+            double length = (conveyor.getLength() != null) ? conveyor.getLength() : 1.0;
 
-            LocationResponse sourceLocation = locationMap.get(currentLocId);
-            if (sourceLocation == null || sourceLocation.getSpeed() <= 0 || sourceLocation.getLength() <= 0) {
-                break;
+            // Handle stopped belts or accumulation
+            if (speed <= 0) {
+                // Item is stuck here. Return 0% or last known progress.
+                // For simplicity, we return it at start of this edge or max progress.
+                return createItemResponse(itemId, edgeId, entryTime, 0.0);
             }
 
-            Duration timeToTraverse = Duration.ofMillis(
-                    (long) ((sourceLocation.getLength() / sourceLocation.getSpeed()) * 1000));
+            long traversalTimeMillis = (long) ((length / speed) * 1000);
+            Duration traversalDuration = Duration.ofMillis(traversalTimeMillis);
 
-            if (totalTimeElapsed.compareTo(timeToTraverse) < 0) {
-                double progress = (double) totalTimeElapsed.toMillis() / timeToTraverse.toMillis();
-                return new ItemJourney(currentLocId, targetLocId, progress, lastConfirmationTime);
+            // CHECK: Is the item still on this edge?
+            if (timeElapsed.compareTo(traversalDuration) < 0) {
+                // YES. Calculate progress.
+                double progress = (double) timeElapsed.toMillis() / traversalTimeMillis;
+
+                // We return the ItemResponse.
+                // Note: We return the ORIGINAL entry time for this specific edge,
+                // so the frontend can continue the animation smoothly.
+                // We calculate the "Virtual Entry Time" for this edge:
+                // VirtualEntry = Now - TimeElapsedOnThisEdge
+                Instant virtualEntryTime = now.minus(timeElapsed);
+
+                return createItemResponse(itemId, edgeId, virtualEntryTime, progress);
             }
 
-            totalTimeElapsed = totalTimeElapsed.minus(timeToTraverse);
-            lastConfirmationTime = lastConfirmationTime.plus(timeToTraverse);
-            currentLocId = targetLocId;
+            // NO. Item has finished this edge.
+            // Subtract time and move to next edge in the loop.
+            timeElapsed = timeElapsed.minus(traversalDuration);
         }
 
-        return null;
+        // If we run out of path but still have time left, the item is waiting at the
+        // end.
+        String lastEdgeId = edgeSequence.get(edgeSequence.size() - 1);
+        return createItemResponse(itemId, lastEdgeId, entryTime, 1.0);
+    }
+
+    private ItemResponse createItemResponse(String id, String edgeId, Instant entryTime, Double progress) {
+        ItemResponse item = new ItemResponse();
+        item.setId(id);
+        item.setCurrentEdgeId(edgeId);
+        item.setEntryTimestamp(entryTime);
+        item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
+        item.setActive(true);
+        return item;
     }
 }

@@ -1,37 +1,14 @@
 package com.fiumen.backend.services;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-import fiumen.events.ConnectionDeletedEvent;
-import fiumen.events.DomainEvent;
-import fiumen.events.ItemActivatedEvent;
-import fiumen.events.ItemCreatedEvent;
-import fiumen.events.ItemDeactivatedEvent;
-import fiumen.events.ItemDeletedEvent;
-import fiumen.events.ItemDestinationEvent;
-import fiumen.events.ItemPositionChangedEvent;
-import fiumen.events.ItemPositionCreatedEvent;
-import fiumen.events.ItemPositionDeletedEvent;
-import fiumen.events.ItemPropertiesUpdatedEvent;
-import fiumen.events.ItemRenamedEvent;
-import fiumen.events.ItemSpeedChangedEvent;
-import fiumen.events.LocationAddToMainPath;
-import fiumen.events.LocationCapacityChangedEvent;
-import fiumen.events.LocationConnectionCreatedEvent;
-import fiumen.events.LocationCoordinatesChangedEvent;
-import fiumen.events.LocationCreatedEvent;
-import fiumen.events.LocationDeletedEvent;
-import fiumen.events.LocationLengthChangedEvent;
-import fiumen.events.LocationPropertiesUpdatedEvent;
-import fiumen.events.LocationRemoveFromMainPath;
-import fiumen.events.LocationSpeedChangedEvent;
-
+import com.fiumen.backend.domain.Conveyor;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
+import fiumen.events.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.List;
@@ -48,7 +25,7 @@ public class EventProcessor {
     private final ClickHouseService clickHouseService;
     private final ItemService itemService;
     private final LocationService locationService;
-    private final ConnectedToService connectionService;
+    private final ConveyorService conveyorService; // <--- REPLACED ConnectedToService
     private final WebSocketService webSocketService;
     private final PathfindingService pathfindingService;
 
@@ -56,13 +33,13 @@ public class EventProcessor {
             ClickHouseService clickHouseService,
             ItemService itemService,
             LocationService locationService,
-            ConnectedToService connectionService,
+            ConveyorService conveyorService,
             WebSocketService webSocketService,
             PathfindingService pathfindingService) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
-        this.connectionService = connectionService;
+        this.conveyorService = conveyorService;
         this.webSocketService = webSocketService;
         this.pathfindingService = pathfindingService;
     }
@@ -72,49 +49,31 @@ public class EventProcessor {
             Map<String, Object> resultMap = new HashMap<>();
             try {
                 clickHouseService.saveEvent(event);
-
                 resultMap = processEvent(event, shouldBroadcast);
-
-                logger.info("Successfully processed event: {}",
-                        event.getEventType());
-
+                logger.info("Successfully processed event: {}", event.getEventType());
                 return resultMap;
             } catch (Exception e) {
-                logger.error("Error processing event: {}",
-                        event.getEventType(), e);
+                logger.error("Error processing event: {}", event.getEventType(), e);
                 throw new CompletionException(e);
             }
         });
     }
 
-    /**
-     * A generic helper that executes a database operation and retries it
-     * automatically if a OConcurrentModificationException occurs.
-     *
-     * @param operation The block of code to execute.
-     */
     private <T> T executeWithRetry(Supplier<T> operation) {
         final int MAX_RETRIES = 3;
         int attempt = 0;
-
         while (true) {
             try {
                 return operation.get();
             } catch (OConcurrentModificationException e) {
                 attempt++;
-                if (attempt >= MAX_RETRIES) {
-                    logger.error("Operation failed after {} retries due to persistent concurrent modification.",
-                            MAX_RETRIES, e);
+                if (attempt >= MAX_RETRIES)
                     throw e;
-                }
-
-                logger.warn("Concurrent modification detected. Retrying attempt {}/{}.", attempt, MAX_RETRIES);
-
                 try {
                     Thread.sleep(50 + new Random().nextInt(50));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("Retry attempt was interrupted", ie);
+                    throw new RuntimeException("Retry interrupted", ie);
                 }
             }
         }
@@ -131,55 +90,47 @@ public class EventProcessor {
     private Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         return this.<Map<String, Object>>executeWithRetry(() -> {
             return switch (event) {
+                // --- ITEM EVENTS ---
+
                 case ItemCreatedEvent e -> {
                     var item = new ItemInput(e);
+                    // Creates in OrientDB (Metadata) and Redis (Position)
                     itemService.createItem(item);
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemCreated(item);
                     }
-                    yield Map.of(
-                            "status", "CREATED",
-                            "itemId", e.getEntityId(),
-                            "message", "Item was created successfully.");
+                    yield Map.of("status", "CREATED", "itemId", e.getEntityId());
                 }
 
                 case ItemPositionChangedEvent e -> {
-                    var item = itemService.getItemById(e.getEntityId());
-                    var location = locationService.getLocationById(e.getLocationId());
-                    item.updatePosition(location, e.getTimestamp());
-                    itemService.fullUpdateItem(item);
+                    Conveyor conveyor = conveyorService.getConveyorById(e.getLocationId());
+
+                    // We update ONLY Redis
+                    itemService.updateItemPosition(e.getEntityId(), conveyor.getId(), e.getTimestamp());
+
                     if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
+                        webSocketService.broadcastPositionUpdate(e.getEntityId(), conveyor.getId(), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemPositionDeletedEvent e -> {
-                    var item = itemService.getItemById(e.getEntityId());
-                    item.updatePosition(null, null);
-                    itemService.fullUpdateItem(item);
+                    // Item removed from the belt (e.g. picked up manually)
+                    // We remove it from Redis tracking
+                    itemService.updateItemPosition(e.getEntityId(), null, null);
                     if (shouldBroadcast) {
-                        webSocketService.broadcastPositionLost(item.getId());
-                    }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
-                case ItemPositionCreatedEvent e -> {
-                    var item = itemService.getItemById(e.getEntityId());
-                    var location = locationService.getLocationById(e.getLocationId());
-                    item.updatePosition(location, e.getTimestamp());
-                    itemService.fullUpdateItem(item);
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(item.getId(), location.getId());
+                        webSocketService.broadcastPositionLost(e.getEntityId());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemRenamedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
-                    item.updateName(e.getNewName());
-                    itemService.fullUpdateItem(item);
+                    item.setName(e.getNewName());
+                    // Updates OrientDB and Redis Cache
+                    itemService.updateItem(new UpdateModel(item.getId(), Map.of("name", e.getNewName())));
+
                     if (shouldBroadcast) {
                         webSocketService
                                 .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("name", e.getNewName())));
@@ -188,60 +139,32 @@ public class EventProcessor {
                 }
 
                 case ItemSpeedChangedEvent e -> {
+                    // Note: Usually items follow conveyor speed, but AGVs might have own speed.
+                    // We update OrientDB metadata.
                     var item = itemService.getItemById(e.getEntityId());
-                    item.updateSpeed(e.getSpeed(), e.getTimestamp());
-                    itemService.fullUpdateItem(item);
+                    itemService.updateItem(new UpdateModel(item.getId(), Map.of("speed", e.getSpeed())));
+
                     if (shouldBroadcast) {
                         webSocketService
-                                .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("speed", item.getSpeed())));
-                    }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
-                case LocationAddToMainPath e -> {
-                    var location = locationService.getLocationById(e.getEntityId());
-                    location.setIsMainPath(true);
-                    var updateModel = new UpdateModel(location.getId(), Map.of("isMainPath", true));
-                    locationService.updateLocation(updateModel);
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
-                    }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
-                case LocationRemoveFromMainPath e -> {
-                    var location = locationService.getLocationById(e.getEntityId());
-                    location.setIsMainPath(false);
-                    var updateModel = new UpdateModel(location.getId(), Map.of("isMainPath", false));
-                    locationService.updateLocation(updateModel);
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
+                                .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("speed", e.getSpeed())));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemDeactivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
-                    item.stop();
-                    Map<String, Object> updateData = new HashMap<>();
-                    updateData.put("active", item.isActive());
-                    itemService.updateItem(new UpdateModel(item.getId(), updateData));
+                    itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", false)));
                     if (shouldBroadcast) {
-                        webSocketService
-                                .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", item.isActive())));
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", false)));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemActivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
-                    item.resume();
-                    Map<String, Object> updateData = new HashMap<>();
-                    updateData.put("active", item.isActive());
-                    itemService.updateItem(new UpdateModel(item.getId(), updateData));
+                    itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", true)));
                     if (shouldBroadcast) {
-                        webSocketService
-                                .broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", item.isActive())));
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of("active", true)));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -249,9 +172,7 @@ public class EventProcessor {
                 case ItemPropertiesUpdatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     item.updateProperties(e);
-                    Map<String, Object> updateData = new HashMap<>();
-                    updateData.put("properties", item.getProperties());
-                    var updateModel = new UpdateModel(item.getId(), updateData);
+                    var updateModel = new UpdateModel(item.getId(), Map.of("properties", item.getProperties()));
                     itemService.updateItem(updateModel);
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(updateModel);
@@ -260,7 +181,6 @@ public class EventProcessor {
                 }
 
                 case ItemDeletedEvent e -> {
-                    // TODO: DDD. mark to be deleted, then delete
                     itemService.deleteItem(e.getEntityId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemDeleted(e.getEntityId());
@@ -270,21 +190,29 @@ public class EventProcessor {
 
                 case ItemDestinationEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
-                    item.setDestination(e.getLocationId());
-                    List<String> calculatedPath = pathfindingService.calculateShortestPath(e.getEntityId(),
+
+                    // 1. Calculate Path (Returns list of Edge IDs)
+                    // We use the item's current edge as start, and the event location as target
+                    // Node.
+                    List<String> calculatedPath = pathfindingService.calculateShortestPath(
+                            item.getLastNodeId(), // Or derive from currentEdge
                             e.getLocationId());
 
+                    // 2. Update Item State (Redis + OrientDB)
+                    item.setDestinationId(e.getLocationId());
                     item.setPath(calculatedPath);
-                    Map<String, Object> updateData = new HashMap<>();
-                    updateData.put("destination", e.getLocationId());
-                    updateData.put("path", item.getPath());
 
-                    var updateModel = new UpdateModel(item.getId(), updateData);
+                    // We use fullUpdate to sync these changes
+                    itemService.fullUpdateItem(item);
+
                     if (shouldBroadcast) {
-                        webSocketService.broadcastItemUpdated(updateModel);
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(),
+                                Map.of("destination", e.getLocationId(), "path", calculatedPath)));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
+
+                // --- LOCATION EVENTS (Nodes) ---
 
                 case LocationCreatedEvent e -> {
                     var location = new LocationInput(e);
@@ -298,37 +226,8 @@ public class EventProcessor {
                 case LocationPropertiesUpdatedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     location.updateProperties(e);
-                    Map<String, Object> updateData = new HashMap<>();
-                    updateData.put("properties", location.getProperties());
-                    locationService.updateLocation(new UpdateModel(location.getId(), updateData));
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastLocationPropertiesUpdated(
-                                new UpdateModel(location.getId(), Map.of("properties", location.getProperties())));
-                    }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
-                case LocationSpeedChangedEvent e -> {
-                    var location = locationService.getLocationById(e.getEntityId());
-                    location.updateSpeed(e.getSpeed());
-
-                    var updateModel = new UpdateModel(location.getId(), Map.of("speed", location.getSpeed()));
+                    var updateModel = new UpdateModel(location.getId(), Map.of("properties", location.getProperties()));
                     locationService.updateLocation(updateModel);
-
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastLocationPropertiesUpdated(updateModel);
-                    }
-
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
-                case LocationLengthChangedEvent e -> {
-                    var location = locationService.getLocationById(e.getEntityId());
-                    location.updateLength(e.getLength());
-
-                    var updateModel = new UpdateModel(location.getId(), Map.of("length", location.getSpeed()));
-                    locationService.updateLocation(updateModel);
-
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel);
                     }
@@ -338,11 +237,9 @@ public class EventProcessor {
                 case LocationCoordinatesChangedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     location.updateCoordinates(e.getLatitude(), e.getLongitude());
-
                     var updateModel = new UpdateModel(location.getId(),
                             Map.of("latitude", location.getLatitude(), "longitude", location.getLongitude()));
                     locationService.updateLocation(updateModel);
-
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel);
                     }
@@ -352,30 +249,15 @@ public class EventProcessor {
                 case LocationCapacityChangedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     location.updateCapacity(e.getCapacity());
-
-                    var updateModel = new UpdateModel(location.getId(),
-                            Map.of("capacity", location.getCapacity()));
+                    var updateModel = new UpdateModel(location.getId(), Map.of("capacity", location.getCapacity()));
                     locationService.updateLocation(updateModel);
-
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel);
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
-                // Here we dont use DDD because it's an operation on multiple elements and
-                // doesnt have particular logics
-                case LocationConnectionCreatedEvent e -> {
-                    connectionService.createConnection(e.getEntityId(), e.getLocation2Id());
-
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastConnectionCreated(e.getEntityId(), e.getLocation2Id());
-                    }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
-                }
-
                 case LocationDeletedEvent e -> {
-                    // TODO: delete items? or put them inside
                     locationService.deleteLocation(e.getEntityId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationDeleted(e.getEntityId());
@@ -383,8 +265,82 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                // --- CONNECTION EVENTS (Conveyors/Edges) ---
+
+                case ConnectionCreatedEvent e -> {
+                    // Creates a Conveyor Edge
+                    // We assume default speed/length if not provided, or fetch from event if
+                    // available
+                    conveyorService.createConveyor(
+                            e.getConnectionId(),
+                            e.getSourceId(),
+                            e.getTargetId(),
+                            e.getName(),
+                            e.getLength(),
+                            e.getSpeed(),
+                            e.getIsMainPath(),
+                            e.getIsActive());
+                    if (shouldBroadcast) {
+                        TODO: SEND ALL DATA. ANF FIX FRONTEND
+                        webSocketService.broadcastConnectionCreated(e.getSourceId(), e.getTargetId());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ConnectionSpeedChangedEvent e -> {
+                    // Updates the Conveyor Edge
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setSpeed(e.getSpeed());
+                    conveyorService.updateConveyor(conveyor);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("speed", e.getSpeed())));
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ConnectionLengthChangedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setLength(e.getLength());
+                    conveyorService.updateConveyor(conveyor);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("length", e.getLength())));
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case LocationAddToMainPath e -> {
+                    // Assuming this event now targets a Conveyor ID
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    // We update the edge property
+                    // (You might need to add setIsMainPath to Conveyor domain object)
+                    // conveyor.setIsMainPath(true);
+                    // conveyorService.updateConveyor(conveyor);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("isMainPath", true)));
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ConnectionRemoveFromMainPath e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    // conveyor.setIsMainPath(false);
+                    // conveyorService.updateConveyor(conveyor);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("isMainPath", false)));
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case ConnectionDeletedEvent e -> {
-                    connectionService.deleteConnection(e.getSourceLocationId(), e.getTargetLocationId());
+                    conveyorService.deleteConveyor(e.getSourceLocationId(), e.getTargetLocationId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionDeleted(e.getSourceLocationId(), e.getTargetLocationId());
                     }

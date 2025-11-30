@@ -97,6 +97,27 @@ services:
       timeout: 10s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    container_name: fiumen_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    restart: always
+    container_name: fiumen_redis_ui
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+
 networks:
   app-network:
     driver: bridge

@@ -2,7 +2,7 @@ package com.fiumen.backend.services;
 
 import com.fiumen.backend.context.DatabaseContextHolder;
 import com.fiumen.backend.models.graph.GraphData;
-import com.fiumen.backend.models.response.ConnectionResponse;
+import com.fiumen.backend.models.response.ConveyorResponse;
 import com.fiumen.backend.models.response.ItemResponse;
 import com.fiumen.backend.models.response.LocationResponse;
 import com.fiumen.backend.models.simulation.SimulationStatus;
@@ -35,7 +35,7 @@ public class HistoricalGraphBuilder {
     private final SimulationService simulationService;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
-                                  OrientDBService orientDBService, SimulationService simulationService) {
+            OrientDBService orientDBService, SimulationService simulationService) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.orientDBService = orientDBService;
@@ -47,6 +47,7 @@ public class HistoricalGraphBuilder {
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             logger.info("Starting historical graph build for simulation: {}", simulationId);
 
+            // 1. Restore from Snapshot (The Baseline)
             Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(restorePoint);
             Instant eventsAfterTimestamp = Instant.EPOCH;
 
@@ -57,15 +58,19 @@ public class HistoricalGraphBuilder {
                 restoreFromSnapshotData(snapshot.graphData());
             }
 
+            // 2. Replay Events (The Delta)
             List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(eventsAfterTimestamp, restorePoint);
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
-            // Wrap in a transaction to be faster (we dont commit every time). if the transaction becomes too big, breaks it into chunks (TODO)
             orientDBService.withTransaction(session -> {
                 try {
                     session.begin();
                     for (DomainEvent event : eventsToReplay) {
                         try {
+                            // The EventProcessor now handles the new Edge/Redis-like logic
+                            // Note: In simulation, we don't use Redis, we use OrientDB as the state store
+                            // so EventProcessor might need a tweak or we assume the simulation DB
+                            // acts as the "Live State" for the duration of the replay.
                             eventProcessor.processEventWithoutBroadcast(event);
                         } catch (Exception e) {
                             logger.warn("Error while processing event {}: {}", event.getEventType(), e);
@@ -75,6 +80,7 @@ public class HistoricalGraphBuilder {
                 } catch (Exception e) {
                     session.rollback();
                     logger.error("Transaction failed, rolling back changes", e);
+                    throw e;
                 }
             });
 
@@ -100,63 +106,83 @@ public class HistoricalGraphBuilder {
 
                 Map<String, ORID> locationIdToRidMap = new HashMap<>();
 
-                for (LocationResponse locData : graphData.getLocations()) {
-                    OVertex locationVertex = session.newVertex("Location");
-                    
-                    // --- PROPRIETÀ DELLA LOCATION COMPILATE ---
-                    locationVertex.setProperty("customId", locData.getId());
-                    locationVertex.setProperty("name", locData.getName());
-                    locationVertex.setProperty("active", locData.getActive());
-                    locationVertex.setProperty("latitude", locData.getLatitude());
-                    locationVertex.setProperty("longitude", locData.getLongitude());
-                    locationVertex.setProperty("length", locData.getLength());
-                    locationVertex.setProperty("speed", locData.getSpeed());
-                    locationVertex.setProperty("capacity", locData.getCapacity());
-                    // Converte l'enum in stringa per la persistenza
-                    if (locData.getType() != null) {
-                        locationVertex.setProperty("type", locData.getType().name());
+                // --- 1. RESTORE LOCATIONS (Nodes) ---
+                if (graphData.getLocations() != null) {
+                    for (LocationResponse locData : graphData.getLocations()) {
+                        OVertex locationVertex = session.newVertex("Location");
+
+                        locationVertex.setProperty("customId", locData.getId());
+                        locationVertex.setProperty("name", locData.getName());
+                        locationVertex.setProperty("active", locData.getActive());
+                        locationVertex.setProperty("latitude", locData.getLatitude());
+                        locationVertex.setProperty("longitude", locData.getLongitude());
+                        locationVertex.setProperty("capacity", locData.getCapacity());
+
+                        if (locData.getType() != null) {
+                            locationVertex.setProperty("type", locData.getType().name());
+                        }
+                        if (locData.getProperties() != null) {
+                            locationVertex.setProperty("properties", locData.getProperties());
+                        }
+
+                        locationVertex.save();
+                        locationIdToRidMap.put(locData.getId(), locationVertex.getIdentity());
                     }
-                    if (locData.getProperties() != null) {
-                        locationVertex.setProperty("properties", locData.getProperties());
-                    }
-                    
-                    locationVertex.save();
-                    locationIdToRidMap.put(locData.getId(), locationVertex.getIdentity());
+                }
 
-                    if (locData.getItems() != null) {
-                        for (ItemResponse itemData : locData.getItems()) {
-                            OVertex itemVertex = session.newVertex("Item");
+                // --- 2. RESTORE CONVEYORS (Edges) ---
+                // Note: GraphData now contains ConveyorResponse, not ConnectionResponse
+                if (graphData.getConveyors() != null) {
+                    for (ConveyorResponse convData : graphData.getConveyors()) {
+                        ORID sourceRid = locationIdToRidMap.get(convData.getSourceId());
+                        ORID targetRid = locationIdToRidMap.get(convData.getTargetId());
 
-                            // --- PROPRIETÀ DELL'ITEM COMPILATE ---
-                            itemVertex.setProperty("customId", itemData.getId());
-                            itemVertex.setProperty("name", itemData.getName());
-                            itemVertex.setProperty("active", itemData.getActive());
-                            itemVertex.setProperty("speed", itemData.getSpeed());
-                            if (itemData.getProperties() != null) {
-                                itemVertex.setProperty("properties", itemData.getProperties());
-                            }
+                        if (sourceRid != null && targetRid != null) {
+                            OVertex sourceVertex = session.load(sourceRid);
+                            OVertex targetVertex = session.load(targetRid);
 
-                            itemVertex.save();
-                            itemVertex.addEdge(locationVertex, "HasPosition").save();
+                            OEdge conveyorEdge = sourceVertex.addEdge(targetVertex, "Conveyor");
+
+                            conveyorEdge.setProperty("customId", convData.getId());
+                            conveyorEdge.setProperty("length", convData.getLength());
+                            conveyorEdge.setProperty("speed", convData.getSpeed());
+                            conveyorEdge.setProperty("active", convData.getActive());
+                            conveyorEdge.setProperty("type", convData.getType());
+                            conveyorEdge.setProperty("isMainPath", convData.getIsMainPath());
+
+                            conveyorEdge.save();
                         }
                     }
                 }
 
-                for (ConnectionResponse connData : graphData.getConnections()) {
-                    ORID sourceRid = locationIdToRidMap.get(connData.getSourceId());
-                    ORID targetRid = locationIdToRidMap.get(connData.getTargetId());
-                    if (sourceRid != null && targetRid != null) {
-                        OVertex sourceVertex = (OVertex) session.load(sourceRid);
-                        OVertex targetVertex = (OVertex) session.load(targetRid);
-                        OEdge connectionEdge = sourceVertex.addEdge(targetVertex, "ConnectedTo");
-                        
-                        if (connData.getProperties() != null) {
-                            connectionEdge.setProperty("properties", connData.getProperties());
+                // --- 3. RESTORE ITEMS (Flat List) ---
+                // Items are no longer nested inside locations in the new GraphData structure
+                if (graphData.getItems() != null) {
+                    for (ItemResponse itemData : graphData.getItems()) {
+                        OVertex itemVertex = session.newVertex("Item");
+
+                        itemVertex.setProperty("customId", itemData.getId());
+                        itemVertex.setProperty("name", itemData.getName());
+                        itemVertex.setProperty("active", itemData.getActive());
+
+                        // Restore Physics State
+                        // In the simulation DB, we store these as properties on the Vertex
+                        // because we don't have Redis here.
+                        itemVertex.setProperty("currentEdgeId", itemData.getCurrentEdgeId());
+                        itemVertex.setProperty("destinationId", itemData.getDestinationId());
+
+                        if (itemData.getEntryTimestamp() != null) {
+                            itemVertex.setProperty("entryTimestamp", itemData.getEntryTimestamp());
                         }
-                        
-                        connectionEdge.save();
+
+                        if (itemData.getProperties() != null) {
+                            itemVertex.setProperty("properties", itemData.getProperties());
+                        }
+
+                        itemVertex.save();
                     }
                 }
+
                 session.commit();
                 logger.info("Snapshot restore committed successfully for DB: {}", session.getName());
             } catch (Exception e) {
@@ -167,14 +193,11 @@ public class HistoricalGraphBuilder {
         });
     }
 
-    private void clearDatabase() {
-        orientDBService.withSession(this::clearDatabase);
-    }
-
     private void clearDatabase(ODatabaseSession session) {
-        session.command("DELETE FROM ConnectedTo UNSAFE");
-        session.command("DELETE FROM HasPosition UNSAFE");
+        // Clean up the new schema elements
+        session.command("DELETE FROM Conveyor UNSAFE"); // Was ConnectedTo
         session.command("DELETE FROM Item UNSAFE");
         session.command("DELETE FROM Location UNSAFE");
+        // HasPosition is gone, so no need to delete it
     }
 }

@@ -20,11 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 @Service
 public class LocationService {
@@ -46,23 +42,20 @@ public class LocationService {
                 while (rs.hasNext()) {
                     OResult row = rs.next();
                     row.getVertex().ifPresent(vertex -> {
-                        Location location = vertexToLocation(vertex);
-                        locations.add(location);
+                        locations.add(vertexToLocation(vertex));
                     });
                 }
             }
         } catch (Exception e) {
             throw new RuntimeException("Error while fetching locations: " + e.getMessage(), e);
         }
-
         return locations;
     }
 
     public Location getLocationById(String id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             var vertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
-            Location location = vertexToLocation(vertex);
-            return location;
+            return vertexToLocation(vertex);
         } catch (Exception e) {
             throw new RuntimeException("Error while fetching location with ID " + id + ": " + e.getMessage(), e);
         }
@@ -71,23 +64,26 @@ public class LocationService {
     public Location createLocation(LocationInput location) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             if (OrientDBUtils.checkIfAlreadyExists(db, location.getId())) {
-                throw new IllegalArgumentException("Location with name " + location.getName() + " already exists.");
+                throw new IllegalArgumentException("Location with ID " + location.getId() + " already exists.");
             }
+
             OVertex vertex = db.newVertex("Location");
             vertex.setProperty("name", location.getName());
             vertex.setProperty("customId", location.getId());
             vertex.setProperty("latitude", location.getLatitude());
             vertex.setProperty("longitude", location.getLongitude());
-            vertex.setProperty("length", location.getLength());
-            vertex.setProperty("speed", location.getSpeed());
             vertex.setProperty("type", location.getType());
             vertex.setProperty("active", location.getActive());
-            vertex.setProperty("isMainPath", location.getIsMainPath());
+
+            if (location.getCapacity() != null) {
+                vertex.setProperty("capacity", location.getCapacity());
+            }
+
             vertex.save();
             return vertexToLocation(vertex);
         } catch (Exception e) {
             throw new RuntimeException(
-                    "Error while creating location with name " + location.getName() + ": " + e.getMessage(), e);
+                    "Error while creating location " + location.getName() + ": " + e.getMessage(), e);
         }
     }
 
@@ -102,14 +98,11 @@ public class LocationService {
             locationVertex.setProperty("name", location.getName());
             locationVertex.setProperty("latitude", location.getLatitude());
             locationVertex.setProperty("longitude", location.getLongitude());
-            locationVertex.setProperty("length", location.getLength());
-            locationVertex.setProperty("speed", location.getSpeed());
             locationVertex.setProperty("type", location.getType());
             locationVertex.setProperty("active", location.getActive());
-            locationVertex.setProperty("isMainPath", location.getIsMainPath());
             locationVertex.setProperty("properties", location.getProperties());
 
-            reconcileConnections(db, locationVertex, location.getOutboundConnectionIds());
+            locationVertex.setProperty("capacity", location.getCapacity());
 
             locationVertex.save();
 
@@ -122,17 +115,13 @@ public class LocationService {
         }
     }
 
-    /**
-     * Delete a location and all connections to it
-     * 
-     * @param id
-     */
     public void deleteLocation(String id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
             try {
                 OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
 
+                // When deleting a Node, we must delete all connected Edges
                 for (OEdge edge : toLocationVertex.getEdges(ODirection.BOTH)) {
                     edge.delete();
                 }
@@ -149,58 +138,24 @@ public class LocationService {
         }
     }
 
-    /**
-     * A helper method to efficiently update the 'ConnectedTo' edges for a location.
-     * It compares the current state in the DB with the desired state from the
-     * domain object
-     * and only adds/removes the edges that have changed.
-     */
-    private void reconcileConnections(ODatabaseSession db, OVertex fromVertex, Set<String> desiredConnectionIds) {
-        Map<String, OEdge> currentEdges = new HashMap<>();
-        for (OEdge edge : fromVertex.getEdges(ODirection.OUT, "ConnectedTo")) {
-            OVertex connectedVertex = edge.getTo();
-            if (connectedVertex != null) {
-                currentEdges.put(connectedVertex.getProperty("customId"), edge);
-            }
-        }
-        Set<String> currentConnectionIds = currentEdges.keySet();
-
-        Set<String> idsToDelete = new HashSet<>(currentConnectionIds);
-        idsToDelete.removeAll(desiredConnectionIds);
-
-        for (String idToDelete : idsToDelete) {
-            OEdge edgeToDelete = currentEdges.get(idToDelete);
-            edgeToDelete.delete();
-            logger.info("Deleted connection from {} to {}", fromVertex.getProperty("customId"), idToDelete);
-        }
-
-        Set<String> idsToAdd = new HashSet<>(desiredConnectionIds);
-        idsToAdd.removeAll(currentConnectionIds);
-
-        for (String idToAdd : idsToAdd) {
-            OVertex toLocationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, idToAdd);
-            fromVertex.addEdge(toLocationVertex, "ConnectedTo").save();
-            logger.info("Created connection from {} to {}", fromVertex.getProperty("customId"), idToAdd);
-        }
-    }
-
     private Location vertexToLocation(OVertex vertex) {
         if (vertex == null) {
             throw new IllegalArgumentException("Attempted to convert a null vertex to location.");
         }
+
         Integer capacity = vertex.getProperty("capacity");
+
+        String typeStr = vertex.getProperty("type");
+        LocationType type = (typeStr != null) ? LocationType.valueOf(typeStr) : LocationType.GENERIC;
 
         return new Location(
                 vertex.getProperty("customId"),
                 vertex.getProperty("name"),
-                LocationType.fromString(vertex.getProperty("type")),
+                type,
                 vertex.getProperty("active"),
-                vertex.getProperty("isMainPath"),
                 vertex.getProperty("properties"),
                 vertex.getProperty("latitude"),
                 vertex.getProperty("longitude"),
-                vertex.getProperty("length"),
-                vertex.getProperty("speed"),
                 capacity);
     }
 }

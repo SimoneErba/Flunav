@@ -39,53 +39,143 @@ export interface CapacityUpdateRequest {
 /**
  * 
  * @export
- * @interface ConnectionInput
+ * @interface Conveyor
  */
-export interface ConnectionInput {
+export interface Conveyor {
     /**
      * 
      * @type {string}
-     * @memberof ConnectionInput
+     * @memberof Conveyor
      */
-    'location1Id'?: string;
+    'id'?: string;
     /**
      * 
      * @type {string}
-     * @memberof ConnectionInput
+     * @memberof Conveyor
      */
-    'location2Id'?: string;
+    'sourceLocationId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof Conveyor
+     */
+    'targetLocationId'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof Conveyor
+     */
+    'length'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof Conveyor
+     */
+    'speed'?: number;
+    /**
+     * 
+     * @type {string}
+     * @memberof Conveyor
+     */
+    'type'?: ConveyorTypeEnum;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Conveyor
+     */
+    'active'?: boolean;
+    /**
+     * 
+     * @type {number}
+     * @memberof Conveyor
+     */
+    'capacity'?: number;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof Conveyor
+     */
+    'mainPath'?: boolean;
 }
+
+export const ConveyorTypeEnum = {
+    Belt: 'BELT',
+    Roller: 'ROLLER',
+    Accumulation: 'ACCUMULATION'
+} as const;
+
+export type ConveyorTypeEnum = typeof ConveyorTypeEnum[keyof typeof ConveyorTypeEnum];
+
 /**
  * 
  * @export
- * @interface ConnectionResponse
+ * @interface ConveyorResponse
  */
-export interface ConnectionResponse {
+export interface ConveyorResponse {
     /**
      * 
      * @type {string}
-     * @memberof ConnectionResponse
+     * @memberof ConveyorResponse
+     */
+    'id'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof ConveyorResponse
      */
     'sourceId'?: string;
     /**
      * 
      * @type {string}
-     * @memberof ConnectionResponse
+     * @memberof ConveyorResponse
      */
     'targetId'?: string;
     /**
      * 
-     * @type {string}
-     * @memberof ConnectionResponse
+     * @type {number}
+     * @memberof ConveyorResponse
      */
-    'direction'?: string;
+    'length'?: number;
     /**
      * 
-     * @type {{ [key: string]: object; }}
-     * @memberof ConnectionResponse
+     * @type {number}
+     * @memberof ConveyorResponse
      */
-    'properties'?: { [key: string]: object; };
+    'speed'?: number;
+    /**
+     * 
+     * @type {string}
+     * @memberof ConveyorResponse
+     */
+    'type'?: ConveyorResponseTypeEnum;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof ConveyorResponse
+     */
+    'active'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof ConveyorResponse
+     */
+    'isMainPath'?: boolean;
+    /**
+     * 
+     * @type {number}
+     * @memberof ConveyorResponse
+     */
+    'capacity'?: number;
 }
+
+export const ConveyorResponseTypeEnum = {
+    Belt: 'BELT',
+    Roller: 'ROLLER',
+    Accumulation: 'ACCUMULATION'
+} as const;
+
+export type ConveyorResponseTypeEnum = typeof ConveyorResponseTypeEnum[keyof typeof ConveyorResponseTypeEnum];
+
 /**
  * 
  * @export
@@ -127,6 +217,67 @@ export interface CreateConnection {
 /**
  * 
  * @export
+ * @interface CreateConveyorInput
+ */
+export interface CreateConveyorInput {
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateConveyorInput
+     */
+    'connectionId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateConveyorInput
+     */
+    'sourceId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateConveyorInput
+     */
+    'targetId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateConveyorInput
+     */
+    'name'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConveyorInput
+     */
+    'length'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConveyorInput
+     */
+    'speed'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConveyorInput
+     */
+    'timeToTraverseMs'?: number;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof CreateConveyorInput
+     */
+    'isMainPath'?: boolean;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof CreateConveyorInput
+     */
+    'isActive'?: boolean;
+}
+/**
+ * 
+ * @export
  * @interface CreateSimulationRequest
  */
 export interface CreateSimulationRequest {
@@ -151,10 +302,16 @@ export interface GraphData {
     'locations'?: Array<LocationResponse>;
     /**
      * 
-     * @type {Array<ConnectionResponse>}
+     * @type {Array<ConveyorResponse>}
      * @memberof GraphData
      */
-    'connections'?: Array<ConnectionResponse>;
+    'conveyors'?: Array<ConveyorResponse>;
+    /**
+     * 
+     * @type {Array<ItemResponse>}
+     * @memberof GraphData
+     */
+    'items'?: Array<ItemResponse>;
 }
 /**
  * 
@@ -189,12 +346,6 @@ export interface Item {
     'name'?: string;
     /**
      * 
-     * @type {number}
-     * @memberof Item
-     */
-    'speed'?: number;
-    /**
-     * 
      * @type {boolean}
      * @memberof Item
      */
@@ -207,16 +358,28 @@ export interface Item {
     'properties'?: { [key: string]: object; };
     /**
      * 
-     * @type {Location}
+     * @type {string}
      * @memberof Item
      */
-    'location'?: Location;
+    'currentEdgeId'?: string;
     /**
      * 
      * @type {string}
      * @memberof Item
      */
-    'destination'?: string;
+    'lastNodeId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof Item
+     */
+    'entryTimestamp'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof Item
+     */
+    'destinationId'?: string;
     /**
      * 
      * @type {Array<string>}
@@ -225,16 +388,10 @@ export interface Item {
     'path'?: Array<string>;
     /**
      * 
-     * @type {ProgressInfo}
+     * @type {number}
      * @memberof Item
      */
-    'progressInfo'?: ProgressInfo;
-    /**
-     * 
-     * @type {string}
-     * @memberof Item
-     */
-    'lastKnownLocationTimestamp'?: string;
+    'currentProgress'?: number;
 }
 /**
  * 
@@ -282,37 +439,6 @@ export interface ItemInput {
 /**
  * 
  * @export
- * @interface ItemJourney
- */
-export interface ItemJourney {
-    /**
-     * 
-     * @type {string}
-     * @memberof ItemJourney
-     */
-    'sourceId'?: string;
-    /**
-     * 
-     * @type {string}
-     * @memberof ItemJourney
-     */
-    'targetId'?: string;
-    /**
-     * 
-     * @type {number}
-     * @memberof ItemJourney
-     */
-    'progress'?: number;
-    /**
-     * 
-     * @type {string}
-     * @memberof ItemJourney
-     */
-    'startTime'?: string;
-}
-/**
- * 
- * @export
  * @interface ItemResponse
  */
 export interface ItemResponse {
@@ -330,12 +456,6 @@ export interface ItemResponse {
     'name'?: string;
     /**
      * 
-     * @type {number}
-     * @memberof ItemResponse
-     */
-    'speed'?: number;
-    /**
-     * 
      * @type {boolean}
      * @memberof ItemResponse
      */
@@ -351,25 +471,31 @@ export interface ItemResponse {
      * @type {string}
      * @memberof ItemResponse
      */
-    'lastKnownLocationId'?: string;
+    'currentEdgeId'?: string;
     /**
      * 
      * @type {string}
      * @memberof ItemResponse
      */
-    'lastConfirmationTimestamp'?: string;
+    'entryTimestamp'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof ItemResponse
+     */
+    'progress'?: number;
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'destinationId'?: string;
     /**
      * 
      * @type {Array<string>}
      * @memberof ItemResponse
      */
-    'destinations'?: Array<string>;
-    /**
-     * 
-     * @type {ItemJourney}
-     * @memberof ItemResponse
-     */
-    'currentJourney'?: ItemJourney;
+    'path'?: Array<string>;
 }
 /**
  * 
@@ -416,12 +542,6 @@ export interface Location {
     'active'?: boolean;
     /**
      * 
-     * @type {boolean}
-     * @memberof Location
-     */
-    'isMainPath'?: boolean;
-    /**
-     * 
      * @type {{ [key: string]: object; }}
      * @memberof Location
      */
@@ -443,53 +563,22 @@ export interface Location {
      * @type {number}
      * @memberof Location
      */
-    'length'?: number;
-    /**
-     * 
-     * @type {number}
-     * @memberof Location
-     */
-    'speed'?: number;
-    /**
-     * 
-     * @type {number}
-     * @memberof Location
-     */
     'capacity'?: number;
     /**
      * 
      * @type {number}
      * @memberof Location
      */
-    'itemCount'?: number;
-    /**
-     * 
-     * @type {Set<string>}
-     * @memberof Location
-     */
-    'outboundConnectionIds'?: Set<string>;
+    'currentItemCount'?: number;
     /**
      * 
      * @type {boolean}
      * @memberof Location
      */
     'full'?: boolean;
-    /**
-     * 
-     * @type {boolean}
-     * @memberof Location
-     */
-    'track'?: boolean;
-    /**
-     * 
-     * @type {number}
-     * @memberof Location
-     */
-    'transitTimeSeconds'?: number;
 }
 
 export const LocationTypeEnum = {
-    Conveyor: 'CONVEYOR',
     Junction: 'JUNCTION',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
@@ -574,7 +663,6 @@ export interface LocationInput {
 }
 
 export const LocationInputTypeEnum = {
-    Conveyor: 'CONVEYOR',
     Junction: 'JUNCTION',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
@@ -604,6 +692,18 @@ export interface LocationResponse {
     'name'?: string;
     /**
      * 
+     * @type {string}
+     * @memberof LocationResponse
+     */
+    'type'?: LocationResponseTypeEnum;
+    /**
+     * 
+     * @type {boolean}
+     * @memberof LocationResponse
+     */
+    'active'?: boolean;
+    /**
+     * 
      * @type {number}
      * @memberof LocationResponse
      */
@@ -619,36 +719,6 @@ export interface LocationResponse {
      * @type {number}
      * @memberof LocationResponse
      */
-    'length'?: number;
-    /**
-     * 
-     * @type {number}
-     * @memberof LocationResponse
-     */
-    'speed'?: number;
-    /**
-     * 
-     * @type {string}
-     * @memberof LocationResponse
-     */
-    'type'?: LocationResponseTypeEnum;
-    /**
-     * 
-     * @type {boolean}
-     * @memberof LocationResponse
-     */
-    'active'?: boolean;
-    /**
-     * 
-     * @type {boolean}
-     * @memberof LocationResponse
-     */
-    'isMainPath'?: boolean;
-    /**
-     * 
-     * @type {number}
-     * @memberof LocationResponse
-     */
     'capacity'?: number;
     /**
      * 
@@ -656,22 +726,9 @@ export interface LocationResponse {
      * @memberof LocationResponse
      */
     'properties'?: { [key: string]: object; };
-    /**
-     * 
-     * @type {Array<ItemResponse>}
-     * @memberof LocationResponse
-     */
-    'items'?: Array<ItemResponse>;
-    /**
-     * 
-     * @type {Array<ConnectionResponse>}
-     * @memberof LocationResponse
-     */
-    'connections'?: Array<ConnectionResponse>;
 }
 
 export const LocationResponseTypeEnum = {
-    Conveyor: 'CONVEYOR',
     Junction: 'JUNCTION',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
@@ -693,25 +750,6 @@ export interface PlaybackRequest {
      * @memberof PlaybackRequest
      */
     'speedFactor'?: number;
-}
-/**
- * 
- * @export
- * @interface ProgressInfo
- */
-export interface ProgressInfo {
-    /**
-     * 
-     * @type {number}
-     * @memberof ProgressInfo
-     */
-    'progress'?: number;
-    /**
-     * 
-     * @type {string}
-     * @memberof ProgressInfo
-     */
-    'datetime'?: string;
 }
 /**
  * 
@@ -772,6 +810,641 @@ export interface SpeedUpdateRequest {
      */
     'speed'?: number;
 }
+
+/**
+ * ConveyorsApi - axios parameter creator
+ * @export
+ */
+export const ConveyorsApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         * 
+         * @summary Create a new conveyor connection
+         * @param {CreateConveyorInput} createConveyorInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createConveyor: async (createConveyorInput: CreateConveyorInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'createConveyorInput' is not null or undefined
+            assertParamExists('createConveyor', 'createConveyorInput', createConveyorInput)
+            const localVarPath = `/api/conveyors`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(createConveyorInput, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Delete a conveyor connection by Source and Target IDs
+         * @param {string} sourceId ID of the source location
+         * @param {string} targetId ID of the target location
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteConveyor: async (sourceId: string, targetId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'sourceId' is not null or undefined
+            assertParamExists('deleteConveyor', 'sourceId', sourceId)
+            // verify required parameter 'targetId' is not null or undefined
+            assertParamExists('deleteConveyor', 'targetId', targetId)
+            const localVarPath = `/api/conveyors`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (sourceId !== undefined) {
+                localVarQueryParameter['sourceId'] = sourceId;
+            }
+
+            if (targetId !== undefined) {
+                localVarQueryParameter['targetId'] = targetId;
+            }
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Get all conveyors
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getAllConveyors: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/conveyors`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Get a conveyor by ID
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConveyorById: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('getConveyorById', 'id', id)
+            const localVarPath = `/api/conveyors/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Batch update conveyor properties
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyor: async (id: string, requestBody: { [key: string]: object; }, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyor', 'id', id)
+            // verify required parameter 'requestBody' is not null or undefined
+            assertParamExists('updateConveyor', 'requestBody', requestBody)
+            const localVarPath = `/api/conveyors/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(requestBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorIsMainPath: async (id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyorIsMainPath', 'id', id)
+            // verify required parameter 'isMainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyorIsMainPath', 'isMainPathUpdateRequest', isMainPathUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/isMainPath`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(isMainPathUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Update conveyor length
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorLength: async (id: string, lengthUpdateRequest: LengthUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyorLength', 'id', id)
+            // verify required parameter 'lengthUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyorLength', 'lengthUpdateRequest', lengthUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/length`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(lengthUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Update conveyor speed
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorSpeed: async (id: string, speedUpdateRequest: SpeedUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyorSpeed', 'id', id)
+            // verify required parameter 'speedUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyorSpeed', 'speedUpdateRequest', speedUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/speed`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(speedUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * ConveyorsApi - functional programming interface
+ * @export
+ */
+export const ConveyorsApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = ConveyorsApiAxiosParamCreator(configuration)
+    return {
+        /**
+         * 
+         * @summary Create a new conveyor connection
+         * @param {CreateConveyorInput} createConveyorInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async createConveyor(createConveyorInput: CreateConveyorInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.createConveyor(createConveyorInput, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.createConveyor']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Delete a conveyor connection by Source and Target IDs
+         * @param {string} sourceId ID of the source location
+         * @param {string} targetId ID of the target location
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async deleteConveyor(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteConveyor(sourceId, targetId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.deleteConveyor']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Get all conveyors
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getAllConveyors(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<Conveyor>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getAllConveyors(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.getAllConveyors']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Get a conveyor by ID
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getConveyorById(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Conveyor>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getConveyorById(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.getConveyorById']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Batch update conveyor properties
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyor(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyor(id, requestBody, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyor']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorIsMainPath(id, isMainPathUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorIsMainPath']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Update conveyor length
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyorLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorLength(id, lengthUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorLength']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Update conveyor speed
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorSpeed(id, speedUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorSpeed']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * ConveyorsApi - factory interface
+ * @export
+ */
+export const ConveyorsApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = ConveyorsApiFp(configuration)
+    return {
+        /**
+         * 
+         * @summary Create a new conveyor connection
+         * @param {CreateConveyorInput} createConveyorInput 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createConveyor(createConveyorInput: CreateConveyorInput, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.createConveyor(createConveyorInput, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Delete a conveyor connection by Source and Target IDs
+         * @param {string} sourceId ID of the source location
+         * @param {string} targetId ID of the target location
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        deleteConveyor(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.deleteConveyor(sourceId, targetId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Get all conveyors
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getAllConveyors(options?: RawAxiosRequestConfig): AxiosPromise<Array<Conveyor>> {
+            return localVarFp.getAllConveyors(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Get a conveyor by ID
+         * @param {string} id 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConveyorById(id: string, options?: RawAxiosRequestConfig): AxiosPromise<Conveyor> {
+            return localVarFp.getConveyorById(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Batch update conveyor properties
+         * @param {string} id 
+         * @param {{ [key: string]: object; }} requestBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyor(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateConveyor(id, requestBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyorIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Update conveyor length
+         * @param {string} id 
+         * @param {LengthUpdateRequest} lengthUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyorLength(id, lengthUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Update conveyor speed
+         * @param {string} id 
+         * @param {SpeedUpdateRequest} speedUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * ConveyorsApi - object-oriented interface
+ * @export
+ * @class ConveyorsApi
+ * @extends {BaseAPI}
+ */
+export class ConveyorsApi extends BaseAPI {
+    /**
+     * 
+     * @summary Create a new conveyor connection
+     * @param {CreateConveyorInput} createConveyorInput 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public createConveyor(createConveyorInput: CreateConveyorInput, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).createConveyor(createConveyorInput, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Delete a conveyor connection by Source and Target IDs
+     * @param {string} sourceId ID of the source location
+     * @param {string} targetId ID of the target location
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public deleteConveyor(sourceId: string, targetId: string, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).deleteConveyor(sourceId, targetId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Get all conveyors
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public getAllConveyors(options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).getAllConveyors(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Get a conveyor by ID
+     * @param {string} id 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public getConveyorById(id: string, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).getConveyorById(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Batch update conveyor properties
+     * @param {string} id 
+     * @param {{ [key: string]: object; }} requestBody 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyor(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyor(id, requestBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Update if conveyor is part of the main path
+     * @param {string} id 
+     * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyorIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Update conveyor length
+     * @param {string} id 
+     * @param {LengthUpdateRequest} lengthUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyorLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyorLength(id, lengthUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Update conveyor speed
+     * @param {string} id 
+     * @param {SpeedUpdateRequest} speedUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
 
 /**
  * GraphApi - axios parameter creator
@@ -1304,190 +1977,6 @@ export class ItemControllerApi extends BaseAPI {
      */
     public updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig) {
         return ItemControllerApiFp(this.configuration).updateItemProperties(propertyUpdateRequest, options).then((request) => request(this.axios, this.basePath));
-    }
-}
-
-
-
-/**
- * LocationConnectionControllerApi - axios parameter creator
- * @export
- */
-export const LocationConnectionControllerApiAxiosParamCreator = function (configuration?: Configuration) {
-    return {
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        createConnection1: async (connectionInput: ConnectionInput, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'connectionInput' is not null or undefined
-            assertParamExists('createConnection1', 'connectionInput', connectionInput)
-            const localVarPath = `/api/connections`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(connectionInput, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @param {string} sourceId 
-         * @param {string} targetId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        deleteConnection: async (sourceId: string, targetId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'sourceId' is not null or undefined
-            assertParamExists('deleteConnection', 'sourceId', sourceId)
-            // verify required parameter 'targetId' is not null or undefined
-            assertParamExists('deleteConnection', 'targetId', targetId)
-            const localVarPath = `/api/connections`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            if (sourceId !== undefined) {
-                localVarQueryParameter['sourceId'] = sourceId;
-            }
-
-            if (targetId !== undefined) {
-                localVarQueryParameter['targetId'] = targetId;
-            }
-
-
-    
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-    }
-};
-
-/**
- * LocationConnectionControllerApi - functional programming interface
- * @export
- */
-export const LocationConnectionControllerApiFp = function(configuration?: Configuration) {
-    const localVarAxiosParamCreator = LocationConnectionControllerApiAxiosParamCreator(configuration)
-    return {
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async createConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.createConnection1(connectionInput, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationConnectionControllerApi.createConnection1']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @param {string} sourceId 
-         * @param {string} targetId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.deleteConnection(sourceId, targetId, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationConnectionControllerApi.deleteConnection']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-    }
-};
-
-/**
- * LocationConnectionControllerApi - factory interface
- * @export
- */
-export const LocationConnectionControllerApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
-    const localVarFp = LocationConnectionControllerApiFp(configuration)
-    return {
-        /**
-         * 
-         * @param {ConnectionInput} connectionInput 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        createConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig): AxiosPromise<void> {
-            return localVarFp.createConnection1(connectionInput, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @param {string} sourceId 
-         * @param {string} targetId 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.deleteConnection(sourceId, targetId, options).then((request) => request(axios, basePath));
-        },
-    };
-};
-
-/**
- * LocationConnectionControllerApi - object-oriented interface
- * @export
- * @class LocationConnectionControllerApi
- * @extends {BaseAPI}
- */
-export class LocationConnectionControllerApi extends BaseAPI {
-    /**
-     * 
-     * @param {ConnectionInput} connectionInput 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof LocationConnectionControllerApi
-     */
-    public createConnection1(connectionInput: ConnectionInput, options?: RawAxiosRequestConfig) {
-        return LocationConnectionControllerApiFp(this.configuration).createConnection1(connectionInput, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @param {string} sourceId 
-     * @param {string} targetId 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof LocationConnectionControllerApi
-     */
-    public deleteConnection(sourceId: string, targetId: string, options?: RawAxiosRequestConfig) {
-        return LocationConnectionControllerApiFp(this.configuration).deleteConnection(sourceId, targetId, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

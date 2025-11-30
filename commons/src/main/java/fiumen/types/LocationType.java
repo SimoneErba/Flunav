@@ -11,9 +11,6 @@ import java.util.stream.Stream;
  */
 public enum LocationType {
 
-    // Represents a physical, motorized track with length and speed.
-    CONVEYOR("CONVEYOR"),
-
     // Represents a logical point where paths diverge or converge.
     // Typically has no physical dimensions (length/speed).
     JUNCTION("JUNCTION"),
@@ -23,7 +20,7 @@ public enum LocationType {
 
     // Represents a track with a finite capacity, used for buffering items.
     ACCUMULATION("ACCUMULATION"),
-    
+
     // Represents a physical, non-motorized path (e.g., a gravity slide).
     // Typically has length but no speed.
     ROAD("ROAD"),
@@ -38,8 +35,10 @@ public enum LocationType {
     }
 
     /**
-     * This method allows Jackson to correctly serialize the enum to its string value.
-     * When you return a Location in a JSON API, it will show "CONVEYOR" instead of the enum name.
+     * This method allows Jackson to correctly serialize the enum to its string
+     * value.
+     * When you return a Location in a JSON API, it will show "CONVEYOR" instead of
+     * the enum name.
      */
     @JsonValue
     public String getValue() {
@@ -47,10 +46,12 @@ public enum LocationType {
     }
 
     /**
-     * This method allows Jackson (and your own code) to safely create an enum from a string.
+     * This method allows Jackson (and your own code) to safely create an enum from
+     * a string.
      * It's case-insensitive and defaults to GENERIC if the string is unknown.
      *
-     * @param value The string to convert (e.g., "conveyor", "CONVEYOR", or "Conveyor").
+     * @param value The string to convert (e.g., "conveyor", "CONVEYOR", or
+     *              "Conveyor").
      * @return The corresponding LocationType, or GENERIC if no match is found.
      */
     @JsonCreator

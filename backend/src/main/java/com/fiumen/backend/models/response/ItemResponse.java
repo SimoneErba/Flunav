@@ -14,11 +14,18 @@ import lombok.NoArgsConstructor;
 public class ItemResponse {
     private String id;
     private String name;
-    private Double speed;
     private Boolean active;
     private Map<String, Object> properties;
-    private String lastKnownLocationId;
-    private Instant lastConfirmationTimestamp;
-    private List<String> destinations;
-    private ItemJourney currentJourney;
-} 
+
+    // --- POSITIONING (Physics) ---
+    private String currentEdgeId; // The Conveyor ID
+    private Instant entryTimestamp; // When it entered the edge
+
+    // Calculated Progress (0.0 to 1.0) sent on initial load
+    // The frontend uses this + speed to start animation
+    private Double progress;
+
+    // --- NAVIGATION ---
+    private String destinationId;
+    private List<String> path; // List of Edge IDs
+}
