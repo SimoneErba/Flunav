@@ -39,16 +39,16 @@ public class GraphService {
     public GraphData getGraphData() {
         Instant now = Instant.now();
 
-        // --- 1. LOAD GRAPH INTO MEMORY ---
-        // We fetch everything once to avoid N+1 DB queries during simulation
         List<LocationResponse> nodes = new ArrayList<>();
         Map<String, LocationResponse> nodeMap = new HashMap<>();
         Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
 
-        // The Adjacency List: Key = SourceNodeID, Value = List of Outgoing Conveyors
-        // This allows O(1) navigation logic.
+        // Topology: SourceNodeID -> List of Outgoing Conveyors
         Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
 
+        List<ItemResponse> activeItems = new ArrayList<>();
+
+        // 1. FETCH TOPOLOGY
         try (ODatabaseSession session = orientDBService.getSession()) {
             // A. Fetch Nodes
             String nodeQuery = "SELECT customId, name, latitude, longitude, type, active, capacity, properties FROM Location";
@@ -61,16 +61,14 @@ public class GraphService {
                 }
             }
 
-            // B. Fetch Edges & Build Adjacency List
+            // B. Fetch Edges
             String edgeQuery = "SELECT customId, name, length, speed, type, active, isMainPath, capacity, out.customId as src, in.customId as tgt FROM Conveyor";
             try (OResultSet rs = session.query(edgeQuery)) {
                 while (rs.hasNext()) {
                     OResult res = rs.next();
                     ConveyorResponse conv = mapToConveyor(res);
-
                     conveyorMap.put(conv.getId(), conv);
 
-                    // Build the in-memory navigation map
                     outgoingEdgesMap
                             .computeIfAbsent(conv.getSourceId(), k -> new ArrayList<>())
                             .add(conv);
@@ -80,11 +78,10 @@ public class GraphService {
             throw new RuntimeException("Error fetching topology from OrientDB", e);
         }
 
-        // --- 2. FETCH LIVE STATE ---
+        // 2. FETCH LIVE STATE
         List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
-        List<ItemResponse> activeItems = new ArrayList<>();
 
-        // --- 3. SIMULATE PHYSICS (Dead Reckoning) ---
+        // 3. MERGE & SIMULATE
         for (Map<String, Object> rawItem : liveRawItems) {
             try {
                 String id = (String) rawItem.get("id");
@@ -98,11 +95,10 @@ public class GraphService {
                 Instant entryTime = Instant.ofEpochMilli(tsLong);
                 List<String> path = null;
 
-                // A. Check for Destination & Pathing
+                // A. Pathfinding Logic
                 if (destId != null) {
                     String startNodeForPathfinding = null;
 
-                    // Determine where we are starting from for path lookup
                     if (nodeMap.containsKey(currentPositionId)) {
                         startNodeForPathfinding = currentPositionId;
                     } else if (conveyorMap.containsKey(currentPositionId)) {
@@ -112,10 +108,7 @@ public class GraphService {
                     }
 
                     if (startNodeForPathfinding != null) {
-                        // 1. Try Redis Cache
                         path = redisRepository.getCachedPath(startNodeForPathfinding, destId);
-
-                        // 2. If miss, Calculate & Cache
                         if (path == null) {
                             path = pathfindingService.calculateShortestPath(startNodeForPathfinding, destId);
                             if (!path.isEmpty()) {
@@ -139,12 +132,12 @@ public class GraphService {
             }
         }
 
-        return new GraphData(nodes, new ArrayList<>(conveyorMap.values()), activeItems);
+        return new GraphData(nodes, new ArrayList<>(conveyorMap.values()), activeItems, now);
     }
 
     /**
-     * Simulates item movement over time.
-     * Uses the in-memory maps to navigate from Edge -> Node -> Next Edge.
+     * Simulates item movement.
+     * Handles starting on an Edge OR starting on a Node.
      */
     private ItemResponse calculateCurrentState(
             String itemId,
@@ -158,21 +151,24 @@ public class GraphService {
         Duration timeElapsed = Duration.between(entryTime, now);
         ConveyorResponse currentEdge = null;
 
-        // 1. Determine Initial State
+        // 1. Determine Initial Edge
         if (conveyorMap.containsKey(startId)) {
-            // Started on an Edge
+            // CASE A: Started on an Edge
             currentEdge = conveyorMap.get(startId);
         } else {
-            // Started on a Node -> Find outgoing edge immediately
+            // CASE B: Started on a Node (Location)
+            // We must immediately find the outgoing edge to simulate movement.
+            // Even if path is null, findNextEdge will look for Main Path.
             String nextEdgeIdFromPath = (path != null && !path.isEmpty()) ? path.get(0) : null;
+
             currentEdge = findNextEdge(startId, outgoingEdgesMap, nextEdgeIdFromPath);
 
             if (currentEdge == null) {
-                // Stuck at a node (Sink)
+                // Stuck at a node (Sink or Ambiguous Path)
                 return createItemResponse(itemId, null, startId, entryTime, 0.0);
             }
 
-            // Consume path step if used
+            // If we successfully picked the edge from the path, consume it
             if (nextEdgeIdFromPath != null && currentEdge.getId().equals(nextEdgeIdFromPath)) {
                 path = new ArrayList<>(path); // Ensure mutable
                 path.remove(0);
@@ -203,7 +199,7 @@ public class GraphService {
             // NO: Item finished this edge. Move to next.
             timeElapsed = timeElapsed.minus(traversalDuration);
 
-            // Look up next edge using in-memory map
+            // Find next edge from the Target Node of the current edge
             String currentNodeId = currentEdge.getTargetId();
             String nextEdgeIdFromPath = (path != null && !path.isEmpty()) ? path.get(0) : null;
 

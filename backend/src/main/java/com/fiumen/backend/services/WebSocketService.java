@@ -24,14 +24,19 @@ enum PositionStatus {
     UPDATED, LOST
 }
 
-// CHANGED: Added 'timestamp' and renamed locationId to edgeId for clarity
+// --- DTO Records (Updated with Timestamp) ---
+
 record PositionUpdate(String itemId, String edgeId, long timestamp, PositionStatus status) {
 }
 
-record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data) {
+record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data, long timestamp) {
 }
 
-record EntityMessage<T>(CrudOperation operation, T data) {
+record EntityMessage<T>(CrudOperation operation, T data, long timestamp) {
+}
+
+// New: Wrapper for property updates to include timestamp
+record EntityUpdateMessage(String id, Map<String, Object> properties, long timestamp) {
 }
 
 @Service
@@ -49,7 +54,6 @@ public class WebSocketService {
         messagingTemplate.convertAndSend("/topic/simulation-status/" + simulationId, message);
     }
 
-    // NEW: Broadcast global playback speed (e.g., 1.0x, 5.0x)
     public void broadcastSpeedUpdate(String simulationId, double speedFactor) {
         Map<String, Object> message = new HashMap<>();
         message.put("speed", speedFactor);
@@ -58,61 +62,88 @@ public class WebSocketService {
 
     // --- ITEM EVENTS ---
 
-    public void broadcastItemCreated(ItemInput item) {
-        EntityMessage<ItemInput> payload = new EntityMessage<>(CrudOperation.CREATED, item);
+    public void broadcastItemCreated(ItemInput item, Instant timestamp) {
+        EntityMessage<ItemInput> payload = new EntityMessage<>(
+                CrudOperation.CREATED,
+                item,
+                timestamp.toEpochMilli());
         sendToTopic("items", payload);
     }
 
-    public void broadcastItemDeleted(String itemId) {
-        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, itemId);
+    public void broadcastItemDeleted(String itemId, Instant timestamp) {
+        EntityMessage<String> payload = new EntityMessage<>(
+                CrudOperation.DELETED,
+                itemId,
+                timestamp.toEpochMilli());
         sendToTopic("items", payload);
     }
 
-    public void broadcastItemUpdated(UpdateModel updateModel) {
-        sendToTopic("items/updates", updateModel);
+    public void broadcastItemUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(
+                updateModel.getId(),
+                updateModel.getProperties(),
+                timestamp.toEpochMilli());
+        sendToTopic("items/updates", payload);
     }
 
     // --- LOCATION EVENTS (Nodes) ---
 
-    public void broadcastLocationCreated(LocationInput location) {
-        EntityMessage<LocationInput> payload = new EntityMessage<>(CrudOperation.CREATED, location);
+    public void broadcastLocationCreated(LocationInput location, Instant timestamp) {
+        EntityMessage<LocationInput> payload = new EntityMessage<>(
+                CrudOperation.CREATED,
+                location,
+                timestamp.toEpochMilli());
         sendToTopic("locations", payload);
     }
 
-    public void broadcastLocationDeleted(String locationId) {
-        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, locationId);
+    public void broadcastLocationDeleted(String locationId, Instant timestamp) {
+        EntityMessage<String> payload = new EntityMessage<>(
+                CrudOperation.DELETED,
+                locationId,
+                timestamp.toEpochMilli());
         sendToTopic("locations", payload);
     }
 
-    public void broadcastLocationPropertiesUpdated(UpdateModel updateModel) {
-        sendToTopic("locations/updates", updateModel);
+    public void broadcastLocationPropertiesUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(
+                updateModel.getId(),
+                updateModel.getProperties(),
+                timestamp.toEpochMilli());
+        sendToTopic("locations/updates", payload);
     }
 
     // --- CONNECTION EVENTS (Conveyors/Edges) ---
 
-    public void broadcastConnectionCreated(ConveyorResponse conveyor) {
+    public void broadcastConnectionCreated(ConveyorResponse conveyor, Instant timestamp) {
         ConnectionMessage payload = new ConnectionMessage(
                 conveyor.getSourceId(),
                 conveyor.getTargetId(),
                 CrudOperation.CREATED,
-                conveyor);
+                conveyor,
+                timestamp.toEpochMilli());
         sendToTopic("connections", payload);
     }
 
-    public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId) {
-        ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED,
-                null);
+    public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId, Instant timestamp) {
+        ConnectionMessage payload = new ConnectionMessage(
+                sourceLocationId,
+                targetLocationId,
+                CrudOperation.DELETED,
+                null,
+                timestamp.toEpochMilli());
         sendToTopic("connections", payload);
     }
 
-    // NEW: Handle updates to Conveyors (Speed, Length, Active status)
-    public void broadcastConnectionUpdated(UpdateModel updateModel) {
-        sendToTopic("connections/updates", updateModel);
+    public void broadcastConnectionUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(
+                updateModel.getId(),
+                updateModel.getProperties(),
+                timestamp.toEpochMilli());
+        sendToTopic("connections/updates", payload);
     }
 
     // --- POSITION EVENTS (The Physics) ---
 
-    // CHANGED: Now accepts Timestamp
     public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp) {
         PositionUpdate payload = new PositionUpdate(
                 itemId,
@@ -122,12 +153,11 @@ public class WebSocketService {
         sendToTopic("positions", payload);
     }
 
-    public void broadcastPositionLost(String itemId) {
-        // Timestamp doesn't matter for LOST, but we pass 0 or now
+    public void broadcastPositionLost(String itemId, Instant timestamp) {
         PositionUpdate payload = new PositionUpdate(
                 itemId,
                 null,
-                Instant.now().toEpochMilli(),
+                timestamp.toEpochMilli(),
                 PositionStatus.LOST);
         sendToTopic("positions", payload);
     }
@@ -140,7 +170,7 @@ public class WebSocketService {
                 ? String.format("/topic/simulations/%s/%s", simulationId, subTopic)
                 : String.format("/topic/%s", subTopic);
 
-        logger.debug("Broadcasting to {}: {}", topic, payload);
+        // logger.debug("Broadcasting to {}: {}", topic, payload);
         messagingTemplate.convertAndSend(topic, payload);
     }
 }

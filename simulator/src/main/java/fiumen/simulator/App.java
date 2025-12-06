@@ -23,7 +23,6 @@ import java.util.logging.Logger;
 
 public class App {
 
-    // --- Core Infrastructure ---
     private static final String BASE_URL = "http://localhost:8080/api";
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     private static final Logger logger = Logger.getLogger(App.class.getName());
@@ -92,15 +91,13 @@ public class App {
             for (int i = 0; i < NUM_LOCATIONS; i++) {
                 String locationName = "LineLoc-" + i;
 
-                // FIX: Use LocationType.JUNCTION.
-                // In the new model, Locations are just nodes/waypoints.
                 sendEvent(new LocationCreatedEvent(
                         locationName,
                         locationName,
                         true,
                         0.0,
                         i * 15.0,
-                        LocationType.JUNCTION, // <--- CHANGED from CONVEYOR
+                        LocationType.JUNCTION,
                         0,
                         new HashMap<>()), "POST");
 
@@ -156,10 +153,9 @@ public class App {
                 double lat = LAYOUT_RADIUS * Math.sin(angle);
                 double lon = LAYOUT_RADIUS * Math.cos(angle);
 
-                // FIX: Use LocationType.JUNCTION
                 sendEvent(new LocationCreatedEvent(
                         locName, locName, true, lat, lon,
-                        LocationType.JUNCTION, // <--- CHANGED
+                        LocationType.JUNCTION,
                         0, new HashMap<>()), "POST");
                 mainLoopLocations.add(locName);
             }
@@ -167,10 +163,9 @@ public class App {
             // 2. Entrance Nodes
             for (int i = 0; i < NUM_ENTRANCES; i++) {
                 String entranceName = "Entrance-" + i;
-                // FIX: Use LocationType.JUNCTION
                 sendEvent(new LocationCreatedEvent(
                         entranceName, entranceName, true, 0.0, -150 - (i * 20.0),
-                        LocationType.JUNCTION, // <--- CHANGED
+                        LocationType.JUNCTION,
                         0, new HashMap<>()), "POST");
                 entrances.add(entranceName);
             }
@@ -178,10 +173,9 @@ public class App {
             // 3. Exit Nodes
             for (int i = 0; i < NUM_EXITS; i++) {
                 String exitName = "Exit-" + i;
-                // FIX: Use LocationType.JUNCTION (The "Chute" is the connection leading to it)
                 sendEvent(new LocationCreatedEvent(
                         exitName, exitName, true, 0.0, 150 + (i * 20.0),
-                        LocationType.JUNCTION, // <--- CHANGED
+                        LocationType.JUNCTION,
                         0, new HashMap<>()), "POST");
             }
 
@@ -290,8 +284,6 @@ public class App {
 
         long timeToTraverse = (long) ((length / speed) * 1000);
 
-        // FIX: Removed '0' (capacity) and 'ConveyorType.BELT' from constructor
-        // because ConnectionCreatedEvent definition does not support them yet.
         ConnectionCreatedEvent event = new ConnectionCreatedEvent(
                 "Conveyor_" + from + "_" + to,
                 from,
@@ -299,9 +291,9 @@ public class App {
                 length,
                 speed,
                 timeToTraverse,
-                false, // isMainPath
+                false,
                 "Conveyor_" + from + "_" + to,
-                true, // isActive
+                true,
                 ConveyorType.BELT,
                 0);
 

@@ -342,6 +342,12 @@ export interface GraphData {
      * @memberof GraphData
      */
     'items'?: Array<ItemResponse>;
+    /**
+     * 
+     * @type {string}
+     * @memberof GraphData
+     */
+    'timestamp'?: string;
 }
 /**
  * 

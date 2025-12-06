@@ -1,5 +1,6 @@
 package com.fiumen.backend.models.graph;
 
+import java.time.Instant;
 import java.util.List;
 
 import com.fiumen.backend.models.response.ConveyorResponse;
@@ -22,4 +23,5 @@ public class GraphData {
 
     // The Live State - Moved to top level (was nested in locations)
     private List<ItemResponse> items;
+    private Instant timestamp;
 }

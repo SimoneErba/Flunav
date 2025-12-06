@@ -1,5 +1,5 @@
 import './App.css'
-import { DisplayGraph } from './components/graph'
+import { DisplayGraph } from './components/graph/DisplayGraph'
 import { useGraph } from './hooks/useGraph';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
@@ -41,6 +41,9 @@ function App() {
   };
 
   // --- Handlers ---
+  const isPaused = activeSimulation 
+    ? activeSimulation.status !== SimulationStateResponseStatusEnum.Playing
+    : false;
 
   const handleRestore = async () => {
     if (isRestoring) return; // Prevent double clicks
@@ -275,7 +278,9 @@ function App() {
             <h3>{isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}</h3>
           </div>
         ) : (
-          <DisplayGraph initialGraphData={graphData} simulationId={activeSimulation?.id} />
+          <DisplayGraph initialGraphData={graphData} simulationId={activeSimulation?.id} 
+          playbackSpeed={playbackSpeed}
+            isPaused={isPaused}/>
         )}
       </main>
     </div>
