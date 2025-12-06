@@ -17,7 +17,7 @@ import {
     // PositionUpdate -> Redefined below to match Java
 } from '../websocket-types/websocket-types';
 
-import { ItemInput, LocationInput } from '../api-client/api';
+import { ConveyorResponse, ItemInput, LocationInput } from '../api-client/api';
 
 // --- Updated Types matching Java Backend ---
 

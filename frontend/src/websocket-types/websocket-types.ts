@@ -1,4 +1,4 @@
-import { ItemInput, LocationInput } from "../api-client/api";
+import { ConveyorResponse, ItemInput, LocationInput } from "../api-client/api";
 
 export enum CrudOperation {
   CREATED = "CREATED",
@@ -26,6 +26,7 @@ export interface ConnectionMessage {
   from: string;
   to: string;
   operation: CrudOperation;
+  data: ConveyorResponse
 }
 
 export interface EntityMessage<T> {

@@ -3,6 +3,7 @@ package com.fiumen.backend.services;
 import com.fiumen.backend.domain.Conveyor;
 import com.fiumen.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
+import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import com.orientechnologies.orient.core.record.ODirection;
 import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
@@ -108,7 +109,8 @@ public class ConveyorService {
             db.commit();
 
             return edgeToConveyor(edge);
-
+        } catch (OConcurrentModificationException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Error creating conveyor between " + sourceId + " and " + targetId, e);
         }

@@ -12,7 +12,7 @@ public class ConveyorResponse {
     private String id;
     private String sourceId; // Source Node
     private String targetId; // Target Node
-
+    private String name;
     // Physics
     private Double length;
     private Double speed;

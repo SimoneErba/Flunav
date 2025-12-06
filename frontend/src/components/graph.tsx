@@ -28,6 +28,8 @@ import { useApi } from "../hooks/useApi";
 import { EdgeEditor, EdgeEditorData } from "./edge.editor";
 import { NodeEditor, NodeEditorData } from "./node.editor";
 import { sigmaStyle } from "../styles/styles";
+import { GraphThemeProvider, GraphThemeController, ThemedBackground} from "../context/theme.context";
+import { ThemeToggle } from "./theme.toggle";
 
 const hashToNumber = (s: string) => {
   let hash = 0;
@@ -389,18 +391,24 @@ const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId }: GraphEv
       // 4. Conveyor CRUD (Edges)
       const handleConveyorCreated = (connection: ConnectionMessage) => {
           // connection.from = sourceId, connection.to = targetId
-          if (graph.hasNode(connection.from) && graph.hasNode(connection.to)) {
+          const { from, to, data } = connection;
+          if (graph.hasNode(from) && graph.hasNode(to)) {
               // Check if edge exists
-              if (!graph.hasEdge(connection.from, connection.to)) {
-                  // We might not have the full ID here depending on the event payload, 
-                  // but usually the event should carry the ID or we generate one.
-                  // Assuming ConnectionMessage might need extension or we use a generated ID.
-                  graph.addEdge(connection.from, connection.to, { 
+              if (!graph.hasEdge(from, to)) {
+                  const speed = data?.speed ?? 1.0;
+                  const length = data?.length ?? 10.0;
+                  const isMainPath = data?.isMainPath ?? false;
+                  const label = data?.name ?? "";
+                  const id = data?.id;
+
+                  graph.addEdge(from, to, { 
+                      id: id,
                       type: 'arrow', 
-                      size: 3,
-                      // Default values until updated
-                      speed: 1.0,
-                      length: 10.0 
+                      size: isMainPath ? 6 : 3,
+                      label: label,
+                      speed: speed,
+                      length: length,
+                      isMainPath: isMainPath
                   });
               }
           }
@@ -825,18 +833,24 @@ export const DisplayGraph = ({ initialGraphData, simulationId }: { initialGraphD
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <SigmaContainer
-        style={{ ...sigmaStyle, cursor: hoveredEdge ? 'pointer' : 'default' }}
-        settings={{
-          nodeProgramClasses: { square: NodeSquareProgram },
-          enableEdgeEvents: true,
-          autoRescale: true
-        }}
-      >
-        <GraphEvents initialGraphData={initialGraphData} setHoveredEdge={setHoveredEdge} simulationId={simulationId} />
-      </SigmaContainer>
-    </div>
+    <GraphThemeProvider>
+      <ThemedBackground>
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <ThemeToggle />
+        <SigmaContainer
+          style={{ ...sigmaStyle, cursor: hoveredEdge ? 'pointer' : 'default' }}
+          settings={{
+            nodeProgramClasses: { square: NodeSquareProgram },
+            enableEdgeEvents: true,
+            autoRescale: true
+          }}
+        >
+          <GraphThemeController />
+          <GraphEvents initialGraphData={initialGraphData} setHoveredEdge={setHoveredEdge} simulationId={simulationId} />
+        </SigmaContainer>
+      </div>
+      </ThemedBackground>
+    </GraphThemeProvider>
   );
 };
 

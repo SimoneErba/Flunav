@@ -4,6 +4,7 @@ import com.fiumen.backend.domain.Conveyor;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
+import com.fiumen.backend.models.response.ConveyorResponse;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import fiumen.events.*;
 import org.slf4j.Logger;
@@ -268,9 +269,6 @@ public class EventProcessor {
                 // --- CONNECTION EVENTS (Conveyors/Edges) ---
 
                 case ConnectionCreatedEvent e -> {
-                    // Creates a Conveyor Edge
-                    // We assume default speed/length if not provided, or fetch from event if
-                    // available
                     conveyorService.createConveyor(
                             e.getConnectionId(),
                             e.getSourceId(),
@@ -281,8 +279,9 @@ public class EventProcessor {
                             e.getIsMainPath(),
                             e.getIsActive());
                     if (shouldBroadcast) {
-                        TODO: SEND ALL DATA. ANF FIX FRONTEND
-                        webSocketService.broadcastConnectionCreated(e.getSourceId(), e.getTargetId());
+                        webSocketService.broadcastConnectionCreated(new ConveyorResponse(e.getConnectionId(),
+                                e.getSourceId(), e.getTargetId(), e.getName(), e.getLength(), e.getSpeed(), e.getType(),
+                                e.getIsActive(), e.getIsMainPath(), e.getCapacity()));
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }

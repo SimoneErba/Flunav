@@ -1,19 +1,28 @@
 package com.fiumen.backend.repositories;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Repository
 public class LiveItemRepository {
-
+    private static final Logger logger = LoggerFactory.getLogger(LiveItemRepository.class);
+    private static final long PATH_TTL_MINUTES = 5;
     private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
 
-    public LiveItemRepository(StringRedisTemplate redis) {
+    public LiveItemRepository(StringRedisTemplate redis, ObjectMapper objectMapper) {
         this.redis = redis;
+        this.objectMapper = objectMapper;
     }
 
     // --- WRITE OPERATIONS ---
@@ -102,5 +111,34 @@ public class LiveItemRepository {
     public long countActiveItems() {
         Long size = redis.opsForSet().size("sys:active_items");
         return size != null ? size : 0;
+    }
+
+    public void cachePath(String sourceId, String targetId, List<String> path) {
+        String key = "path_cache:" + sourceId + ":" + targetId;
+        try {
+            // Convert List<String> -> JSON String (e.g., "['edge1', 'edge2']")
+            String jsonPath = objectMapper.writeValueAsString(path);
+
+            // Save to Redis with TTL
+            redis.opsForValue().set(key, jsonPath, PATH_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            logger.error("Failed to serialize path for cache", e);
+        }
+    }
+
+    public List<String> getCachedPath(String sourceId, String targetId) {
+        String key = "path_cache:" + sourceId + ":" + targetId;
+        String jsonPath = redis.opsForValue().get(key);
+
+        if (jsonPath != null) {
+            try {
+                // Convert JSON String -> List<String>
+                return objectMapper.readValue(jsonPath, new TypeReference<List<String>>() {
+                });
+            } catch (Exception e) {
+                logger.error("Failed to deserialize cached path", e);
+            }
+        }
+        return null;
     }
 }

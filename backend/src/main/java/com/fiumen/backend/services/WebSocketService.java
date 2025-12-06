@@ -4,6 +4,7 @@ import com.fiumen.backend.context.DatabaseContextHolder;
 import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
+import com.fiumen.backend.models.response.ConveyorResponse;
 import com.fiumen.backend.models.simulation.SimulationStatus;
 
 import org.slf4j.Logger;
@@ -27,7 +28,7 @@ enum PositionStatus {
 record PositionUpdate(String itemId, String edgeId, long timestamp, PositionStatus status) {
 }
 
-record ConnectionMessage(String from, String to, CrudOperation operation) {
+record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data) {
 }
 
 record EntityMessage<T>(CrudOperation operation, T data) {
@@ -89,15 +90,18 @@ public class WebSocketService {
 
     // --- CONNECTION EVENTS (Conveyors/Edges) ---
 
-    public void broadcastConnectionCreated(String fromLocationId, String toLocationId) {
-        // Note: The frontend might need to fetch the full conveyor details after this,
-        // or you could pass the full Conveyor object here instead of just IDs.
-        ConnectionMessage payload = new ConnectionMessage(fromLocationId, toLocationId, CrudOperation.CREATED);
+    public void broadcastConnectionCreated(ConveyorResponse conveyor) {
+        ConnectionMessage payload = new ConnectionMessage(
+                conveyor.getSourceId(),
+                conveyor.getTargetId(),
+                CrudOperation.CREATED,
+                conveyor);
         sendToTopic("connections", payload);
     }
 
     public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId) {
-        ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED);
+        ConnectionMessage payload = new ConnectionMessage(sourceLocationId, targetLocationId, CrudOperation.DELETED,
+                null);
         sendToTopic("connections", payload);
     }
 

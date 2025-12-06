@@ -170,6 +170,7 @@ public class HistoricalGraphBuilder {
                         // because we don't have Redis here.
                         itemVertex.setProperty("currentEdgeId", itemData.getCurrentEdgeId());
                         itemVertex.setProperty("destinationId", itemData.getDestinationId());
+                        itemVertex.setProperty("locationId", itemData.getLocationId());
 
                         if (itemData.getEntryTimestamp() != null) {
                             itemVertex.setProperty("entryTimestamp", itemData.getEntryTimestamp());

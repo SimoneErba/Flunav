@@ -18,6 +18,7 @@ public class ItemResponse {
     private Map<String, Object> properties;
 
     // --- POSITIONING (Physics) ---
+    private String locationId;
     private String currentEdgeId; // The Conveyor ID
     private Instant entryTimestamp; // When it entered the edge
 

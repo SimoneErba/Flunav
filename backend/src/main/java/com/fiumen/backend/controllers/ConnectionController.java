@@ -12,6 +12,7 @@ import com.fiumen.backend.services.ConveyorService;
 import com.fiumen.backend.utils.ControllerHelper;
 
 import fiumen.events.*;
+import fiumen.types.ConveyorType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -49,7 +50,9 @@ public class ConnectionController {
             Double speed,
             Long timeToTraverseMs,
             Boolean isMainPath,
-            Boolean isActive) {
+            Boolean isActive,
+            ConveyorType type,
+            Integer capacity) {
     }
 
     public record SpeedUpdateRequest(Double speed) {
@@ -100,7 +103,9 @@ public class ConnectionController {
                 input.timeToTraverseMs(),
                 input.isMainPath(),
                 input.name(),
-                input.isActive());
+                input.isActive(),
+                input.type(),
+                input.capacity());
 
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> {

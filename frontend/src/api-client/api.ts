@@ -101,7 +101,8 @@ export interface Conveyor {
 export const ConveyorTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION'
+    Accumulation: 'ACCUMULATION',
+    Chute: 'CHUTE'
 } as const;
 
 export type ConveyorTypeEnum = typeof ConveyorTypeEnum[keyof typeof ConveyorTypeEnum];
@@ -130,6 +131,12 @@ export interface ConveyorResponse {
      * @memberof ConveyorResponse
      */
     'targetId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof ConveyorResponse
+     */
+    'name'?: string;
     /**
      * 
      * @type {number}
@@ -171,7 +178,8 @@ export interface ConveyorResponse {
 export const ConveyorResponseTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION'
+    Accumulation: 'ACCUMULATION',
+    Chute: 'CHUTE'
 } as const;
 
 export type ConveyorResponseTypeEnum = typeof ConveyorResponseTypeEnum[keyof typeof ConveyorResponseTypeEnum];
@@ -274,7 +282,29 @@ export interface CreateConveyorInput {
      * @memberof CreateConveyorInput
      */
     'isActive'?: boolean;
+    /**
+     * 
+     * @type {string}
+     * @memberof CreateConveyorInput
+     */
+    'type'?: CreateConveyorInputTypeEnum;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConveyorInput
+     */
+    'capacity'?: number;
 }
+
+export const CreateConveyorInputTypeEnum = {
+    Belt: 'BELT',
+    Roller: 'ROLLER',
+    Accumulation: 'ACCUMULATION',
+    Chute: 'CHUTE'
+} as const;
+
+export type CreateConveyorInputTypeEnum = typeof CreateConveyorInputTypeEnum[keyof typeof CreateConveyorInputTypeEnum];
+
 /**
  * 
  * @export
@@ -466,6 +496,12 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'properties'?: { [key: string]: object; };
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'locationId'?: string;
     /**
      * 
      * @type {string}

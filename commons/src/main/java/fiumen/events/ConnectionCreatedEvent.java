@@ -2,6 +2,8 @@ package fiumen.events;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import fiumen.types.ConveyorType;
 import lombok.Getter;
 
 @Getter
@@ -16,6 +18,8 @@ public class ConnectionCreatedEvent extends EntityEvent {
     private final String connectionId;
     private final String name;
     private final Boolean isActive;
+    private final Integer capacity;
+    private final ConveyorType type;
 
     @JsonCreator
     public ConnectionCreatedEvent(
@@ -27,7 +31,9 @@ public class ConnectionCreatedEvent extends EntityEvent {
             @JsonProperty("timeToTraverseMs") Long timeToTraverseMs,
             @JsonProperty("isMainPath") Boolean isMainPath,
             @JsonProperty("name") String name,
-            @JsonProperty("isActive") Boolean isActive) {
+            @JsonProperty("isActive") Boolean isActive,
+            @JsonProperty("type") ConveyorType type,
+            @JsonProperty("capacity") Integer capacity) {
         super(connectionId, "CONNECTION_CREATED");
         this.connectionId = connectionId;
         this.sourceId = sourceId;
@@ -38,5 +44,7 @@ public class ConnectionCreatedEvent extends EntityEvent {
         this.isMainPath = (isMainPath != null) ? isMainPath : false;
         this.name = (name != null) ? name : "";
         this.isActive = (isActive != null) ? isActive : true;
+        this.capacity = capacity;
+        this.type = type;
     }
 }
