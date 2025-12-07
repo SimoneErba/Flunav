@@ -21,6 +21,9 @@ export const useGraphInteractions = (
     const isDraggingRef = useRef<boolean>(false);
     const isAddingEdgeRef = useRef<boolean>(false);
     const edgeSourceNodeRef = useRef<string | null>(null);
+    
+    // FIX: Track if movement occurred to distinguish Click vs Drag
+    const didMoveRef = useRef<boolean>(false);
 
     // --- API Handlers ---
     const debouncedUpdateNodePosition = useCallback((nodeId: string, x: number, y: number) => {
@@ -83,11 +86,19 @@ export const useGraphInteractions = (
     // --- Events ---
     useEffect(() => {
         registerEvents({
+            // FIX: Reset didMove on stage down (for panning or clicking empty space)
+            downStage: () => {
+                didMoveRef.current = false;
+            },
+
             clickStage: ({ event }) => {
+                // FIX: If we moved (dragged stage OR finished creating edge), ignore click
+                if (didMoveRef.current) return;
+
                 if (selectedEdgeData || selectedNodeData) {
                     setSelectedEdgeData(null);
                     setSelectedNodeData(null);
-                } else if (!isDraggingRef.current) {
+                } else if (!isDraggingRef.current && !isAddingEdgeRef.current) {
                     const pos = sigma.viewportToGraph(event);
                     const newNodeId = crypto.randomUUID();
                     sigma.getGraph().addNode(newNodeId, { x: pos.x, y: pos.y, label: "New", size: 10, color: "#69b3a2", type: "circle" });
@@ -95,14 +106,16 @@ export const useGraphInteractions = (
                 }
             },
             downNode: ({ node, event }) => {
+                // FIX: Reset didMove on node down
+                didMoveRef.current = false;
                 isDraggingRef.current = false;
+
                 if (event.original.altKey) {
                     // --- START ADDING EDGE ---
                     isAddingEdgeRef.current = true;
                     edgeSourceNodeRef.current = node;
                     
-                    // REVERTED: Use event.x/y directly. 
-                    // These are viewport coordinates, which match the SVG overlay.
+                    // Use Viewport coordinates for the SVG line
                     setLineCoordinates({ 
                         x1: event.x, 
                         y1: event.y, 
@@ -120,6 +133,11 @@ export const useGraphInteractions = (
                 }
             },
             mousemove: (event) => {
+                // FIX: Mark that we moved
+                if (isDraggingRef.current || isAddingEdgeRef.current) {
+                    didMoveRef.current = true;
+                }
+
                 if (isDraggingRef.current && draggedNodeRef.current) {
                     event.preventSigmaDefault();
                     const pos = sigma.viewportToGraph(event);
@@ -127,8 +145,9 @@ export const useGraphInteractions = (
                     sigma.getGraph().setNodeAttribute(draggedNodeRef.current, "y", pos.y);
                 }
                 if (isAddingEdgeRef.current) {
-                    // Update the end of the line to follow the mouse
+                    // Update line end to mouse position (Viewport coords)
                     setLineCoordinates(prev => prev ? { ...prev, x2: event.x, y2: event.y } : null);
+                    event.preventSigmaDefault();
                 }
             },
             mouseup: () => {
@@ -136,6 +155,7 @@ export const useGraphInteractions = (
                     const node = draggedNodeRef.current;
                     const attrs = sigma.getGraph().getNodeAttributes(node);
                     if (!attrs.isItem) debouncedUpdateNodePosition(node, attrs.x, attrs.y);
+                    
                     isDraggingRef.current = false;
                     draggedNodeRef.current = null;
                     sigma.getSettings().mouseEnabled = true;
@@ -163,6 +183,9 @@ export const useGraphInteractions = (
                 setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, isMainPath: attrs.isMainPath });
             },
             clickNode: ({ node }) => {
+                // FIX: If we dragged, do NOT open the editor
+                if (didMoveRef.current) return;
+
                 if (!isDraggingRef.current && !isAddingEdgeRef.current) {
                     const attrs = sigma.getGraph().getNodeAttributes(node);
                     if (!attrs.isItem) setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity });
