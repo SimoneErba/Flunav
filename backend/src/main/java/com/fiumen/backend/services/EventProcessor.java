@@ -6,6 +6,8 @@ import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.fiumen.backend.models.response.ConveyorResponse;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
+
+import fiumen.context.UserContextHolder;
 import fiumen.events.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,6 +91,7 @@ public class EventProcessor {
     }
 
     private Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
+        UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
             return switch (event) {
                 // --- ITEM EVENTS ---

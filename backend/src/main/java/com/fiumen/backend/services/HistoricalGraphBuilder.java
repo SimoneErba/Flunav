@@ -85,11 +85,11 @@ public class HistoricalGraphBuilder {
             });
 
             logger.info("Historical graph build complete for simulation: {}", simulationId);
-            simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY);
+            simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, Instant.now());
 
         } catch (Exception e) {
             logger.error("A critical error occurred during the build process for simulation: {}", simulationId, e);
-            simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED);
+            simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, Instant.now());
         } finally {
             buildPermits.release();
             logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());

@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from './useApi';
-import { useWebSocket } from './useWebSocket';
 import { GraphData } from "../api-client/api";
+import { useWebSocketConnection } from './websocket/useWebSocketConnection';
 
 const emptyGraphData: GraphData = {
     locations: [],
-    connections: []
+    conveyors: []
 };
 
 export const useGraph = () => {
     const { simulationApi, graphApi } = useApi();
-    const { connected } = useWebSocket();
+    const { connected } = useWebSocketConnection();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);

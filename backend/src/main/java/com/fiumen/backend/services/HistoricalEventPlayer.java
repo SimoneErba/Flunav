@@ -30,7 +30,8 @@ public class HistoricalEventPlayer {
     // Define the polling interval as a constant for easy configuration
     private static final Duration POLLING_INTERVAL = Duration.ofSeconds(5);
 
-    public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService, @Lazy SimulationService simulationService, WebSocketService webSocketService) {
+    public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService,
+            @Lazy SimulationService simulationService, WebSocketService webSocketService) {
         this.eventProcessor = eventProcessor;
         this.clickHouseService = clickHouseService;
         this.simulationService = simulationService;
@@ -44,14 +45,15 @@ public class HistoricalEventPlayer {
                 simulationId, simulationStartTime, initialSpeedFactor);
 
         // Use a try-with-resources block for the context to ensure it's always cleared.
-        try (DatabaseContextHolder.SimulationContext ignored = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+        try (DatabaseContextHolder.SimulationContext ignored = DatabaseContextHolder
+                .enterSimulationContext(simulationId)) {
             SimulationState state = simulationService.getSimulationState(simulationId);
 
             // --- Initial State Setup ---
             state.setStatus(SimulationStatus.PLAYING);
             state.setSpeedFactor(initialSpeedFactor);
             state.setLastProcessedTimestamp(simulationStartTime); // Initialize progress
-            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING); // Use service to broadcast
+            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, Instant.now());
 
             Instant currentSimulationTime = simulationStartTime;
 
@@ -63,7 +65,8 @@ public class HistoricalEventPlayer {
                 Instant windowStartTime = currentSimulationTime;
                 Instant windowEndTime = windowStartTime.plus(POLLING_INTERVAL);
 
-                logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime, windowEndTime);
+                logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime,
+                        windowEndTime);
                 List<DomainEvent> eventChunk = clickHouseService.getEventsBetween(windowStartTime, windowEndTime);
 
                 if (!eventChunk.isEmpty()) {
@@ -73,11 +76,13 @@ public class HistoricalEventPlayer {
                     // No events found, advance the clock to avoid getting stuck.
                     currentSimulationTime = windowEndTime;
                     // OPTIONAL: Add logic here to detect natural completion.
-                    // For example, if (windowEndTime > simulationService.getSimulationEndTime(simulationId)) {
-                    //     state.setStatus(SimulationStatus.COMPLETED);
-                    //     simulationService.broadcastStatusUpdate(simulationId, SimulationStatus.COMPLETED);
-                    //     logger.info("Simulation {} completed naturally.", simulationId);
-                    //     break; // Exit the loop
+                    // For example, if (windowEndTime >
+                    // simulationService.getSimulationEndTime(simulationId)) {
+                    // state.setStatus(SimulationStatus.COMPLETED);
+                    // simulationService.broadcastStatusUpdate(simulationId,
+                    // SimulationStatus.COMPLETED);
+                    // logger.info("Simulation {} completed naturally.", simulationId);
+                    // break; // Exit the loop
                     // }
                 }
 
@@ -94,26 +99,29 @@ public class HistoricalEventPlayer {
                 }
             }
         } catch (InterruptedException e) {
-            // This block is entered when the thread is interrupted by playbackTask.cancel(true).
+            // This block is entered when the thread is interrupted by
+            // playbackTask.cancel(true).
             SimulationState state = simulationService.getSimulationState(simulationId);
             // Check the official state to determine if this was a pause or a stop.
             if (state != null && state.getStatus() == SimulationStatus.PAUSED) {
-                logger.info("Playback for simulation {} paused gracefully at {}.", simulationId, state.getLastProcessedTimestamp());
+                logger.info("Playback for simulation {} paused gracefully at {}.", simulationId,
+                        state.getLastProcessedTimestamp());
             } else {
                 logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
                 if (state != null) {
                     state.setStatus(SimulationStatus.STOPPED);
-                    webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.STOPPED);
+                    webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.STOPPED, Instant.now());
                 }
             }
             // Preserve the interrupted status for the thread pool.
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            logger.error("An unhandled error occurred during playback for simulation {}. Setting state to FAILED.", simulationId, e);
+            logger.error("An unhandled error occurred during playback for simulation {}. Setting state to FAILED.",
+                    simulationId, e);
             SimulationState state = simulationService.getSimulationState(simulationId);
             if (state != null) {
                 state.setStatus(SimulationStatus.FAILED);
-                webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.FAILED);
+                webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.FAILED, Instant.now());
             }
         }
 
@@ -122,16 +130,19 @@ public class HistoricalEventPlayer {
     }
 
     /**
-     * Plays back a list of events in a time-synchronized manner with high precision.
+     * Plays back a list of events in a time-synchronized manner with high
+     * precision.
      * This method uses an efficient, interruptible wait pattern that allows for
      * immediate changes to the playback speed.
      *
      * @param simulationId The ID of the simulation being played.
      * @param eventChunk   The list of DomainEvents to play.
-     * @param state        The shared SimulationState object, which holds the current speedFactor.
+     * @param state        The shared SimulationState object, which holds the
+     *                     current speedFactor.
      * @throws InterruptedException If the playback is cancelled while waiting.
      */
-    private void playChunk(String simulationId, List<DomainEvent> eventChunk, SimulationState state) throws InterruptedException {
+    private void playChunk(String simulationId, List<DomainEvent> eventChunk, SimulationState state)
+            throws InterruptedException {
         if (eventChunk.isEmpty()) {
             return;
         }
@@ -168,17 +179,18 @@ public class HistoricalEventPlayer {
                     state.getTimingLock().wait(waitMillis, waitNanosRemainder);
                 }
             }
-            
+
             // After waking up, the thread might still be slightly ahead of schedule.
             // A final, brief "spin-wait" ensures nanosecond precision. This loop
             // will be very short and consumes minimal CPU.
             while ((System.nanoTime() - chunkWallClockStartNs) < scheduledWallClockOffsetNs) {
-                // In Java 9+, Thread.onSpinWait() is a hint to the CPU that we're in a tight loop.
+                // In Java 9+, Thread.onSpinWait() is a hint to the CPU that we're in a tight
+                // loop.
                 // For Java 8, this empty loop is sufficient.
                 Thread.onSpinWait();
             }
 
-            eventProcessor.processEvent(event); 
+            eventProcessor.processEvent(event);
         }
     }
 }

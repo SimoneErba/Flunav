@@ -19,8 +19,12 @@ export const useGraphLoader = (
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id),
                 y: loc.longitude ?? hashToNumber(loc.id + "random"),
-                label: loc.name, size: 10, color: "#69b3a2", type: "circle",
-                id: loc.id, capacity: loc.capacity
+                label: loc.name, 
+                size: 10, 
+                color: "#69b3a2", // Default color (will be overwritten by ThemeController)
+                type: "circle",
+                id: loc.id, 
+                capacity: loc.capacity
             });
         });
 
@@ -44,8 +48,6 @@ export const useGraphLoader = (
             activeItemsRef.current.set(item.id, item);
 
             let startX = 0, startY = 0;
-            
-            // Calculate Initial Position based on Progress
             if (item.locationId && graph.hasNode(item.locationId)) {
                 const locAttrs = graph.getNodeAttributes(item.locationId);
                 startX = locAttrs.x; startY = locAttrs.y;

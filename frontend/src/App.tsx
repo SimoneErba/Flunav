@@ -1,78 +1,84 @@
 import './App.css'
-import { DisplayGraph } from './components/graph/DisplayGraph'
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { DisplayGraph } from './components/graph/DisplayGraph';
 import { useGraph } from './hooks/useGraph';
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-  SimulationsApi, SimulationStateResponse, SimulationStateResponseStatusEnum
-} from "./api-client/api";
+import { SimulationsApi, SimulationStateResponse, SimulationStateResponseStatusEnum } from "./api-client/api";
 import { useWebSocket } from './hooks/useWebSocket';
 import { PlaybackControls } from './components/PlaybackControls';
+import { useSimulationClock } from './components/graph/hooks/useSimulationClock';
 
-// 1. Move API client outside or useMemo. 
-// If it doesn't hold state, outside is fine.
+// Import Theme Stuff
+import { GraphThemeProvider, useTheme, THEMES } from './context/theme.context';
+import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
+import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
+
 const simulationClient = new SimulationsApi();
 
-function App() {
-  // State
+// --- INNER COMPONENT (Can use useTheme) ---
+function AppContent() {
+  // 1. Get Theme
+  const { mode } = useTheme();
+  const theme = THEMES[mode];
+
+  // --- State ---
   const [activeSimulation, setActiveSimulation] = useState<SimulationStateResponse | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isRestoring, setIsRestoring] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  
-  // Hooks
-  const { graphData, loading: graphLoading, refetchGraphData } = useGraph();
-  const { connected, subscribeToSimulationStatus } = useWebSocket();
+  const [isSelectingDate, setIsSelectingDate] = useState(false);
 
-  // Refs (to avoid effect re-runs)
+  // --- Hooks ---
+  const { graphData, loading: graphLoading, refetchGraphData } = useGraph();
+  const { connected } = useWebSocketConnection();
+  const { subscribeToSimulationStatus } = useWebSocketEvents();
+
   const activeSimulationIdRef = useRef<string | null>(null);
   activeSimulationIdRef.current = activeSimulation?.id || null;
 
-  // --- Helpers ---
+  const isPaused = activeSimulation 
+    ? activeSimulation.status !== SimulationStateResponseStatusEnum.Playing
+    : false;
 
-  // Memoize date conversion to prevent recalculation on every render
+  const simTime = useSimulationClock(
+      activeSimulation?.snapshotTimestamp, 
+      playbackSpeed, 
+      isPaused
+  );
+
   const dateTimeLocal = useMemo(() => {
     const offset = selectedDate.getTimezoneOffset() * 60000;
     return (new Date(selectedDate.getTime() - offset)).toISOString().slice(0, 16);
   }, [selectedDate]);
 
+  // --- Handlers (Same as before) ---
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
     setSelectedDate(new Date(e.target.value));
   };
 
-  // --- Handlers ---
-  const isPaused = activeSimulation 
-    ? activeSimulation.status !== SimulationStateResponseStatusEnum.Playing
-    : false;
+  const handleStartSimulationClick = () => {
+      setIsSelectingDate(true);
+      setSelectedDate(new Date());
+  };
 
-  const handleRestore = async () => {
-    if (isRestoring) return; // Prevent double clicks
-    if (!selectedDate) {
-      alert('Please select a valid date and time.');
-      return;
-    }
+  const handleConfirmRestore = async () => {
+    setIsSelectingDate(false);
+    if (isRestoring) return;
+    if (!selectedDate) { alert('Invalid date'); return; }
 
-    // Optimistic / UI updates first
     setIsRestoring(true);
     setPlaybackSpeed(1.0);
 
-    // Cleanup previous if exists
     if (activeSimulation) {
-        try {
-            await simulationClient.destroySimulation(activeSimulation.id);
-        } catch (e) {
-            console.warn("Failed to destroy previous simulation", e);
-        }
+        try { await simulationClient.destroySimulation(activeSimulation.id); } 
+        catch (e) { console.warn(e); }
     }
-
-    console.log(`Restoring system to: ${selectedDate.toISOString()}`);
 
     try {
       const result = await simulationClient.createSimulation({timestamp: selectedDate.toISOString()});
       setActiveSimulation(result.data);
     } catch (error) {
-      console.error(error);
-      alert(`Error while initiating the restore: ${error}`);
+      alert(`Error: ${error}`);
       setIsRestoring(false);
       setActiveSimulation(null);
     }
@@ -80,190 +86,174 @@ function App() {
 
   const handleReturnToLive = async () => {
     if (activeSimulation) {
-        try {
-            await simulationClient.destroySimulation(activeSimulation.id);
-        } catch (error) {
-            console.error("Error destroying simulation:", error);
-        }
+        try { await simulationClient.destroySimulation(activeSimulation.id); } 
+        catch (e) { console.error(e); }
     }
     setActiveSimulation(null);
     setIsRestoring(false);
-    refetchGraphData(); // Fetch live data
+    setPlaybackSpeed(1.0);
+    refetchGraphData();
   };
 
   const handleTogglePlayback = async () => {
     if (!activeSimulation) return;
     const isPlaying = activeSimulation.status === SimulationStateResponseStatusEnum.Playing;
-
     try {
       if (isPlaying) {
         await simulationClient.cancelPlayback(activeSimulation.id);
-        // Optimistic update (optional, but makes UI snappy)
         setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Ready } : null);
       } else {
-        await simulationClient.startPlayback(activeSimulation.id, { speedFactor: playbackSpeed });
+        await simulationClient.startPlayback(activeSimulation.id, { 
+            speedFactor: playbackSpeed,
+            startTimestamp: new Date(simTime).toISOString() 
+        });
         setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Playing } : null);
       }
-    } catch (error) {
-      console.error(`Failed to toggle playback`, error);
-      alert(`Error: Could not update playback state.`);
-    }
+    } catch (error) { console.error(error); }
   };
 
   const handleSetSpeed = async (speed: number) => {
-    if (!activeSimulation) return;
-    setPlaybackSpeed(speed); // Update UI immediately
-    try {
-      await simulationClient.startPlayback(activeSimulation.id, { speedFactor: speed });
-    } catch (error) {
-      console.error("Failed to set simulation speed", error);
+    setPlaybackSpeed(speed);
+    if (activeSimulation?.status === SimulationStateResponseStatusEnum.Playing) {
+        try {
+            await simulationClient.startPlayback(activeSimulation.id, { 
+                speedFactor: speed,
+                startTimestamp: new Date(simTime).toISOString()
+            });
+        } catch (e) { console.error(e); }
     }
   };
 
-  // --- Effects ---
-
-  // 2. Optimized Status Subscription
-  // Only re-run if the Simulation ID changes, or connection status changes.
-  // NOT when the simulation status changes (we handle that inside).
+  // --- Effects (Same as before) ---
   useEffect(() => {
     const simId = activeSimulation?.id;
-    
-    // Don't subscribe if we are already in a terminal state or no simulation
     if (!connected || !simId) return;
     
-    // If we are already Ready/Failed, we might not need to subscribe, 
-    // BUT if we want to catch "Playing" -> "Ready" transitions, we should stay subscribed.
-    // Let's only skip if we are null.
-
-    console.log(`Subscribing to status updates for simulation: ${simId}`);
-
     const handleStatusUpdate = (update: any) => {
-        console.log('Received status update:', update);
-        
         setActiveSimulation(prev => {
-            // Guard: ensure we are updating the correct simulation
             if (prev?.id !== simId) return prev;
             return { ...prev, status: update.status };
         });
-
         if (update.status === SimulationStateResponseStatusEnum.Ready) {
             refetchGraphData(simId);
             setIsRestoring(false);
         } else if (update.status === SimulationStateResponseStatusEnum.Failed) {
             alert(`Simulation failed: ${update.message}`);
             setIsRestoring(false);
-            // Optional: setActiveSimulation(null);
         }
     };
-
     const unsubscribe = subscribeToSimulationStatus(simId, handleStatusUpdate);
-
-    // Initial Poll to ensure we didn't miss a socket event between creation and subscription
-    simulationClient.getSimulationStatus(simId)
-      .then(response => {
-        // Only update if we are still looking at the same simulation
+    simulationClient.getSimulationStatus(simId).then(response => {
         if (activeSimulationIdRef.current === simId) {
             const status = response.data.status;
             setActiveSimulation(prev => prev ? { ...prev, status } : null);
-            
             if (status === SimulationStateResponseStatusEnum.Ready) {
                 refetchGraphData(simId);
                 setIsRestoring(false);
             }
         }
-      })
-      .catch(console.warn);
-
-    return () => {
-        unsubscribe();
-    };
+    }).catch(console.warn);
+    return () => { unsubscribe(); };
   }, [connected, activeSimulation?.id, subscribeToSimulationStatus, refetchGraphData]); 
-  // ^ Key change: depend on .id, not the whole object
 
-  // 3. Optimized Heartbeat
   useEffect(() => {
     if (!activeSimulation?.id) return;
     const simId = activeSimulation.id;
-
     const intervalId = setInterval(() => {
-      // Use the captured simId variable, so we don't need activeSimulation in dependency
-      console.log(`Sending heartbeat for: ${simId}`);
       simulationClient.sendHeartbeat(simId).catch(console.warn);
     }, 30_000);
-
     return () => clearInterval(intervalId);
   }, [activeSimulation?.id]); 
 
-  // --- Render Logic ---
-
-  const canShowPlaybackControls = activeSimulation && !isRestoring && (
-    activeSimulation.status === SimulationStateResponseStatusEnum.Ready ||
-    activeSimulation.status === SimulationStateResponseStatusEnum.Playing
-  );
-
   const isLoading = graphLoading || isRestoring;
 
+  // --- RENDER WITH THEME ---
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5' }}>
+    <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        height: '100vh', 
+        // Apply Theme Background to whole app
+        backgroundColor: theme.background, 
+        color: theme.headerText,
+        transition: 'background-color 0.3s ease'
+    }}>
       
       <header style={{ 
-        padding: '16px', background: 'white', borderBottom: '1px solid #ddd',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0
+        padding: '12px 24px', 
+        // Apply Theme Header Colors
+        backgroundColor: theme.headerBackground, 
+        borderBottom: `1px solid ${theme.headerBorder}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
       }}>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <img src="/logo.svg" alt="Logo" style={{ width: 250 }} />
-            <h2 style={{ margin: 0, color: '#333' }}>
-                {activeSimulation ? 'Historical View' : 'Live System'}
-            </h2>
-            
-            <input
-              type="datetime-local"
-              value={dateTimeLocal}
-              onChange={handleDateChange}
-              disabled={isLoading}
-              style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-            />
-            
-            <button
-              onClick={handleRestore}
-              disabled={isLoading}
-              style={{ 
-                  padding: '8px 16px', border: 'none', borderRadius: '4px', 
-                  background: '#007bff', color: 'white',
-                  cursor: isLoading ? 'not-allowed' : 'pointer',
-                  opacity: isLoading ? 0.7 : 1
-              }}
-            >
-              {isRestoring ? 'Building...' : 'Restore to this Time'}
-            </button>
-
-            {isRestoring && activeSimulation && (
-                <span style={{ color: '#666', fontStyle: 'italic' }}>
-                    Status: {activeSimulation.status}...
-                </span>
-            )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <img src="/logo.svg" alt="Logo" style={{ width: 180 }} />
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {canShowPlaybackControls && (
+            {activeSimulation && !isRestoring && (
                 <PlaybackControls
                     simulation={activeSimulation}
+                    simTime={simTime}
                     currentSpeed={playbackSpeed}
                     onTogglePlay={handleTogglePlayback}
                     onSetSpeed={handleSetSpeed}
                 />
             )}
 
-            {activeSimulation && !isRestoring && (
+            {!activeSimulation && !isSelectingDate && (
+                <button 
+                    onClick={handleStartSimulationClick}
+                    style={{ padding: '8px 16px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                    ⏱ Time Travel
+                </button>
+            )}
+
+            {isSelectingDate && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: theme.uiBackground, padding: '4px', borderRadius: '6px', border: `1px solid ${theme.uiBorder}` }}>
+                    <input
+                        type="datetime-local"
+                        value={dateTimeLocal}
+                        onChange={handleDateChange}
+                        style={{ 
+                            padding: '6px', 
+                            border: `1px solid ${theme.uiBorder}`, 
+                            borderRadius: '4px',
+                            backgroundColor: theme.inputBackground,
+                            color: theme.inputColor,
+                            colorScheme: mode
+                        }}
+                    />
+                    <button 
+                        onClick={handleConfirmRestore}
+                        disabled={isLoading}
+                        style={{ padding: '6px 12px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                        Start
+                    </button>
+                    <button 
+                        onClick={() => setIsSelectingDate(false)}
+                        style={{ padding: '6px 12px', background: 'transparent', color: theme.uiText, border: 'none', cursor: 'pointer' }}
+                    >
+                        Cancel
+                    </button>
+                </div>
+            )}
+        </div>
+
+        <div style={{ width: '180px', display: 'flex', justifyContent: 'flex-end' }}>
+            {activeSimulation && (
                 <button
                     onClick={handleReturnToLive}
                     style={{ 
-                        padding: '8px 16px', border: '1px solid #dc3545', borderRadius: '4px', 
-                        background: 'white', color: '#dc3545', cursor: 'pointer', fontWeight: 'bold'
+                        padding: '8px 16px', border: '1px solid #dc3545', borderRadius: '6px', 
+                        background: 'transparent', color: '#dc3545', cursor: 'pointer', fontWeight: 'bold'
                     }}
                 >
-                    Return to Live
+                    Exit Simulation
                 </button>
             )}
         </div>
@@ -271,19 +261,27 @@ function App() {
 
       <main style={{ flex: 1, position: 'relative' }}>
         {isLoading ? (
-          <div style={{ 
-              position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              textAlign: 'center', color: '#666' 
-          }}>
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: theme.uiText }}>
             <h3>{isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}</h3>
           </div>
         ) : (
-          <DisplayGraph initialGraphData={graphData} simulationId={activeSimulation?.id} 
-          playbackSpeed={playbackSpeed}
-            isPaused={isPaused}/>
+          <DisplayGraph 
+            initialGraphData={graphData} 
+            simulationId={activeSimulation?.id}
+            simTime={simTime}
+          />
         )}
       </main>
     </div>
+  );
+}
+
+// --- MAIN WRAPPER (Provides Theme) ---
+function App() {
+  return (
+    <GraphThemeProvider>
+      <AppContent />
+    </GraphThemeProvider>
   );
 }
 

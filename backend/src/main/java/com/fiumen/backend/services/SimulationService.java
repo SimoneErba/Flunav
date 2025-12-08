@@ -139,11 +139,11 @@ public class SimulationService {
     /**
      * Updates the status of a simulation. Called by the HistoricalGraphBuilder.
      */
-    public void updateSimulationStatus(String simulationId, SimulationStatus status) {
+    public void updateSimulationStatus(String simulationId, SimulationStatus status, Instant timestamp) {
         SimulationState state = simulationCache.get(simulationId);
         if (state != null) {
             state.setStatus(status);
-            this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus());
+            this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), timestamp);
             logger.info("Updated status for simulation {} to {}", simulationId, status);
         } else {
             logger.warn("Could not update status for non-existent simulation: {}", simulationId);
@@ -161,7 +161,7 @@ public class SimulationService {
                 if (request != null) {
                     logger.info("Build permit acquired for queued simulation {}. Starting build.",
                             request.simulationId());
-                    updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING);
+                    updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, Instant.now());
                     orientDBService.createInMemoryDatabase(request.simulationId());
                     historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
                 } else {
@@ -217,7 +217,7 @@ public class SimulationService {
     }
 
     // TODO: add time to the state to be used when resuming?
-    public void pauseSimulation(String simulationId) {
+    public void pauseSimulation(String simulationId, Instant timestamp) {
         // 1. Find the state and the running task.
         SimulationState state = simulationCache.get(simulationId);
         Future<?> playbackTask = activePlaybacks.get(simulationId);
@@ -237,7 +237,7 @@ public class SimulationService {
         state.setStatus(SimulationStatus.PAUSED);
 
         // 4. Broadcast the update to all connected clients.
-        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED);
+        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED, timestamp);
 
         // 5. CRITICAL: Interrupt the actual background thread.
         // The 'true' parameter sends an interrupt signal, which will be caught

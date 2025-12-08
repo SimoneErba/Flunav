@@ -32,15 +32,19 @@ public class SimulationController {
     /**
      * Data Transfer Objects (DTOs) for API requests.
      */
-    public record CreateSimulationRequest(Instant timestamp) {}
-    public record PlaybackRequest(double speedFactor) {}
+    public record CreateSimulationRequest(Instant timestamp) {
+    }
+
+    public record PlaybackRequest(double speedFactor) {
+    }
 
     @PostMapping
     @Operation(summary = "Create a new simulation", description = "Initiates an asynchronous build of a historical graph state. Returns immediately with a simulation ID.")
     @ApiResponse(responseCode = "202", description = "Simulation build has been accepted for processing.")
     public ResponseEntity<SimulationStateResponse> createSimulation(@RequestBody CreateSimulationRequest request) {
         SimulationState state = simulationService.createSimulation(request.timestamp());
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new SimulationStateResponse(state.getId(), state.getStatus()));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(new SimulationStateResponse(state.getId(), state.getStatus()));
     }
 
     @GetMapping("/{simulationId}")
@@ -60,7 +64,7 @@ public class SimulationController {
     @ApiResponse(responseCode = "409", description = "Simulation is not in a READY state.")
     public ResponseEntity<GraphData> getSimulationGraphData(
             @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
-        
+
         SimulationState state = simulationService.getSimulationState(simulationId);
         if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.PLAYING) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -82,7 +86,7 @@ public class SimulationController {
     }
 
     @PostMapping("/{simulationId}/playback/start")
-    @Operation(summary = "Start event playback", description = "Starts the time-synchronized event playback for a READY simulation.")
+    @Operation(summary = "Start event playback", description = "Starts the time-synchronized event playback for a READY simulation. This is used after a pause")
     @ApiResponse(responseCode = "202", description = "Playback has been accepted and started.")
     @ApiResponse(responseCode = "409", description = "Simulation is not in a READY state.")
     public ResponseEntity<Void> startPlayback(
@@ -109,10 +113,10 @@ public class SimulationController {
     @Operation(summary = "Pause event playback", description = "Pauses a currently running event playback.")
     @ApiResponse(responseCode = "202", description = "Cancellation signal has been sent.")
     public ResponseEntity<Void> pausePlayback(
-        @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
-    
+            @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
+
         try {
-            simulationService.pauseSimulation(simulationId);
+            simulationService.pauseSimulation(simulationId, Instant.now());
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -133,9 +137,9 @@ public class SimulationController {
     @PatchMapping("/{simulationId}/playback")
     @Operation(summary = "Update playback speed", description = "Allows changing the speed")
     public ResponseEntity<Void> updateSpeed(
-            @PathVariable String simulationId,  
+            @PathVariable String simulationId,
             @RequestBody double speedFactor) {
-        
+
         simulationService.updatePlaybackSpeed(simulationId, speedFactor);
 
         return ResponseEntity.accepted().build();

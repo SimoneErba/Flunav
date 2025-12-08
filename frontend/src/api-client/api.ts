@@ -3333,7 +3333,7 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * Starts the time-synchronized event playback for a READY simulation.
+         * Starts the time-synchronized event playback for a READY simulation. This is used after a pause
          * @summary Start event playback
          * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
@@ -3514,7 +3514,7 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Starts the time-synchronized event playback for a READY simulation.
+         * Starts the time-synchronized event playback for a READY simulation. This is used after a pause
          * @summary Start event playback
          * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
@@ -3622,7 +3622,7 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.sendHeartbeat(simulationId, options).then((request) => request(axios, basePath));
         },
         /**
-         * Starts the time-synchronized event playback for a READY simulation.
+         * Starts the time-synchronized event playback for a READY simulation. This is used after a pause
          * @summary Start event playback
          * @param {string} simulationId The ID of the simulation
          * @param {PlaybackRequest} playbackRequest 
@@ -3738,7 +3738,7 @@ export class SimulationsApi extends BaseAPI {
     }
 
     /**
-     * Starts the time-synchronized event playback for a READY simulation.
+     * Starts the time-synchronized event playback for a READY simulation. This is used after a pause
      * @summary Start event playback
      * @param {string} simulationId The ID of the simulation
      * @param {PlaybackRequest} playbackRequest 

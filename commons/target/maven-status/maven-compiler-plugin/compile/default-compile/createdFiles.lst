@@ -21,6 +21,7 @@ fiumen/events/LocationDeactivatedEvent.class
 fiumen/events/ConnectionSpeedChangedEvent.class
 fiumen/events/ItemActivatedEvent.class
 fiumen/events/ConnectionLengthChangedEvent.class
+fiumen/context/UserContextHolder.class
 fiumen/events/ItemDestinationEvent.class
 fiumen/events/ItemPositionChangedEvent.class
 fiumen/events/LocationDeletedEvent.class

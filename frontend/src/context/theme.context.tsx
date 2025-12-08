@@ -1,37 +1,78 @@
 import React, { useEffect, createContext, useContext, useState } from "react";
 import { useSigma } from "@react-sigma/core";
 
-// --- 1. Define Palettes ---
+// 1. Define Palettes
 export const THEMES = {
   light: {
-    background: "#ffffff",
-    label: "#000000",
+    // Graph
+    background: "#f0f2f5",
+    label: "#000000", 
     nodeDefault: "#333333",
     edgeDefault: "#cccccc",
-    itemColor: "#d32f2f", // Darker red for light bg
+    itemColor: "#d32f2f",
+    
+    // UI Panels & Controls
+    uiBackground: "#ffffff",
+    uiText: "#333333",
+    uiBorder: "#cccccc",
+    inputBackground: "#ffffff",
+    inputColor: "#000000",
+    buttonHover: "#f0f0f0",
+    
+    // Specific for Sigma Controls
+    controlBg: "#ffffff",
+    controlIcon: "#333333",
+    controlHover: "#e0e0e0",
+
+    // Header
+    headerBackground: "#ffffff",
+    headerText: "#333333",
+    headerBorder: "#dddddd"
   },
   dark: {
-    background: "#1a1a1a",
-    label: "#ffffff",
-    nodeDefault: "#4db6ac", // Bright Teal for dark bg
+    // Graph
+    background: "#1a1a1a", 
+    label: "#ffffff", 
+    nodeDefault: "#4db6ac",
     edgeDefault: "#555555",
-    itemColor: "#ff5252", // Bright red for dark bg
+    itemColor: "#ff5252",
+
+    // UI Panels & Controls
+    uiBackground: "#2a2a2a",
+    uiText: "#ffffff",
+    uiBorder: "#444444",
+    inputBackground: "#333333",
+    inputColor: "#ffffff",
+    buttonHover: "#444444",
+
+    // Specific for Sigma Controls
+    controlBg: "#333333",
+    controlIcon: "#ffffff",
+    controlHover: "#555555",
+
+    // Header
+    headerBackground: "#252525",
+    headerText: "#ffffff",
+    headerBorder: "#333333"
   },
 };
 
 type ThemeMode = "light" | "dark";
 
-// --- 2. Context for the Switch ---
 const ThemeContext = createContext<{
   mode: ThemeMode;
   toggleTheme: () => void;
-}>({ mode: "light", toggleTheme: () => {} });
+}>({ mode: "dark", toggleTheme: () => {} });
 
 export const useTheme = () => useContext(ThemeContext);
 
-// --- 3. The Provider (Wraps your App or Graph) ---
 export const GraphThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const [mode, setMode] = useState<ThemeMode>("dark"); // Default to dark
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return "dark";
+    }
+    return "light";
+  });
 
   const toggleTheme = () => {
     setMode((prev) => (prev === "light" ? "dark" : "light"));
@@ -44,27 +85,37 @@ export const GraphThemeProvider = ({ children }: { children: React.ReactNode }) 
   );
 };
 
-export const ThemedBackground = ({ children }: { children: React.ReactNode }) => {
+// --- NEW: CSS Injector for Sigma Controls ---
+const GlobalGraphStyles = () => {
   const { mode } = useTheme();
   const theme = THEMES[mode];
 
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        position: "relative",
-        // This applies the color from the theme
-        backgroundColor: theme.background, 
-        transition: "background-color 0.3s ease",
-      }}
-    >
-      {children}
-    </div>
+    <style>{`
+      /* Override Sigma Control Buttons */
+      .react-sigma-control {
+        background-color: ${theme.controlBg} !important;
+        border: 1px solid ${theme.uiBorder} !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+      }
+      
+      .react-sigma-control button {
+        background-color: transparent !important;
+        color: ${theme.controlIcon} !important;
+      }
+
+      .react-sigma-control button:hover {
+        background-color: ${theme.controlHover} !important;
+      }
+
+      .react-sigma-control svg {
+        fill: ${theme.controlIcon} !important;
+      }
+    `}</style>
   );
 };
 
-// --- 4. The Controller (Lives INSIDE SigmaContainer) ---
+// --- CONTROLLER ---
 export const GraphThemeController = () => {
   const { mode } = useTheme();
   const sigma = useSigma();
@@ -74,37 +125,38 @@ export const GraphThemeController = () => {
     const theme = THEMES[mode];
     const settings = sigma.getSettings();
 
-    // A. Update Canvas Settings (Labels, Background)
-    // Note: Sigma container background is CSS, but we can set it via DOM or parent
-    const container = document.getElementById("sigma-container-root");
-    if (container) container.style.backgroundColor = theme.background;
-
-    settings.labelColor = { color: theme.label };
-    settings.edgeLabelColor = { color: theme.label };
+    // 1. Force Global Label Color
+    settings.labelColor = { attribute: "labelColor", color: theme.label };
     
-    // B. Update Graph Data (Nodes & Edges)
-    // We iterate to ensure contrast (e.g. dark nodes on dark bg = bad)
-    
+    // 2. Update Nodes
     graph.forEachNode((node, attrs) => {
-      // Keep Items Red, but adjust brightness
-      if (attrs.isItem) {
-        graph.setNodeAttribute(node, "color", theme.itemColor);
-      } else {
-        // Locations
-        graph.setNodeAttribute(node, "color", theme.nodeDefault);
-      }
-      // Update label color if you store it on node (optional, usually handled by settings)
+      // Update Node Color
+      if (attrs.isItem) graph.setNodeAttribute(node, "color", theme.itemColor);
+      else graph.setNodeAttribute(node, "color", theme.nodeDefault);
+      
+      // CRITICAL: Force individual label color to match theme
+      // Sigma sometimes defaults to node color if this isn't set
+      graph.setNodeAttribute(node, "labelColor", theme.label);
     });
 
-    graph.forEachEdge((edge, attrs) => {
-      // Update edge color
+    // 3. Update Edges
+    graph.forEachEdge((edge) => {
       graph.setEdgeAttribute(edge, "color", theme.edgeDefault);
     });
 
-    // Refresh to apply changes
     sigma.refresh();
-    
   }, [mode, sigma]);
 
-  return null;
+  // Render the CSS styles
+  return <GlobalGraphStyles />;
+};
+
+export const ThemedBackground = ({ children }: { children: React.ReactNode }) => {
+  const { mode } = useTheme();
+  const theme = THEMES[mode];
+  return (
+    <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: theme.background, transition: "background-color 0.3s ease" }}>
+      {children}
+    </div>
+  );
 };
