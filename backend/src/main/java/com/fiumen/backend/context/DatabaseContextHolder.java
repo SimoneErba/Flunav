@@ -20,19 +20,22 @@ public final class DatabaseContextHolder {
     /**
      * Private constructor to prevent instantiation of this utility class.
      */
-    private DatabaseContextHolder() {}
+    private DatabaseContextHolder() {
+    }
 
     // ===================================================================================
     // Simulation Context Management (using AutoCloseable)
     // ===================================================================================
 
     /**
-     * An AutoCloseable resource that manages the lifecycle of the simulation context.
+     * An AutoCloseable resource that manages the lifecycle of the simulation
+     * context.
      * Use with a try-with-resources statement for guaranteed cleanup.
      */
     public static class SimulationContext implements AutoCloseable {
         private SimulationContext(String simulationId) {
-            logger.debug("Entering simulation context for thread [{}]: {}", Thread.currentThread().getName(), simulationId);
+            logger.debug("Entering simulation context for thread [{}]: {}", Thread.currentThread().getName(),
+                    simulationId);
             simulationIdContext.set(simulationId);
         }
 
@@ -48,7 +51,8 @@ public final class DatabaseContextHolder {
      * try-with-resources block.
      *
      * @param simulationId The unique ID of the simulation database.
-     * @return An AutoCloseable context object that will clear the context upon closing.
+     * @return An AutoCloseable context object that will clear the context upon
+     *         closing.
      */
     public static SimulationContext enterSimulationContext(String simulationId) {
         return new SimulationContext(simulationId);
@@ -56,19 +60,24 @@ public final class DatabaseContextHolder {
 
     /**
      * Gets the simulation ID for the current thread.
+     * 
      * @return The simulation ID, or null if the context is for the live database.
      */
     public static String getSimulationId() {
         return simulationIdContext.get();
     }
 
+    public static void clearSimulation() {
+        simulationIdContext.remove();
+    }
 
     // ===================================================================================
     // Transactional Session Management (Both AutoCloseable and Manual)
     // ===================================================================================
 
     /**
-     * An AutoCloseable resource that manages the lifecycle of a transactional session.
+     * An AutoCloseable resource that manages the lifecycle of a transactional
+     * session.
      * Use with a try-with-resources statement for guaranteed cleanup.
      */
     public static class TransactionContext implements AutoCloseable {
@@ -85,11 +94,13 @@ public final class DatabaseContextHolder {
     }
 
     /**
-     * Establishes a transactional session for the current thread for the duration of a
+     * Establishes a transactional session for the current thread for the duration
+     * of a
      * try-with-resources block. This is the recommended approach for new code.
      *
      * @param session The OrientDB session to be used for the transaction.
-     * @return An AutoCloseable context object that will clear the session upon closing.
+     * @return An AutoCloseable context object that will clear the session upon
+     *         closing.
      */
     public static TransactionContext enterTransactionContext(ODatabaseSession session) {
         return new TransactionContext(session);
@@ -97,6 +108,7 @@ public final class DatabaseContextHolder {
 
     /**
      * Gets the transactional session for the current thread.
+     * 
      * @return The session, or null if no transaction is active on this thread.
      */
     public static ODatabaseSession getTransactionalSession() {
@@ -105,7 +117,8 @@ public final class DatabaseContextHolder {
 
     /**
      * Manually sets the transactional session.
-     * NOTE: If you use this, you are responsible for calling clearTransaction() in a finally block.
+     * NOTE: If you use this, you are responsible for calling clearTransaction() in
+     * a finally block.
      * Prefer using enterTransactionContext for safer, automatic cleanup.
      *
      * @param session The OrientDB session.
@@ -116,7 +129,8 @@ public final class DatabaseContextHolder {
 
     /**
      * Manually clears the transactional session for the current thread.
-     * CRITICAL: This must be called in a finally block if you used setTransactionalSession().
+     * CRITICAL: This must be called in a finally block if you used
+     * setTransactionalSession().
      */
     public static void clearTransaction() {
         transactionalSessionContext.remove();

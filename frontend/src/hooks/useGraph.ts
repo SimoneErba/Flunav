@@ -1,54 +1,61 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
-import { GraphData } from "../api-client/api";
-import { useWebSocketConnection } from './websocket/useWebSocketConnection';
-
-const emptyGraphData: GraphData = {
-    locations: [],
-    conveyors: []
-};
 
 export const useGraph = () => {
-    const { simulationApi, graphApi } = useApi();
-    const { connected } = useWebSocketConnection();
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [graphData, setGraphData] = useState<GraphData>(emptyGraphData);
+    const { graphApi, clientId } = useApi(); // Default API from context
+    const [graphData, setGraphData] = useState<GraphData | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<Error | null>(null);
 
-    const refetchGraphData = useCallback(async (simulationId: string | undefined = undefined) => {
+    /**
+     * Fetches graph data.
+     * @param simulationIdOverride 
+     *  - undefined: Use current Context (Standard)
+     *  - null: Force Live (No header)
+     *  - string: Force specific Simulation ID
+     */
+    const refetchGraphData = useCallback(async (simulationIdOverride?: string | null) => {
+        setLoading(true);
         try {
-            console.log("Refetching graph data...");
-            setLoading(true);
-            let response;
-            if (simulationId) {
-                response = await simulationApi.getSimulationGraphData(simulationId);
-            } else {
-                response = await graphApi.getGraphData();
+            let api = graphApi;
+
+            // If an override is explicitly passed (null or string), create a temp config
+            if (simulationIdOverride !== undefined) {
+                const config = new Configuration({
+                    basePath: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+                    baseOptions: {
+                        headers: {
+                            'X-Sender-ID': clientId,
+                            // Only add header if ID is a string (not null)
+                            ...(simulationIdOverride ? { 'X-Simulation-ID': simulationIdOverride } : {})
+                        }
+                    }
+                });
+                api = new GraphApi(config);
             }
-            if (response?.data) {
-                setGraphData(response.data);
-                setError(null);
-            } else {
-                throw new Error('Invalid response data');
+
+            const response = await api.getGraphData();
+            // Ensure we set the timestamp if missing (fallback)
+            const data = response.data;
+            if (!data.timestamp) {
+                data.timestamp = new Date().toISOString();
             }
+            
+            setGraphData(data);
+            setError(null);
         } catch (err) {
-            setError('Failed to fetch graph data');
-            console.error('Error fetching graph data:', err);
-            setGraphData(emptyGraphData);
+            console.error("Failed to fetch graph data", err);
+            setError(err as Error);
         } finally {
             setLoading(false);
         }
-    }, [graphApi]);
+    }, [graphApi, clientId]);
 
+    // Initial load (uses default context)
     useEffect(() => {
         refetchGraphData();
-    }, [refetchGraphData]); 
+    }, [refetchGraphData]);
 
-    return {
-        graphData,
-        loading,
-        error,
-        connected,
-        refetchGraphData
-    };
-}; 
+    return { graphData, loading, error, refetchGraphData };
+};

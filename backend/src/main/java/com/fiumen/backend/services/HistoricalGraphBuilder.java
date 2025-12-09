@@ -67,10 +67,6 @@ public class HistoricalGraphBuilder {
                     session.begin();
                     for (DomainEvent event : eventsToReplay) {
                         try {
-                            // The EventProcessor now handles the new Edge/Redis-like logic
-                            // Note: In simulation, we don't use Redis, we use OrientDB as the state store
-                            // so EventProcessor might need a tweak or we assume the simulation DB
-                            // acts as the "Live State" for the duration of the replay.
                             eventProcessor.processEventWithoutBroadcast(event);
                         } catch (Exception e) {
                             logger.warn("Error while processing event {}: {}", event.getEventType(), e);

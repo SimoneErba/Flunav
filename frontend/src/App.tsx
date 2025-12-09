@@ -11,17 +11,19 @@ import { useSimulationClock } from './components/graph/hooks/useSimulationClock'
 import { GraphThemeProvider, useTheme, THEMES } from './context/theme.context';
 import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
 import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
-
-const simulationClient = new SimulationsApi();
+import { SimulationProvider, useSimulationContext } from './context/simulation.context';
+import { useApi } from './hooks/useApi';
 
 // --- INNER COMPONENT (Can use useTheme) ---
 function AppContent() {
+  const { activeSimulation, setActiveSimulation } = useSimulationContext();
+
+
   // 1. Get Theme
   const { mode } = useTheme();
   const theme = THEMES[mode];
 
   // --- State ---
-  const [activeSimulation, setActiveSimulation] = useState<SimulationStateResponse | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isRestoring, setIsRestoring] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
@@ -31,7 +33,7 @@ function AppContent() {
   const { graphData, loading: graphLoading, refetchGraphData } = useGraph();
   const { connected } = useWebSocketConnection();
   const { subscribeToSimulationStatus } = useWebSocketEvents();
-
+  const { simulationApi } = useApi();
   const activeSimulationIdRef = useRef<string | null>(null);
   activeSimulationIdRef.current = activeSimulation?.id || null;
 
@@ -40,7 +42,7 @@ function AppContent() {
     : false;
 
   const simTime = useSimulationClock(
-      activeSimulation?.snapshotTimestamp, 
+      activeSimulation?.timestamp, 
       playbackSpeed, 
       isPaused
   );
@@ -75,7 +77,7 @@ function AppContent() {
     }
 
     try {
-      const result = await simulationClient.createSimulation({timestamp: selectedDate.toISOString()});
+      const result = await simulationApi.createSimulation({timestamp: selectedDate.toISOString()});
       setActiveSimulation(result.data);
     } catch (error) {
       alert(`Error: ${error}`);
@@ -86,13 +88,13 @@ function AppContent() {
 
   const handleReturnToLive = async () => {
     if (activeSimulation) {
-        try { await simulationClient.destroySimulation(activeSimulation.id); } 
+        try { await simulationApi.destroySimulation(activeSimulation.id); } 
         catch (e) { console.error(e); }
     }
     setActiveSimulation(null);
     setIsRestoring(false);
     setPlaybackSpeed(1.0);
-    refetchGraphData();
+    refetchGraphData(null);
   };
 
   const handleTogglePlayback = async () => {
@@ -100,10 +102,10 @@ function AppContent() {
     const isPlaying = activeSimulation.status === SimulationStateResponseStatusEnum.Playing;
     try {
       if (isPlaying) {
-        await simulationClient.cancelPlayback(activeSimulation.id);
+        await simulationApi.cancelPlayback(activeSimulation.id);
         setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Ready } : null);
       } else {
-        await simulationClient.startPlayback(activeSimulation.id, { 
+        await simulationApi.startPlayback(activeSimulation.id, { 
             speedFactor: playbackSpeed,
             startTimestamp: new Date(simTime).toISOString() 
         });
@@ -116,7 +118,7 @@ function AppContent() {
     setPlaybackSpeed(speed);
     if (activeSimulation?.status === SimulationStateResponseStatusEnum.Playing) {
         try {
-            await simulationClient.startPlayback(activeSimulation.id, { 
+            await simulationApi.startPlayback(activeSimulation.id, { 
                 speedFactor: speed,
                 startTimestamp: new Date(simTime).toISOString()
             });
@@ -143,7 +145,7 @@ function AppContent() {
         }
     };
     const unsubscribe = subscribeToSimulationStatus(simId, handleStatusUpdate);
-    simulationClient.getSimulationStatus(simId).then(response => {
+    simulationApi.getSimulationStatus(simId).then(response => {
         if (activeSimulationIdRef.current === simId) {
             const status = response.data.status;
             setActiveSimulation(prev => prev ? { ...prev, status } : null);
@@ -160,7 +162,7 @@ function AppContent() {
     if (!activeSimulation?.id) return;
     const simId = activeSimulation.id;
     const intervalId = setInterval(() => {
-      simulationClient.sendHeartbeat(simId).catch(console.warn);
+      simulationApi.sendHeartbeat(simId).catch(console.warn);
     }, 30_000);
     return () => clearInterval(intervalId);
   }, [activeSimulation?.id]); 
@@ -280,7 +282,9 @@ function AppContent() {
 function App() {
   return (
     <GraphThemeProvider>
-      <AppContent />
+      <SimulationProvider>
+        <AppContent />
+      </SimulationProvider>
     </GraphThemeProvider>
   );
 }

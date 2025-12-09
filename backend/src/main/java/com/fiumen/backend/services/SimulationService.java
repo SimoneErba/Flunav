@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import com.fiumen.backend.repositories.LiveItemRepository;
 
 @Service
 public class SimulationService {
@@ -33,6 +34,7 @@ public class SimulationService {
     private final HistoricalEventPlayer historicalEventPlayer;
     private final HistoricalGraphBuilder historicalGraphBuilder;
     private final WebSocketService webSocketService;
+    private final LiveItemRepository liveItemRepository;
 
     // --- State Management ---
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
@@ -44,11 +46,12 @@ public class SimulationService {
 
     public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
             WebSocketService webSocketService,
-            @Lazy HistoricalGraphBuilder historicalGraphBuilder) {
+            @Lazy HistoricalGraphBuilder historicalGraphBuilder, LiveItemRepository liveItemRepository) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
         this.webSocketService = webSocketService;
+        this.liveItemRepository = liveItemRepository;
     }
 
     /**
@@ -120,6 +123,7 @@ public class SimulationService {
         SimulationState state = simulationCache.remove(simulationId);
         if (state != null) {
             orientDBService.dropDatabase(simulationId);
+            liveItemRepository.cleanupSimulationData(simulationId);
             simulationCache.remove(simulationId);
             logger.info("Successfully destroyed simulation: {}", simulationId);
         } else {

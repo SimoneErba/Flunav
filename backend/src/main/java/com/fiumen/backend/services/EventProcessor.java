@@ -20,6 +20,7 @@ import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
+import com.fiumen.backend.context.DatabaseContextHolder;
 
 @Service
 public class EventProcessor {
@@ -48,7 +49,17 @@ public class EventProcessor {
     }
 
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
+        String capturedSimulationId = DatabaseContextHolder.getSimulationId();
+        String capturedSenderId = UserContextHolder.getSenderId();
         return CompletableFuture.supplyAsync(() -> {
+
+            // We inject the values into this new thread's ThreadLocal
+            if (capturedSimulationId != null) {
+                // DatabaseContextHolder.enterSimulationContext(capturedSimulationId);
+            }
+            if (capturedSenderId != null) {
+                // UserContextHolder.setSenderId(capturedSenderId);
+            }
             Map<String, Object> resultMap = new HashMap<>();
             try {
                 clickHouseService.saveEvent(event);
@@ -58,6 +69,9 @@ public class EventProcessor {
             } catch (Exception e) {
                 logger.error("Error processing event: {}", event.getEventType(), e);
                 throw new CompletionException(e);
+            } finally {
+                // DatabaseContextHolder.clearSimulation();
+                // UserContextHolder.clear();
             }
         });
     }

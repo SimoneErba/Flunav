@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 
+import java.lang.reflect.Proxy;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -65,10 +66,21 @@ public class OrientDBService {
     }
 
     public ODatabaseSession getSession() {
-        ODatabaseSession session = transactionalSession.get();
-        if (session != null && !session.isClosed()) {
-            logger.trace("Reusing existing transactional session for this thread.");
-            return session;
+        ODatabaseSession activeSession = transactionalSession.get();
+
+        if (activeSession != null && !activeSession.isClosed()) {
+            logger.trace("Wrapping existing transactional session in a Proxy.");
+
+            return (ODatabaseSession) Proxy.newProxyInstance(
+                    OrientDBService.class.getClassLoader(),
+                    new Class<?>[] { ODatabaseSession.class },
+                    (proxy, method, args) -> {
+                        if ("close".equals(method.getName())) {
+                            logger.trace("Ignored close() call on transactional proxy.");
+                            return null;
+                        }
+                        return method.invoke(activeSession, args);
+                    });
         }
 
         String simulationId = DatabaseContextHolder.getSimulationId();
@@ -103,7 +115,7 @@ public class OrientDBService {
                 logger.debug("Transaction committed successfully.");
             } catch (Exception e) {
                 logger.error("Error during transactional callback. Initiating rollback.", e);
-                if (session.getTransaction().isActive()) {
+                if (!session.isClosed() && session.getTransaction().isActive()) {
                     try {
                         session.rollback();
                         logger.info("Transaction rolled back successfully.");

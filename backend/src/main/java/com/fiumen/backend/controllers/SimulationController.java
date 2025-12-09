@@ -44,7 +44,7 @@ public class SimulationController {
     public ResponseEntity<SimulationStateResponse> createSimulation(@RequestBody CreateSimulationRequest request) {
         SimulationState state = simulationService.createSimulation(request.timestamp());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(new SimulationStateResponse(state.getId(), state.getStatus()));
+                .body(new SimulationStateResponse(state.getId(), state.getStatus(), state.getTimestamp()));
     }
 
     @GetMapping("/{simulationId}")
@@ -54,7 +54,7 @@ public class SimulationController {
     public ResponseEntity<SimulationStateResponse> getSimulationStatus(
             @Parameter(description = "The unique ID of the simulation") @PathVariable String simulationId) {
         var state = simulationService.getSimulationState(simulationId);
-        return ResponseEntity.ok(new SimulationStateResponse(state.getId(), state.getStatus()));
+        return ResponseEntity.ok(new SimulationStateResponse(state.getId(), state.getStatus(), state.getTimestamp()));
     }
 
     @GetMapping("/{simulationId}/graph")

@@ -25,15 +25,16 @@ public class ControllerHelper {
      * A shared method to process a domain event and log the success.
      *
      * @param event The domain event to process.
-     * @return A CompletableFuture containing the result map from the event processor.
+     * @return A CompletableFuture containing the result map from the event
+     *         processor.
      */
     public CompletableFuture<Map<String, Object>> processAndLogEvent(DomainEvent event) {
-        return eventProcessor.process(event, false)
-            .thenApply(resultMap -> {
+        return eventProcessor.process(event, true)
+                .thenApply(resultMap -> {
 
-                logger.debug("Successfully processed event of type {}",
-                    event.getEventType());
-                return resultMap;
-            });
+                    logger.debug("Successfully processed event of type {}",
+                            event.getEventType());
+                    return resultMap;
+                });
     }
 }

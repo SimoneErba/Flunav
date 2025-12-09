@@ -824,6 +824,12 @@ export interface SimulationStateResponse {
      * @memberof SimulationStateResponse
      */
     'status'?: SimulationStateResponseStatusEnum;
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'timestamp'?: string;
 }
 
 export const SimulationStateResponseStatusEnum = {
