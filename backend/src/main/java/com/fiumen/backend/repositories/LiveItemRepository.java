@@ -52,6 +52,7 @@ public class LiveItemRepository {
         Map<String, String> data = new HashMap<>();
         data.put("e", edgeId);
         data.put("t", String.valueOf(entryTime.toEpochMilli()));
+        data.put("ad", "0.0");
 
         // Optional Destination
         if (destId != null) {
@@ -73,9 +74,19 @@ public class LiveItemRepository {
     public void updatePosition(String itemId, String newEdgeId, Instant entryTime) {
         String itemKey = getNamespacedKey("item:" + itemId);
 
-        // We only update the specific fields that changed
-        redis.opsForHash().put(itemKey, "e", newEdgeId);
-        redis.opsForHash().put(itemKey, "t", String.valueOf(entryTime.toEpochMilli()));
+        Map<String, String> updates = new HashMap<>();
+        updates.put("e", newEdgeId);
+        updates.put("t", String.valueOf(entryTime.toEpochMilli()));
+        updates.put("ad", "0.0");
+        redis.opsForHash().putAll(itemKey, updates);
+    }
+
+    public void checkpointPhysics(String itemId, Instant timestamp, double currentDistance) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        Map<String, String> updates = new HashMap<>();
+        updates.put("t", String.valueOf(timestamp.toEpochMilli()));
+        updates.put("ad", String.valueOf(currentDistance));
+        redis.opsForHash().putAll(itemKey, updates);
     }
 
     public void updateName(String itemId, String name) {
@@ -128,6 +139,13 @@ public class LiveItemRepository {
                 itemData.put("destinationId", hash.get("d"));
                 if (hash.containsKey("n")) {
                     itemData.put("name", hash.get("n"));
+                }
+
+                String distStr = hash.get("ad");
+                if (distStr != null) {
+                    itemData.put("accumulatedDistance", Double.parseDouble(distStr));
+                } else {
+                    itemData.put("accumulatedDistance", 0.0);
                 }
 
                 result.add(itemData);

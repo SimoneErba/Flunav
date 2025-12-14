@@ -5,6 +5,7 @@ import com.fiumen.backend.models.UpdateModel;
 import com.fiumen.backend.models.input.ItemInput;
 import com.fiumen.backend.models.input.LocationInput;
 import com.fiumen.backend.models.response.ConveyorResponse;
+import com.fiumen.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 
 import fiumen.context.UserContextHolder;
@@ -13,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,7 @@ public class EventProcessor {
     private final ConveyorService conveyorService;
     private final WebSocketService webSocketService;
     private final PathfindingService pathfindingService;
+    private final LiveItemRepository liveItemRepository;
 
     public EventProcessor(
             ClickHouseService clickHouseService,
@@ -39,13 +42,15 @@ public class EventProcessor {
             LocationService locationService,
             ConveyorService conveyorService,
             WebSocketService webSocketService,
-            PathfindingService pathfindingService) {
+            PathfindingService pathfindingService,
+            LiveItemRepository liveItemRepository) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
         this.conveyorService = conveyorService;
         this.webSocketService = webSocketService;
         this.pathfindingService = pathfindingService;
+        this.liveItemRepository = liveItemRepository;
     }
 
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
@@ -295,9 +300,9 @@ public class EventProcessor {
 
                 case ConnectionSpeedChangedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
-                    conveyor.setSpeed(e.getSpeed());
                     conveyorService.updateConveyor(conveyor);
-
+                    checkpointItems(e.getEntityId(), conveyor.getSpeed());
+                    conveyor.setSpeed(e.getSpeed());
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), Map.of("speed", e.getSpeed())), e.getTimestamp());
@@ -352,5 +357,36 @@ public class EventProcessor {
                 }
             };
         });
+    }
+
+    /**
+     * Checkpoints items on a conveyor when speed changes.
+     * We save the distance traveled so far and reset the timer to 'now'.
+     */
+    private void checkpointItems(String edgeId, double oldSpeed) {
+        List<Map<String, Object>> allItems = liveItemRepository.getAllActiveItems();
+        long now = System.currentTimeMillis();
+        Instant nowInstant = Instant.ofEpochMilli(now);
+
+        for (Map<String, Object> itemData : allItems) {
+            String currentEdgeId = (String) itemData.get("edgeId");
+
+            if (edgeId.equals(currentEdgeId)) {
+                String itemId = (String) itemData.get("id");
+                Long lastUpdateTime = (Long) itemData.get("entryTimestamp");
+                Double storedDistance = (Double) itemData.get("accumulatedDistance");
+                if (storedDistance == null)
+                    storedDistance = 0.0;
+
+                if (lastUpdateTime != null) {
+                    long timeElapsed = now - lastUpdateTime;
+                    double distanceTraveledSinceLastUpdate = (timeElapsed / 1000.0) * oldSpeed;
+
+                    double totalDistance = storedDistance + distanceTraveledSinceLastUpdate;
+
+                    liveItemRepository.checkpointPhysics(itemId, nowInstant, totalDistance);
+                }
+            }
+        }
     }
 }

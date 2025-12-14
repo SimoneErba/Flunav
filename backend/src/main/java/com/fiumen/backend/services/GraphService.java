@@ -8,7 +8,6 @@ import com.fiumen.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-
 import fiumen.types.ConveyorType;
 import fiumen.types.LocationType;
 import org.slf4j.Logger;
@@ -38,247 +37,174 @@ public class GraphService {
 
     public GraphData getGraphData() {
         Instant now = Instant.now();
+        Topology topology = fetchTopology();
+        List<ItemResponse> activeItems = calculateAllItemStates(topology, now);
 
-        List<LocationResponse> nodes = new ArrayList<>();
-        Map<String, LocationResponse> nodeMap = new HashMap<>();
-        Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
+        return new GraphData(
+                new ArrayList<>(topology.nodeMap.values()),
+                new ArrayList<>(topology.conveyorMap.values()),
+                activeItems,
+                now);
+    }
 
-        // Topology: SourceNodeID -> List of Outgoing Conveyors
-        Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
+    public List<ItemResponse> getAllItemStates() {
+        return calculateAllItemStates(fetchTopology(), Instant.now());
+    }
 
+    private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now) {
+        List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
         List<ItemResponse> activeItems = new ArrayList<>();
 
-        // 1. FETCH TOPOLOGY
-        try (ODatabaseSession session = orientDBService.getSession()) {
-            // A. Fetch Nodes
-            String nodeQuery = "SELECT customId, name, latitude, longitude, type, active, capacity, properties FROM Location";
-            try (OResultSet rs = session.query(nodeQuery)) {
-                while (rs.hasNext()) {
-                    OResult res = rs.next();
-                    LocationResponse loc = mapToLocation(res);
-                    nodes.add(loc);
-                    nodeMap.put(loc.getId(), loc);
-                }
-            }
-
-            // B. Fetch Edges
-            String edgeQuery = "SELECT customId, name, length, speed, type, active, isMainPath, capacity, out.customId as src, in.customId as tgt FROM Conveyor";
-            try (OResultSet rs = session.query(edgeQuery)) {
-                while (rs.hasNext()) {
-                    OResult res = rs.next();
-                    ConveyorResponse conv = mapToConveyor(res);
-                    conveyorMap.put(conv.getId(), conv);
-
-                    outgoingEdgesMap
-                            .computeIfAbsent(conv.getSourceId(), k -> new ArrayList<>())
-                            .add(conv);
-                }
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Error fetching topology from OrientDB", e);
-        }
-
-        // 2. FETCH LIVE STATE
-        List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
-
-        // 3. MERGE & SIMULATE
         for (Map<String, Object> rawItem : liveRawItems) {
             try {
                 String id = (String) rawItem.get("id");
                 String currentPositionId = (String) rawItem.get("edgeId");
                 Long tsLong = (Long) rawItem.get("entryTimestamp");
                 String destId = (String) rawItem.get("destinationId");
+                Double accDist = (Double) rawItem.getOrDefault("accumulatedDistance", 0.0);
 
                 if (currentPositionId == null || tsLong == null)
                     continue;
 
                 Instant entryTime = Instant.ofEpochMilli(tsLong);
-                List<String> path = null;
+                List<String> path = (List<String>) rawItem.get("path");
 
-                // A. Pathfinding Logic
-                if (destId != null) {
-                    String startNodeForPathfinding = null;
-
-                    if (nodeMap.containsKey(currentPositionId)) {
-                        startNodeForPathfinding = currentPositionId;
-                    } else if (conveyorMap.containsKey(currentPositionId)) {
-                        ConveyorResponse c = conveyorMap.get(currentPositionId);
-                        if (c != null)
-                            startNodeForPathfinding = c.getTargetId();
-                    }
-
-                    if (startNodeForPathfinding != null) {
-                        path = redisRepository.getCachedPath(startNodeForPathfinding, destId);
-                        if (path == null) {
-                            path = pathfindingService.calculateShortestPath(startNodeForPathfinding, destId);
-                            if (!path.isEmpty()) {
-                                redisRepository.cachePath(startNodeForPathfinding, destId, path);
-                            }
-                        }
-                    }
+                // Pathfinding fallback
+                if ((path == null || path.isEmpty()) && destId != null) {
+                    String startNode = topology.nodeMap.containsKey(currentPositionId) ? currentPositionId
+                            : topology.conveyorMap.get(currentPositionId).getTargetId();
+                    path = pathfindingService.calculateShortestPath(startNode, destId);
                 }
 
-                // B. Calculate Position
                 ItemResponse simulatedItem = calculateCurrentState(
-                        id, currentPositionId, entryTime, path, conveyorMap, outgoingEdgesMap, now);
+                        id, currentPositionId, entryTime, path, topology, now, accDist);
 
                 if (simulatedItem != null) {
                     simulatedItem.setDestinationId(destId);
                     activeItems.add(simulatedItem);
                 }
-
             } catch (Exception e) {
                 logger.warn("Failed to process live item state for item", e);
             }
         }
-
-        return new GraphData(nodes, new ArrayList<>(conveyorMap.values()), activeItems, now);
+        return activeItems;
     }
 
-    /**
-     * Simulates item movement.
-     * Handles starting on an Edge OR starting on a Node.
-     */
     private ItemResponse calculateCurrentState(
-            String itemId,
-            String startId,
-            Instant entryTime,
-            List<String> path,
-            Map<String, ConveyorResponse> conveyorMap,
-            Map<String, List<ConveyorResponse>> outgoingEdgesMap,
-            Instant now) {
+            String itemId, String startId, Instant lastUpdate, List<String> path,
+            Topology topo, Instant now, Double accDist) {
 
-        Duration timeElapsed = Duration.between(entryTime, now);
+        Duration timeElapsed = Duration.between(lastUpdate, now);
         ConveyorResponse currentEdge = null;
+        String lastNodeId = null;
 
-        // 1. Determine Initial Edge
-        if (conveyorMap.containsKey(startId)) {
-            // CASE A: Started on an Edge
-            currentEdge = conveyorMap.get(startId);
+        if (topo.conveyorMap.containsKey(startId)) {
+            currentEdge = topo.conveyorMap.get(startId);
+            lastNodeId = currentEdge.getTargetId();
         } else {
-            // CASE B: Started on a Node (Location)
-            // We must immediately find the outgoing edge to simulate movement.
-            // Even if path is null, findNextEdge will look for Main Path.
-            String nextEdgeIdFromPath = (path != null && !path.isEmpty()) ? path.get(0) : null;
-
-            currentEdge = findNextEdge(startId, outgoingEdgesMap, nextEdgeIdFromPath);
-
-            if (currentEdge == null) {
-                // Stuck at a node (Sink or Ambiguous Path)
-                return createItemResponse(itemId, null, startId, entryTime, 0.0);
-            }
-
-            // If we successfully picked the edge from the path, consume it
-            if (nextEdgeIdFromPath != null && currentEdge.getId().equals(nextEdgeIdFromPath)) {
-                path = new ArrayList<>(path); // Ensure mutable
+            lastNodeId = startId;
+            String nextEdgeId = (path != null && !path.isEmpty()) ? path.get(0) : null;
+            currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, nextEdgeId);
+            if (currentEdge == null)
+                return createItemResponse(itemId, null, startId, lastUpdate, 0.0);
+            if (nextEdgeId != null && currentEdge.getId().equals(nextEdgeId)) {
+                path = new ArrayList<>(path);
                 path.remove(0);
             }
         }
 
-        // 2. Traverse the Graph
         while (currentEdge != null) {
-            double speed = (currentEdge.getSpeed() != null) ? currentEdge.getSpeed() : 0.0;
-            double length = (currentEdge.getLength() != null) ? currentEdge.getLength() : 1.0;
+            double speed = currentEdge.getSpeed() != null ? currentEdge.getSpeed() : 0.0;
+            double length = currentEdge.getLength() != null ? currentEdge.getLength() : 1.0;
 
-            if (speed <= 0) {
-                // Stopped on this edge
-                return createItemResponse(itemId, currentEdge.getId(), null, entryTime, 0.0);
-            }
+            // Only apply accumulated distance to the very first edge in the calculation
+            double startOffset = currentEdge.getId().equals(startId) ? accDist : 0.0;
 
-            long traversalTimeMillis = (long) ((length / speed) * 1000);
+            if (speed <= 0)
+                return createItemResponse(itemId, currentEdge.getId(), null, lastUpdate, startOffset / length);
+
+            long traversalTimeMillis = (long) (((length - startOffset) / speed) * 1000);
             Duration traversalDuration = Duration.ofMillis(traversalTimeMillis);
 
-            // CHECK: Is item still on this edge?
             if (timeElapsed.compareTo(traversalDuration) < 0) {
-                // YES: Calculate progress
-                double progress = (double) timeElapsed.toMillis() / traversalTimeMillis;
-                Instant virtualEntryTime = now.minus(timeElapsed);
-                return createItemResponse(itemId, currentEdge.getId(), null, virtualEntryTime, progress);
+                double distTraveled = (timeElapsed.toMillis() / 1000.0) * speed;
+                double progress = (startOffset + distTraveled) / length;
+                return createItemResponse(itemId, currentEdge.getId(), null, now.minus(timeElapsed), progress);
             }
 
-            // NO: Item finished this edge. Move to next.
             timeElapsed = timeElapsed.minus(traversalDuration);
+            lastNodeId = currentEdge.getTargetId();
+            String nextEdgeId = (path != null && !path.isEmpty()) ? path.get(0) : null;
+            currentEdge = findNextEdge(lastNodeId, topo.outgoingEdgesMap, nextEdgeId);
 
-            // Find next edge from the Target Node of the current edge
-            String currentNodeId = currentEdge.getTargetId();
-            String nextEdgeIdFromPath = (path != null && !path.isEmpty()) ? path.get(0) : null;
-
-            currentEdge = findNextEdge(currentNodeId, outgoingEdgesMap, nextEdgeIdFromPath);
-
-            if (currentEdge != null && nextEdgeIdFromPath != null && currentEdge.getId().equals(nextEdgeIdFromPath)) {
+            if (currentEdge != null && nextEdgeId != null && currentEdge.getId().equals(nextEdgeId)) {
                 if (!(path instanceof ArrayList))
                     path = new ArrayList<>(path);
                 path.remove(0);
             }
         }
 
-        // 3. End of Line (Sink)
-        return createItemResponse(itemId, null, null, entryTime, 1.0);
+        return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
     }
 
-    /**
-     * Finds the next edge from a node.
-     * Priority:
-     * 1. Specific Edge ID (from Pathfinding)
-     * 2. Main Path
-     * 3. Single available path
-     * 4. If multiple non-main paths exist -> STOP (return null)
-     */
-    private ConveyorResponse findNextEdge(
-            String nodeId,
-            Map<String, List<ConveyorResponse>> outgoingEdgesMap,
-            String specificNextEdgeId) {
-        List<ConveyorResponse> edges = outgoingEdgesMap.get(nodeId);
+    private Topology fetchTopology() {
+        Map<String, LocationResponse> nodeMap = new HashMap<>();
+        Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
+        Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
 
-        // 0. Dead End
-        if (edges == null || edges.isEmpty()) {
+        try (ODatabaseSession session = orientDBService.getSession()) {
+            String nodeQuery = "SELECT customId, name, latitude, longitude, type, active, capacity, properties FROM Location";
+            try (OResultSet rs = session.query(nodeQuery)) {
+                while (rs.hasNext()) {
+                    LocationResponse loc = mapToLocation(rs.next());
+                    nodeMap.put(loc.getId(), loc);
+                }
+            }
+
+            String edgeQuery = "SELECT customId, name, length, speed, type, active, isMainPath, capacity, out.customId as src, in.customId as tgt FROM Conveyor";
+            try (OResultSet rs = session.query(edgeQuery)) {
+                while (rs.hasNext()) {
+                    ConveyorResponse conv = mapToConveyor(rs.next());
+                    conveyorMap.put(conv.getId(), conv);
+                    outgoingEdgesMap.computeIfAbsent(conv.getSourceId(), k -> new ArrayList<>()).add(conv);
+                }
+            }
+        }
+        return new Topology(nodeMap, conveyorMap, outgoingEdgesMap);
+    }
+
+    private ConveyorResponse findNextEdge(String nodeId, Map<String, List<ConveyorResponse>> outgoing,
+            String specificId) {
+        List<ConveyorResponse> edges = outgoing.get(nodeId);
+        if (edges == null || edges.isEmpty())
             return null;
+        if (specificId != null) {
+            return edges.stream().filter(e -> e.getId().equals(specificId)).findFirst().orElse(null);
         }
-
-        // 1. Use specific path instruction (from Pathfinding/Redis)
-        if (specificNextEdgeId != null) {
-            Optional<ConveyorResponse> match = edges.stream()
-                    .filter(e -> e.getId().equals(specificNextEdgeId))
-                    .findFirst();
-            if (match.isPresent())
-                return match.get();
-        }
-
-        // 2. Prioritize "Main Path"
-        Optional<ConveyorResponse> mainPath = edges.stream()
-                .filter(e -> Boolean.TRUE.equals(e.getIsMainPath()))
+        Optional<ConveyorResponse> main = edges.stream().filter(e -> Boolean.TRUE.equals(e.getIsMainPath()))
                 .findFirst();
-
-        if (mainPath.isPresent()) {
-            return mainPath.get();
-        }
-
-        // 3. Ambiguity Check
-        // If we are here, it means no specific path was found AND no Main Path exists.
-
-        // If there is more than 1 option, we don't know which way to go -> STOP.
-        if (edges.size() > 1) {
-            return null;
-        }
-
-        // 4. Single Option Fallback
-        // If there is exactly one outgoing edge, we follow it naturally.
-        return edges.get(0);
+        if (main.isPresent())
+            return main.get();
+        return edges.size() > 1 ? null : edges.get(0);
     }
 
-    private ItemResponse createItemResponse(String id, String edgeId, String locationId, Instant entryTime,
-            Double progress) {
+    private ItemResponse createItemResponse(String id, String edgeId, String locId, Instant entry, Double progress) {
         ItemResponse item = new ItemResponse();
         item.setId(id);
         item.setCurrentEdgeId(edgeId);
-        item.setLocationId(locationId);
-        item.setEntryTimestamp(entryTime);
+        item.setLocationId(locId);
+        item.setEntryTimestamp(entry);
         item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
         item.setActive(true);
         return item;
     }
 
-    // --- Mappers ---
+    // Internal DTO to pass topology around
+    private record Topology(
+            Map<String, LocationResponse> nodeMap,
+            Map<String, ConveyorResponse> conveyorMap,
+            Map<String, List<ConveyorResponse>> outgoingEdgesMap) {
+    }
 
     private LocationResponse mapToLocation(OResult res) {
         LocationResponse loc = new LocationResponse();
@@ -290,13 +216,7 @@ public class GraphService {
         loc.setCapacity(res.getProperty("capacity"));
         loc.setProperties(res.getProperty("properties"));
         String typeStr = res.getProperty("type");
-        if (typeStr != null) {
-            try {
-                loc.setType(LocationType.valueOf(typeStr));
-            } catch (IllegalArgumentException e) {
-                loc.setType(LocationType.GENERIC);
-            }
-        }
+        loc.setType(typeStr != null ? LocationType.valueOf(typeStr) : LocationType.GENERIC);
         return loc;
     }
 
@@ -312,15 +232,7 @@ public class GraphService {
         conv.setIsMainPath(res.getProperty("isMainPath"));
         conv.setCapacity(res.getProperty("capacity"));
         String typeStr = res.getProperty("type");
-        if (typeStr != null) {
-            try {
-                conv.setType(ConveyorType.valueOf(typeStr));
-            } catch (IllegalArgumentException e) {
-                conv.setType(ConveyorType.BELT);
-            }
-        } else {
-            conv.setType(ConveyorType.BELT);
-        }
+        conv.setType(typeStr != null ? ConveyorType.valueOf(typeStr) : ConveyorType.BELT);
         return conv;
     }
 }
