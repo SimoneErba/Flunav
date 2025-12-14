@@ -1,22 +1,14 @@
 ### TODO
 
-addlast known location and path
-is main path
 
---test the above--
---need to fix the drawing for onveyours. they should be the onyl way to build arrow. connections from be are only needed to see which conveyour goes where. when adding a point, it will a conjunctor. whn adding an arrow, it will be a conveyour.. need to mnove conveyour bnames over the edges.. .
+need to mnove conveyour bnames over the edges.. .
 conjunctions may also not have a name--
 
-
 ---
-
-need to change the edit edge. rn its updating the source location. need to move properties to the edge.
 
 in BE, do we remove lat, long from conveyours? and they use the ones of the conjunctions? 
 ---
 
-if speed changes, update animations
-calculate current item position int he path (timestamp + speed/length). save item progress
 uscite, attese, ricircoli
 see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode
@@ -64,12 +56,6 @@ Domain B: The Sorting Plant (e.g., Logistics Hub, Mail Center, Baggage Handling)
     Real-time Tracking: Events are often per-item (barcode scans at every junction).
 
 
-### Regarding db design
-
-conveyours are nodes and not edges becuase otherwise we can't connect multiple conveyours? but we can use conjunction points.. 
-and we can say item is at conjunction wit progress x%.. 
-
-
 ### Known Challenges
 
 *   **State Divergence Risk:** A bug in the `EventProcessor` could cause the OrientDB state to drift out of sync with the ClickHouse event log.
@@ -79,15 +65,8 @@ and we can say item is at conjunction wit progress x%..
 
 ### The Roadmap: Hardening for Production
 
-The following features are priorities for making the system operationally mature and ready for scale. The addition of **Redis** is a key enabler for many of these.
-
-#### 🚀 **1. Implement a High-Performance Caching Layer with Redis**
-*   **Goal:** Dramatically reduce read load on OrientDB and improve API response times.
-*   **Action:** Use Redis as a cache-aside layer for expensive queries like `getGraphData()`. An event processor would invalidate the cache upon state changes, ensuring data remains fresh.
-
 #### 🚀 **2. Scale Real-Time Broadcasts with Redis Pub/Sub**
-*   **Goal:** Ensure WebSocket updates are delivered to all users, even when the backend is running on multiple servers.
-*   **Action:** Configure the WebSocket messaging layer to use Redis Pub/Sub as a message broker. This makes our real-time layer stateless and horizontally scalable.
+edis pub sub if ackend is multi process
 
 #### 🚀 **3. Implement Event Versioning & Upcasting**
 *   **Goal:** Future-proof our event log against schema changes.
@@ -108,19 +87,23 @@ This document outlines the core algorithms for transforming raw item flow data i
 1. Statistical Baselining Engine (The "Learner")
 This engine runs offline (e.g., nightly or on-demand) to query the historical event log in ClickHouse and build a statistical model of normal operation.
 Core Metrics to Calculate:
+
 Path-Level Baselines: For each unique path (e.g., Location-A -> Location-B):
 avg_transit_time: The average time for an item to travel between the two locations.
 stddev_transit_time: The standard deviation of the transit time, measuring its normal variance.
 median_transit_time: The 50th percentile of transit time, robust to outliers.
+
 Location-Level Baselines: For each unique location:
 avg_dwell_time: The average time an item spends at this location.
 stddev_dwell_time: The standard deviation of dwell time.
 avg_throughput_per_minute: The average number of items that pass through this location per minute.
 stddev_throughput_per_minute: The standard deviation of throughput, measuring its stability.
+
 Implementation:
 Use ClickHouse window functions (lagInFrame, PARTITION BY entity_id) to calculate individual transit times from the raw event stream.
 Use ClickHouse aggregation functions (avg, stddevPop, quantile) grouped by path or location to compute the final baseline metrics.
 Store the calculated baselines in a fast-access cache (e.g., Redis, or an in-memory map for the MVP).
+
 2. Real-time Anomaly Detection Engine (The "Detector")
 This engine analyzes each new ItemPositionChangedEvent in real-time by comparing it against the learned baselines.
 Algorithm 1: "System Pressure" & Predictive Bottleneck Detection

@@ -55,10 +55,10 @@ public class EventProcessor {
 
             // We inject the values into this new thread's ThreadLocal
             if (capturedSimulationId != null) {
-                // DatabaseContextHolder.enterSimulationContext(capturedSimulationId);
+                DatabaseContextHolder.enterSimulationContext(capturedSimulationId);
             }
             if (capturedSenderId != null) {
-                // UserContextHolder.setSenderId(capturedSenderId);
+                UserContextHolder.setSenderId(capturedSenderId);
             }
             Map<String, Object> resultMap = new HashMap<>();
             try {
@@ -70,8 +70,8 @@ public class EventProcessor {
                 logger.error("Error processing event: {}", event.getEventType(), e);
                 throw new CompletionException(e);
             } finally {
-                // DatabaseContextHolder.clearSimulation();
-                // UserContextHolder.clear();
+                DatabaseContextHolder.clearSimulation();
+                UserContextHolder.clear();
             }
         });
     }
