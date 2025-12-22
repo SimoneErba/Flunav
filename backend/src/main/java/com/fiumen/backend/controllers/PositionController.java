@@ -11,7 +11,6 @@ import com.fiumen.backend.models.input.CreateConnection;
 import com.fiumen.backend.utils.ControllerHelper;
 
 import fiumen.events.ItemPositionChangedEvent;
-import fiumen.events.ItemPositionCreatedEvent;
 import fiumen.events.ItemPositionDeletedEvent;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -30,34 +29,28 @@ public class PositionController {
     }
 
     @PostMapping()
-    @Operation(summary = "Create a new position connection")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> createConnection(@RequestBody CreateConnection model) {
-        var event = new ItemPositionCreatedEvent(model.getItemId(), model.getLocationId());
-        return eventProcessorHelper.processAndLogEvent(event)
-            .thenApply(result -> {
-                return ResponseEntity.noContent().build();
-            });
-    }
-
-    @PutMapping()
     @Operation(summary = "Move an item to a new position")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> moveConnection(@RequestBody CreateConnection model) {
-        var event = new ItemPositionChangedEvent(model.getItemId(), model.getLocationId());
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> changePosition(@RequestBody CreateConnection model) {
+        var event = new ItemPositionChangedEvent(
+                model.getItemId(),
+                model.getLocationId(),
+                model.getPositionType(),
+                model.getProgress());
+
         return eventProcessorHelper.processAndLogEvent(event)
-            .thenApply(result -> {
-                return ResponseEntity.noContent().build();
-            });
+                .thenApply(result -> {
+                    return ResponseEntity.noContent().build();
+                });
     }
 
     @DeleteMapping("/{itemId}")
     @Operation(summary = "Delete position connections for an item")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteConnections(
-            @Parameter(description = "ID of the item") 
-            @PathVariable String itemId) {
+            @Parameter(description = "ID of the item") @PathVariable String itemId) {
         var event = new ItemPositionDeletedEvent(itemId);
         return eventProcessorHelper.processAndLogEvent(event)
-            .thenApply(result -> {
-                return ResponseEntity.noContent().build();
-            });
+                .thenApply(result -> {
+                    return ResponseEntity.noContent().build();
+                });
     }
 }

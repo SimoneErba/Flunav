@@ -1,5 +1,7 @@
 ### TODO
 
+allow items to move in the middle of a coveyour. not just locations. add a param maybe in the event, edge or lcoation. 
+store in redis the location id togehter with the type, edge or lcoation.
 
 need to mnove conveyour bnames over the edges.. .
 conjunctions may also not have a name--

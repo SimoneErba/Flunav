@@ -10,6 +10,7 @@ import java.util.Map;
 
 import fiumen.events.ItemCreatedEvent;
 import fiumen.events.ItemPropertiesUpdatedEvent;
+import fiumen.types.PositionType;
 
 @Getter
 public class Item {
@@ -21,34 +22,24 @@ public class Item {
     private boolean active;
     private Map<String, Object> properties;
 
-    // --- POSITIONING (Refactored to Strings) ---
-    // The ID of the Conveyor (Edge) the item is currently traveling on.
     @Setter
-    private String currentEdgeId;
+    private String positionId;
 
-    // The ID of the Junction (Node) the item just passed.
-    // This helps identifying direction if multiple edges exist.
     @Setter
-    private String lastNodeId;
+    private PositionType positionType;
 
-    // Replaces 'lastKnownLocationTimestamp'.
-    // Represents exactly when the item entered 'currentEdgeId'.
     @Setter
     private Instant entryTimestamp;
 
-    // --- NAVIGATION ---
     @Setter
-    private String destinationId; // The Target Node ID (Sink/Chute)
+    private String destinationId;
 
     @Setter
-    private List<String> path; // List of Edge IDs to follow
+    private List<String> path;
 
-    // --- TRANSIENT (Calculated) ---
-    // Not stored in DB, but useful if you use this object for API responses
     @Setter
     private Double currentProgress;
 
-    // Constructor for basic metadata (Used when loading from OrientDB)
     public Item(String id, String name, boolean active, Map<String, Object> properties) {
         this.id = id;
         this.name = name;
@@ -56,7 +47,6 @@ public class Item {
         this.properties = properties;
     }
 
-    // Constructor from Event
     public Item(ItemCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
@@ -72,18 +62,11 @@ public class Item {
         this.active = false;
     }
 
-    /**
-     * Updates the item's position using IDs.
-     * 
-     * @param edgeId The ID of the Conveyor
-     * @param nodeId The ID of the Junction (optional, can be null if unknown)
-     * @param time   When the item entered this edge
-     */
-    public void updatePosition(String edgeId, String nodeId, Instant time) {
-        this.currentEdgeId = edgeId;
-        this.lastNodeId = nodeId;
+    public void updatePosition(String positionId, PositionType type, Instant time, Double progress) {
+        this.positionId = positionId;
+        this.positionType = type;
         this.entryTimestamp = time;
-        this.currentProgress = 0.0;
+        this.currentProgress = (progress != null) ? progress : 0.0;
     }
 
     public void updateProperties(ItemPropertiesUpdatedEvent event) {

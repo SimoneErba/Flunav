@@ -10,6 +10,9 @@ import com.orientechnologies.orient.core.exception.OConcurrentModificationExcept
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+
+import fiumen.types.PositionType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -70,13 +73,31 @@ public class ItemService {
         for (Item item : items) {
             Map<String, Object> state = liveStateMap.get(item.getId());
             if (state != null) {
-                item.setCurrentEdgeId((String) state.get("edgeId"));
-                item.setDestinationId((String) state.get("destinationId"));
+                // Map Position ID
+                String posId = (String) state.get("edgeId"); // Repository returns 'edgeId' key for position
 
+                // Map Type
+                PositionType type = (PositionType) state.get("positionType"); // Repository returns Enum
+                if (type == null)
+                    type = PositionType.LOCATION;
+
+                // Map Time
+                Instant time = null;
                 Object ts = state.get("entryTimestamp");
                 if (ts instanceof Long) {
-                    item.setEntryTimestamp(Instant.ofEpochMilli((Long) ts));
+                    time = Instant.ofEpochMilli((Long) ts);
                 }
+
+                // Map Distance (Offset)
+                Double dist = (Double) state.get("accumulatedDistance");
+                if (dist == null)
+                    dist = 0.0;
+
+                // Update Item
+                item.updatePosition(posId, type, time, dist);
+
+                // Map Destination
+                item.setDestinationId((String) state.get("destinationId"));
             }
         }
 
@@ -98,12 +119,28 @@ public class ItemService {
 
         // 3. Merge
         if (!redisState.isEmpty()) {
-            item.setCurrentEdgeId(redisState.get("e"));
-            item.setDestinationId(redisState.get("d"));
+            // Parse Type
+            String typeStr = redisState.get("ty");
+            PositionType type = (typeStr != null) ? PositionType.valueOf(typeStr) : PositionType.LOCATION;
+
+            // Parse Time
+            Instant time = null;
             String tsStr = redisState.get("t");
             if (tsStr != null) {
-                item.setEntryTimestamp(Instant.ofEpochMilli(Long.parseLong(tsStr)));
+                time = Instant.ofEpochMilli(Long.parseLong(tsStr));
             }
+
+            // Parse Distance
+            Double dist = 0.0;
+            String distStr = redisState.get("ad");
+            if (distStr != null) {
+                dist = Double.parseDouble(distStr);
+            }
+
+            // Update Item
+            item.updatePosition(redisState.get("e"), type, time, dist);
+
+            item.setDestinationId(redisState.get("d"));
         }
 
         return item;
@@ -123,23 +160,24 @@ public class ItemService {
             itemVertex.setProperty("name", itemInput.getName());
             itemVertex.setProperty("active", itemInput.getActive());
             itemVertex.setProperty("properties", itemInput.getProperties());
-            // Note: We do NOT store position in OrientDB anymore.
 
             itemVertex.save();
             db.commit();
 
             // 2. Create Live State in Redis
+            // Default to LOCATION type for new items unless specified otherwise
+            // (ItemInput doesn't have type yet, usually items spawn at nodes)
             redisRepository.saveItemState(
                     itemInput.getId(),
                     itemInput.getLocationId(),
+                    PositionType.LOCATION, // Default
                     Instant.now(),
                     null,
                     itemInput.getName());
 
             // Return the merged object
             Item createdItem = vertexToItem(itemVertex);
-            createdItem.setCurrentEdgeId(itemInput.getLocationId());
-            createdItem.setEntryTimestamp(Instant.now());
+            createdItem.updatePosition(itemInput.getLocationId(), PositionType.LOCATION, Instant.now(), 0.0);
             return createdItem;
 
         } catch (Exception e) {
@@ -151,8 +189,9 @@ public class ItemService {
      * High-frequency update method for the Event Processor.
      * Only touches Redis.
      */
-    public void updateItemPosition(String itemId, String edgeId, Instant timestamp) {
-        redisRepository.updatePosition(itemId, edgeId, timestamp);
+    public void updateItemPosition(String itemId, String positionId, PositionType type, Instant timestamp,
+            double offset) {
+        redisRepository.updatePosition(itemId, positionId, type, timestamp, offset);
     }
 
     public Item updateItem(UpdateModel model) {
@@ -180,16 +219,18 @@ public class ItemService {
             itemVertex.save();
 
             // 2. Update Redis (Live State)
-            if (item.getCurrentEdgeId() != null) {
+            if (item.getPositionId() != null) {
                 redisRepository.updatePosition(
                         item.getId(),
-                        item.getCurrentEdgeId(),
-                        item.getEntryTimestamp() != null ? item.getEntryTimestamp() : Instant.now());
+                        item.getPositionId(),
+                        item.getPositionType(),
+                        item.getEntryTimestamp() != null ? item.getEntryTimestamp() : Instant.now(),
+                        item.getCurrentProgress() != null ? item.getCurrentProgress() : 0.0);
             }
 
             return vertexToItem(itemVertex);
 
-        } catch (OConcurrentModificationException oce) {
+        } catch (OConcurrentModificationException | java.util.NoSuchElementException oce) {
             throw oce;
         } catch (Exception e) {
             throw new RuntimeException("Error during full update of item " + item.getId(), e);

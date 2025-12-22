@@ -109,7 +109,7 @@ public class ConveyorService {
             db.commit();
 
             return edgeToConveyor(edge);
-        } catch (OConcurrentModificationException e) {
+        } catch (OConcurrentModificationException | java.util.NoSuchElementException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException("Error creating conveyor between " + sourceId + " and " + targetId, e);

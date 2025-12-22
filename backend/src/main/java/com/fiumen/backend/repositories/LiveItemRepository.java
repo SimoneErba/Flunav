@@ -1,6 +1,7 @@
 package com.fiumen.backend.repositories;
 
-import com.fiumen.backend.context.DatabaseContextHolder; // Import Context
+import com.fiumen.backend.context.DatabaseContextHolder;
+import fiumen.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,12 +29,6 @@ public class LiveItemRepository {
 
     // --- MULTI-TENANCY HELPER ---
 
-    /**
-     * Prefixes the Redis key with the Simulation ID if one exists in the current
-     * context.
-     * Live: "item:123"
-     * Sim: "sim:abc-123:item:123"
-     */
     private String getNamespacedKey(String baseKey) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null) {
@@ -44,40 +39,42 @@ public class LiveItemRepository {
 
     // --- WRITE OPERATIONS ---
 
-    public void saveItemState(String itemId, String edgeId, Instant entryTime, String destId, String name) {
-        // Apply namespace
+    /**
+     * Saves the initial state of an item.
+     */
+    public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime, String destId,
+            String name) {
         String itemKey = getNamespacedKey("item:" + itemId);
         String setKey = getNamespacedKey("sys:active_items");
 
         Map<String, String> data = new HashMap<>();
-        data.put("e", edgeId);
+        data.put("e", positionId); // 'e' now stores positionId (Location or Conveyor ID)
+        data.put("ty", type.name()); // Store Enum name ("LOCATION" or "CONVEYOR")
         data.put("t", String.valueOf(entryTime.toEpochMilli()));
         data.put("ad", "0.0");
 
-        // Optional Destination
-        if (destId != null) {
+        if (destId != null)
             data.put("d", destId);
-        }
-
-        // Optional Name
-        if (name != null) {
+        if (name != null)
             data.put("n", name);
-        }
 
-        // 1. Save the Hash
         redis.opsForHash().putAll(itemKey, data);
-
-        // 2. Add to the "Active Set" index
         redis.opsForSet().add(setKey, itemId);
     }
 
-    public void updatePosition(String itemId, String newEdgeId, Instant entryTime) {
+    /**
+     * Updates position with support for mid-conveyor injection.
+     */
+    public void updatePosition(String itemId, String positionId, PositionType type, Instant entryTime,
+            double offsetMeters) {
         String itemKey = getNamespacedKey("item:" + itemId);
 
         Map<String, String> updates = new HashMap<>();
-        updates.put("e", newEdgeId);
+        updates.put("e", positionId);
+        updates.put("ty", type.name());
         updates.put("t", String.valueOf(entryTime.toEpochMilli()));
-        updates.put("ad", "0.0");
+        updates.put("ad", String.valueOf(offsetMeters));
+
         redis.opsForHash().putAll(itemKey, updates);
     }
 
@@ -109,9 +106,6 @@ public class LiveItemRepository {
         return redis.<String, String>opsForHash().entries(itemKey);
     }
 
-    /**
-     * Efficiently fetches ALL active items for the initial graph load.
-     */
     public List<Map<String, Object>> getAllActiveItems() {
         String setKey = getNamespacedKey("sys:active_items");
 
@@ -122,14 +116,26 @@ public class LiveItemRepository {
         List<Map<String, Object>> result = new ArrayList<>();
 
         for (String id : activeIds) {
-            // Must namespace the individual item lookup too
             String itemKey = getNamespacedKey("item:" + id);
-
             Map<String, String> hash = redis.<String, String>opsForHash().entries(itemKey);
+
             if (!hash.isEmpty()) {
                 Map<String, Object> itemData = new HashMap<>();
                 itemData.put("id", id);
-                itemData.put("edgeId", hash.get("e"));
+
+                // Map 'e' to positionId
+                itemData.put("positionId", hash.get("e"));
+
+                // Map 'ty' to PositionType Enum
+                String typeStr = hash.get("ty");
+                if (typeStr != null) {
+                    try {
+                        itemData.put("positionType", PositionType.valueOf(typeStr));
+                    } catch (IllegalArgumentException e) {
+                        // Fallback or log error
+                        itemData.put("positionType", PositionType.LOCATION);
+                    }
+                }
 
                 String timeStr = hash.get("t");
                 if (timeStr != null) {
@@ -142,11 +148,7 @@ public class LiveItemRepository {
                 }
 
                 String distStr = hash.get("ad");
-                if (distStr != null) {
-                    itemData.put("accumulatedDistance", Double.parseDouble(distStr));
-                } else {
-                    itemData.put("accumulatedDistance", 0.0);
-                }
+                itemData.put("accumulatedDistance", distStr != null ? Double.parseDouble(distStr) : 0.0);
 
                 result.add(itemData);
             }
@@ -154,9 +156,6 @@ public class LiveItemRepository {
         return result;
     }
 
-    /**
-     * Returns the count of currently active items in the system.
-     */
     public long countActiveItems() {
         String setKey = getNamespacedKey("sys:active_items");
         Long size = redis.opsForSet().size(setKey);
@@ -166,7 +165,6 @@ public class LiveItemRepository {
     // --- PATH CACHING ---
 
     public void cachePath(String sourceId, String targetId, List<String> path) {
-        // Paths must also be isolated per simulation (topology might differ)
         String baseKey = "path_cache:" + sourceId + ":" + targetId;
         String key = getNamespacedKey(baseKey);
 
@@ -197,21 +195,11 @@ public class LiveItemRepository {
 
     // --- CLEANUP HELPER ---
 
-    /**
-     * Deletes all Redis keys associated with a specific simulation.
-     * Should be called when a simulation is destroyed.
-     */
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
-
-        // Pattern: sim:{id}:*
         String prefix = "sim:" + simulationId + ":*";
-
-        // Note: keys() is blocking, but acceptable for specific simulation cleanup
-        // where keyset is relatively small compared to global keyspace.
         Set<String> keys = redis.keys(prefix);
-
         if (keys != null && !keys.isEmpty()) {
             logger.info("Cleaning up {} Redis keys for simulation {}", keys.size(), simulationId);
             redis.delete(keys);

@@ -1,5 +1,6 @@
 package com.fiumen.backend.models.input;
 
+import fiumen.types.PositionType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,4 +11,6 @@ import lombok.NoArgsConstructor;
 public class CreateConnection {
 	private String itemId;
 	private String locationId;
+	private PositionType positionType;
+	private Double progress;
 }

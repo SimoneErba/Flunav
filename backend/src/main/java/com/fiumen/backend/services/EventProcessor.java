@@ -82,17 +82,17 @@ public class EventProcessor {
     }
 
     private <T> T executeWithRetry(Supplier<T> operation) {
-        final int MAX_RETRIES = 3;
+        final int MAX_RETRIES = 5;
         int attempt = 0;
         while (true) {
             try {
                 return operation.get();
-            } catch (OConcurrentModificationException e) {
+            } catch (OConcurrentModificationException | java.util.NoSuchElementException e) {
                 attempt++;
                 if (attempt >= MAX_RETRIES)
                     throw e;
                 try {
-                    Thread.sleep(50 + new Random().nextInt(50));
+                    Thread.sleep(50 * (long) Math.pow(2, attempt - 1));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException("Retry interrupted", ie);
@@ -126,18 +126,20 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
-                    Conveyor conveyor = conveyorService.getConveyorById(e.getLocationId());
-
-                    itemService.updateItemPosition(e.getEntityId(), conveyor.getId(), e.getTimestamp());
+                    var positionType = getPositionType(e.getLocationId());
+                    itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), e.getTimestamp(), positionType,
+                            e.getProgress());
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(e.getEntityId(), conveyor.getId(), e.getTimestamp());
+                        webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
+                                positionType,
+                                e.getProgress());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemPositionDeletedEvent e -> {
-                    itemService.updateItemPosition(e.getEntityId(), null, null);
+                    itemService.updateItemPosition(e.getEntityId(), null, null, Instant.now(), null);
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionLost(e.getEntityId(), e.getTimestamp());
                     }
@@ -210,7 +212,8 @@ public class EventProcessor {
                     var item = itemService.getItemById(e.getEntityId());
 
                     List<String> calculatedPath = pathfindingService.calculateShortestPath(
-                            item.getLastNodeId(),
+                            item.getPositionId(),
+                            item.getPositionType(),
                             e.getLocationId());
 
                     item.setDestinationId(e.getLocationId());

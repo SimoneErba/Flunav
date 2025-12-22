@@ -108,7 +108,7 @@ public class LocationService {
 
             return vertexToLocation(locationVertex);
 
-        } catch (OConcurrentModificationException oce) {
+        } catch (OConcurrentModificationException | java.util.NoSuchElementException oce) {
             throw oce;
         } catch (Exception e) {
             throw new RuntimeException("Error during full update of location with ID " + location.getId(), e);

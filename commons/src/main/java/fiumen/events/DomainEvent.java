@@ -18,7 +18,6 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ItemDeletedEvent.class, name = "ITEM_DELETED"),
         @JsonSubTypes.Type(value = ItemDestinationEvent.class, name = "ITEM_DESTINATION_CHANGED"), // Added
         @JsonSubTypes.Type(value = ItemPositionChangedEvent.class, name = "ITEM_POSITION_CHANGED"),
-        @JsonSubTypes.Type(value = ItemPositionCreatedEvent.class, name = "ITEM_POSITION_CREATED"),
         @JsonSubTypes.Type(value = ItemPositionDeletedEvent.class, name = "ITEM_POSITION_DELETED"),
         @JsonSubTypes.Type(value = ItemPropertiesUpdatedEvent.class, name = "ITEM_PROPERTIES_UPDATED"),
         @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"), // Added
