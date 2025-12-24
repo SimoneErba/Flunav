@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemResponse } from "../../../api-client/api";
 import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents";
+import { hashToNumber } from "../utils/graphUtils";
 
 export const useGraphLiveEvents = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
@@ -127,8 +128,7 @@ export const useGraphLiveEvents = (
                         const targetNode = graph.getNodeAttributes(targetId);
                         
                         // Use the progress from the event (default to 0 if missing)
-                        // Cast to any if 'progress' isn't in the strict ItemInput type yet
-                        const progress = (item as any).progress || 0.0;
+                        const progress = item.progress || 0.0;
 
                         // Linear Interpolation based on progress %
                         startX = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
@@ -153,14 +153,14 @@ export const useGraphLiveEvents = (
             });
             
             // Update Logic State
-            activeItemsRef.current.set(item.id, {
+            activeItemsRef.current.set(item.id!, {
                 id: item.id, 
                 name: item.name, 
                 active: item.active,
                 locationId: item.locationId, 
-                currentEdgeId: null, // Logic will resolve this on next update/frame
+                currentEdgeId: undefined, // Logic will resolve this on next update/frame
                 entryTimestamp: new Date(timestamp).toISOString(), 
-                progress: (item as any).progress || 0
+                progress: item.progress || 0
             });
         }, simulationId));
 
@@ -197,7 +197,7 @@ export const useGraphLiveEvents = (
         unsubscribers.push(subscribeToLocationCreated((loc) => {
             if (graph.hasNode(loc.id)) return;
             graph.addNode(loc.id, {
-                x: loc.latitude ?? hashToNumber(loc.id), y: loc.longitude ?? hashToNumber(loc.id + "random"),
+                x: loc.latitude ?? hashToNumber(loc.id!), y: loc.longitude ?? hashToNumber(loc.id + "random"),
                 label: loc.name, size: 10, color: "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity
             });
         }, simulationId));

@@ -64,7 +64,20 @@
 		</dependency>
 		<dependency>
 			<groupId>com.orientechnologies</groupId>
-			<artifactId>orientdb-server</artifactId>
+			<artifactId>orientdb-client</artifactId>
+			<version>3.2.3</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.graalvm.tools</groupId>
+					<artifactId>chromeinspector</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		
+		<!-- The Core (Data Types like OVertex, OEdge) -->
+		<dependency>
+			<groupId>com.orientechnologies</groupId>
+			<artifactId>orientdb-core</artifactId>
 			<version>3.2.3</version>
 			<exclusions>
 				<exclusion>
@@ -127,6 +140,25 @@
 							<artifactId>lombok</artifactId>
 						</exclude>
 					</excludes>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>3.4.0</version>
+				<configuration>
+					<from>
+						<image>eclipse-temurin:21-jre-alpine</image>
+					</from>
+					<to>
+						<image>flumen-backend:latest</image>
+					</to>
+					<container>
+						<ports>
+							<port>8080</port>
+						</ports>
+						<creationTime>USE_CURRENT_TIMESTAMP</creationTime>
+					</container>
 				</configuration>
 			</plugin>
 		</plugins>

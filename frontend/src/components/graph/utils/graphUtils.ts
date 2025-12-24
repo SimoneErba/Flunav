@@ -1,5 +1,3 @@
-// utils/graphUtils.ts
-
 import { MultiDirectedGraph } from "graphology";
 
 export const hashToNumber = (s: string) => {

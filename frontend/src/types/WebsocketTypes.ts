@@ -1,4 +1,4 @@
-import { ConveyorResponse, ItemInput, LocationInput } from '../api-client/api';
+import { ConveyorResponse } from '../api-client/api';
 
 // --- Enums ---
 export enum CrudOperation {

@@ -3,6 +3,7 @@ import { useRegisterEvents, useSigma } from "@react-sigma/core";
 import { useApi } from "../../../hooks/useApi";
 import { EdgeEditorData } from "../../edge.editor";
 import { NodeEditorData } from "../../node.editor";
+import { LocationTypeEnum } from "../../../api-client";
 
 export const useGraphInteractions = (
     adjustItemsForSpeedChange: (edgeId: string, newSpeed: number) => void
@@ -102,7 +103,7 @@ export const useGraphInteractions = (
                     const pos = sigma.viewportToGraph(event);
                     const newNodeId = crypto.randomUUID();
                     sigma.getGraph().addNode(newNodeId, { x: pos.x, y: pos.y, label: "New", size: 10, color: "#69b3a2", type: "circle" });
-                    locationApi.createLocation({ id: newNodeId, name: "New", longitude: pos.y, latitude: pos.x, active: true, capacity: 10, type: 'standard' });
+                    locationApi.createLocation({ id: newNodeId, name: "New", longitude: pos.y, latitude: pos.x, active: true, capacity: 10, type: LocationTypeEnum.Generic });
                 }
             },
             downNode: ({ node, event }) => {

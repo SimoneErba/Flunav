@@ -3,45 +3,69 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: frontend
+      args:
+        - VITE_API_BASE_URL=http://localhost:${FRONTEND_PORT} 
+    container_name: fiumen_frontend
     ports:
-      - "3000:80"  # React app served via Nginx
+      - "${FRONTEND_PORT}:80"
     depends_on:
       - backend
-    environment:
-      - VITE_API_BASE_URL=http://localhost:8080
     networks:
       - app-network
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: backend
+    # Uses the image built locally via 'mvn jib:dockerBuild'
+    image: flumen-backend:latest
+    pull_policy: never
+    container_name: fiumen_backend
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT}:8080"
     depends_on:
       orientdb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     environment:
       - SPRING_APPLICATION_NAME=backend
       - SPRING_PROFILES_ACTIVE=docker
+      
+      # --- ORIENTDB CONFIG ---
       - ORIENTDB_URL=remote:orientdb/main
       - ORIENTDB_USERNAME=root
-      - ORIENTDB_PASSWORD=rootpwd
+      - ORIENTDB_PASSWORD=${ORIENTDB_ROOT_PASSWORD}
+      
+      # --- REDIS CONFIG ---
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      
+      # --- RABBITMQ CONFIG ---
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USER}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASS}
+      
+      # --- CLICKHOUSE CONFIG ---
+      # Note: Internal port is 8123
+      - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB}
+      - CLICKHOUSE_USERNAME=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
     networks:
       - app-network
 
   orientdb:
     image: orientdb:3.2.2
-    container_name: orientdb
+    container_name: fiumen_orientdb
     environment:
-      ORIENTDB_ROOT_PASSWORD: rootpwd
+      ORIENTDB_ROOT_PASSWORD: ${ORIENTDB_ROOT_PASSWORD}
       ORIENTDB_OPTS_MEMORY: "-Xms512m -Xmx512m"
       ORIENTDB_NETWORK_HOST: "0.0.0.0"
     ports:
-      - "2424:2424"
-      - "2480:2480"  # OrientDB Studio web interface
+      - "${ORIENTDB_BINARY_PORT}:2424"
+      - "${ORIENTDB_HTTP_PORT}:2480"
     volumes:
       - ./docker/orientdb/entrypoint.sh:/orientdb/entrypoint.sh
       - orientdb-data:/orientdb/databases
@@ -56,13 +80,14 @@ services:
     restart: always
     networks:
       - app-network
+
   clickhouse:
     image: clickhouse/clickhouse-server:latest
-    container_name: clickhouse_fiumen
+    container_name: fiumen_clickhouse
     restart: always
     ports:
-      - "8124:8123"
-      - "9001:9000"
+      - "${CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -70,24 +95,28 @@ services:
       - ./docker/clickhouse/init-clickhouse:/docker-entrypoint-initdb.d/
     environment:
       CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: Oncode01
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8124/ping || exit 1
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    
+    networks:
+      - app-network
+
   rabbitmq:
     image: rabbitmq:3.12-management
+    container_name: fiumen_rabbitmq
     restart: always
     ports:
-      - "5672:5672"   # AMQP protocol port
-      - "15672:15672" # Management UI port
+      - "${RABBITMQ_AMQP_PORT}:5672"
+      - "${RABBITMQ_UI_PORT}:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=admin
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
     volumes:
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
       - rabbitmq_data:/var/lib/rabbitmq
@@ -96,16 +125,20 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - app-network
 
   redis:
     image: redis:7-alpine
     restart: always
     container_name: fiumen_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/redis:/data
+      - redis_data:/data
+    networks:
+      - app-network
 
   redis-commander:
     image: rediscommander/redis-commander:latest
@@ -114,9 +147,11 @@ services:
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "8081:8081"
+      - "${REDIS_UI_PORT}:8081"
     depends_on:
       - redis
+    networks:
+      - app-network
 
 networks:
   app-network:

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 import { SimulationStateResponse } from '../api-client'; // Import the type
 
 interface SimulationContextType {

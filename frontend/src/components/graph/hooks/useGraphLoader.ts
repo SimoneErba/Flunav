@@ -17,7 +17,7 @@ export const useGraphLoader = (
         // 1. Locations
         initialGraphData?.locations?.forEach((loc) => {
             graph.addNode(loc.id, {
-                x: loc.latitude ?? hashToNumber(loc.id),
+                x: loc.latitude ?? hashToNumber(loc.id!),
                 y: loc.longitude ?? hashToNumber(loc.id + "random"),
                 label: loc.name, 
                 size: 10, 
@@ -31,7 +31,7 @@ export const useGraphLoader = (
         // 2. Conveyors
         const conveyorLookup = new Map<string, ConveyorResponse>();
         initialGraphData?.conveyors?.forEach((conv) => {
-            conveyorLookup.set(conv.id, conv);
+            conveyorLookup.set(conv.id!, conv);
             if (graph.hasNode(conv.sourceId) && graph.hasNode(conv.targetId)) {
                 let size = 3; if (conv.isMainPath) size = 6;
                 graph.addEdge(conv.sourceId, conv.targetId, {
@@ -45,7 +45,7 @@ export const useGraphLoader = (
         activeItemsRef.current.clear();
         initialGraphData?.items?.forEach((item) => {
             if (!item.locationId && !item.currentEdgeId) return;
-            activeItemsRef.current.set(item.id, item);
+            activeItemsRef.current.set(item.id!, item);
 
             let startX = 0, startY = 0;
             if (item.locationId && graph.hasNode(item.locationId)) {
@@ -69,5 +69,5 @@ export const useGraphLoader = (
         });
 
         loadGraph(graph);
-    }, [initialGraphData, loadGraph]);
+    }, [activeItemsRef, initialGraphData, loadGraph]);
 };

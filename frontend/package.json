@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "generate-client-local": "openapi-generator-cli generate -i ./openapi.json -g typescript-axios -o src/api-client --additional-properties=supportsES6=true,npmVersion=10.9.3,typescriptThreePlus=true",

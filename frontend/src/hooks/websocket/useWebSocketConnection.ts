@@ -6,6 +6,21 @@ import { SocketEnvelope } from '../../types/WebsocketTypes';
 
 type GenericHandler = (data: any) => void;
 
+const getWebSocketUrl = () => {
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+
+    // 1. Dev Mode (Explicit URL in .env, e.g., http://localhost:8080)
+    // We replace http/https with ws/wss and append the endpoint
+    if (envUrl && envUrl.startsWith('http')) {
+        return envUrl.replace(/^http/, 'ws') + '/ws/websocket';
+    }
+
+    // 2. Production / Docker (Relative path or Nginx Proxy)
+    // We connect to the same host/port as the browser, Nginx handles the rest.
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/ws/websocket`;
+};
+
 interface SubscriptionManager {
     subscription: StompSubscription;
     handlers: Map<string, GenericHandler>;
@@ -19,9 +34,9 @@ export const useWebSocketConnection = () => {
 
     const connect = useCallback(() => {
         if (client.current?.active) return;
-
+        const brokerURL = getWebSocketUrl();
         client.current = new Client({
-            brokerURL: 'ws://localhost:8080/ws/websocket',
+            brokerURL: brokerURL,
             reconnectDelay: 5000,
             heartbeatIncoming: 4000,
             heartbeatOutgoing: 4000,

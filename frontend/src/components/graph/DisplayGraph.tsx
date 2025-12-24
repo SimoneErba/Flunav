@@ -23,8 +23,6 @@ export const DisplayGraph = ({
     simTime
 }: DisplayGraphProps) => {
   
-  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
-
   return (
         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
     
@@ -33,7 +31,7 @@ export const DisplayGraph = ({
             </div>
 
             <SigmaContainer
-                style={{ ...sigmaStyle, backgroundColor: 'transparent', cursor: hoveredEdge ? 'pointer' : 'default' }}
+                style={{ ...sigmaStyle, backgroundColor: 'transparent', cursor: 'default' }}
                 settings={{
                     nodeProgramClasses: { square: NodeSquareProgram },
                     enableEdgeEvents: true,
@@ -43,7 +41,6 @@ export const DisplayGraph = ({
                 <GraphThemeController />
                 <GraphEvents 
                     initialGraphData={initialGraphData} 
-                    setHoveredEdge={setHoveredEdge} 
                     simulationId={simulationId}
                     simTime={simTime} 
                 />

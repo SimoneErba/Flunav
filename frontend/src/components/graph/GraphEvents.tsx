@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { useSigma, ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
+import { useRef } from "react";
+import { ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
 import { GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "./../edge.editor";
 import { NodeEditor } from "./../node.editor";
@@ -12,13 +12,11 @@ import { useGraphInteractions } from "./hooks/useGraphInteractions";
 
 interface GraphEventsProps {
   initialGraphData: GraphData;
-  setHoveredEdge: (edge: string | null) => void;
   simulationId?: string;
   simTime: number;
 }
 
-export const GraphEvents = ({ initialGraphData, setHoveredEdge, simulationId, simTime }: GraphEventsProps) => {
-  const sigma = useSigma();
+export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
 
   // 1. Load Data
