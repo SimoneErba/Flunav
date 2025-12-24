@@ -45,6 +45,7 @@ jobs:
           mvn compile jib:build \
             -Dimage=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.ref_name }} \
             -Djib.to.tags=latest \
+            -Djib.container.format=Docker \
             -Djib.to.auth.username=${{ github.actor }} \
             -Djib.to.auth.password=${{ secrets.GITHUB_TOKEN }} \
             -DskipTests
