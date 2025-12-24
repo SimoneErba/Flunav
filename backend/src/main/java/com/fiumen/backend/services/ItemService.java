@@ -190,7 +190,7 @@ public class ItemService {
      * Only touches Redis.
      */
     public void updateItemPosition(String itemId, String positionId, PositionType type, Instant timestamp,
-            double offset) {
+            Double offset) {
         redisRepository.updatePosition(itemId, positionId, type, timestamp, offset);
     }
 
@@ -214,6 +214,7 @@ public class ItemService {
             // 1. Update OrientDB
             itemVertex.setProperty("name", item.getName());
             itemVertex.setProperty("active", item.isActive());
+            itemVertex.setProperty("path", item.getPath());
             itemVertex.setProperty("properties", item.getProperties());
 
             itemVertex.save();

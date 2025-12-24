@@ -203,9 +203,6 @@ public class OrientDBService {
                 conveyorClass.createProperty("speed", OType.DOUBLE);
             }
 
-            // REMOVED: HasPosition (We use Redis now)
-            // REMOVED: ConnectedTo (We use Conveyor now)
-
             logger.debug("Schema verified for database: {}", session.getName());
         }
 

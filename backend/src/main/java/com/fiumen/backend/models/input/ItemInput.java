@@ -11,20 +11,22 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ItemInput {
-	private String id;
-	private String name;
-	private Double speed;
-    private Boolean active; 
+    private String id;
+    private String name;
+    private Double speed;
+    private Boolean active;
     private String locationId;
-	private Map<String, Object> properties;
+    private Double progress;
 
+    private Map<String, Object> properties;
 
-    public ItemInput (ItemCreatedEvent event) {
+    public ItemInput(ItemCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.speed = event.getSpeed();
         this.active = event.isActive();
         this.locationId = event.getLocationId();
         this.properties = event.getProperties();
+        this.progress = event.getProgress();
     }
 }

@@ -10,6 +10,7 @@ import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import fiumen.types.ConveyorType;
 import fiumen.types.LocationType;
+import fiumen.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -58,26 +59,40 @@ public class GraphService {
         for (Map<String, Object> rawItem : liveRawItems) {
             try {
                 String id = (String) rawItem.get("id");
-                String currentPositionId = (String) rawItem.get("edgeId");
+                String positionId = (String) rawItem.get("positionId");
+                PositionType type = (PositionType) rawItem.get("positionType");
+                if (type == null)
+                    type = PositionType.LOCATION;
+
                 Long tsLong = (Long) rawItem.get("entryTimestamp");
                 String destId = (String) rawItem.get("destinationId");
                 Double accDist = (Double) rawItem.getOrDefault("accumulatedDistance", 0.0);
 
-                if (currentPositionId == null || tsLong == null)
+                if (positionId == null || tsLong == null)
                     continue;
 
                 Instant entryTime = Instant.ofEpochMilli(tsLong);
+
+                // Full Path (Read-Only)
                 List<String> path = (List<String>) rawItem.get("path");
 
-                // Pathfinding fallback
+                // --- PATHFINDING (If missing) ---
                 if ((path == null || path.isEmpty()) && destId != null) {
-                    String startNode = topology.nodeMap.containsKey(currentPositionId) ? currentPositionId
-                            : topology.conveyorMap.get(currentPositionId).getTargetId();
-                    path = pathfindingService.calculateShortestPath(startNode, destId);
+                    String startNode = null;
+                    if (type == PositionType.LOCATION) {
+                        startNode = positionId;
+                    } else if (type == PositionType.CONVEYOR && topology.conveyorMap.containsKey(positionId)) {
+                        startNode = topology.conveyorMap.get(positionId).getTargetId();
+                    }
+
+                    if (startNode != null) {
+                        path = pathfindingService.calculateShortestPath(startNode, type, destId);
+                        // We don't cache here anymore, we just use it for this calculation
+                    }
                 }
 
                 ItemResponse simulatedItem = calculateCurrentState(
-                        id, currentPositionId, entryTime, path, topology, now, accDist);
+                        id, positionId, type, entryTime, path, topology, now, accDist);
 
                 if (simulatedItem != null) {
                     simulatedItem.setDestinationId(destId);
@@ -91,61 +106,119 @@ public class GraphService {
     }
 
     private ItemResponse calculateCurrentState(
-            String itemId, String startId, Instant lastUpdate, List<String> path,
-            Topology topo, Instant now, Double accDist) {
+            String itemId, String startId, PositionType startType, Instant lastUpdate,
+            List<String> path, Topology topo, Instant now, Double accDist) {
 
         Duration timeElapsed = Duration.between(lastUpdate, now);
         ConveyorResponse currentEdge = null;
         String lastNodeId = null;
 
-        if (topo.conveyorMap.containsKey(startId)) {
+        // --- 1. DETERMINE INITIAL STATE ---
+
+        if (startType == PositionType.CONVEYOR && topo.conveyorMap.containsKey(startId)) {
+            // CASE A: Started on an Edge
             currentEdge = topo.conveyorMap.get(startId);
+            // We are moving towards this node
             lastNodeId = currentEdge.getTargetId();
-        } else {
+        } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
+            // CASE B: Started on a Node
             lastNodeId = startId;
-            String nextEdgeId = (path != null && !path.isEmpty()) ? path.get(0) : null;
-            currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, nextEdgeId);
-            if (currentEdge == null)
+
+            // Find outgoing edge from this node
+            // We pass 'startId' as the current node. findNextEdge will look it up in the
+            // path list.
+            currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
+
+            if (currentEdge == null) {
                 return createItemResponse(itemId, null, startId, lastUpdate, 0.0);
-            if (nextEdgeId != null && currentEdge.getId().equals(nextEdgeId)) {
-                path = new ArrayList<>(path);
-                path.remove(0);
             }
+        } else {
+            return null;
         }
 
+        // --- 2. TRAVERSE GRAPH ---
         while (currentEdge != null) {
             double speed = currentEdge.getSpeed() != null ? currentEdge.getSpeed() : 0.0;
             double length = currentEdge.getLength() != null ? currentEdge.getLength() : 1.0;
 
-            // Only apply accumulated distance to the very first edge in the calculation
-            double startOffset = currentEdge.getId().equals(startId) ? accDist : 0.0;
+            double startOffset = (currentEdge.getId().equals(startId) && startType == PositionType.CONVEYOR) ? accDist
+                    : 0.0;
 
-            if (speed <= 0)
+            if (speed <= 0) {
                 return createItemResponse(itemId, currentEdge.getId(), null, lastUpdate, startOffset / length);
+            }
 
             long traversalTimeMillis = (long) (((length - startOffset) / speed) * 1000);
             Duration traversalDuration = Duration.ofMillis(traversalTimeMillis);
 
+            // CHECK: Is item still on this edge?
             if (timeElapsed.compareTo(traversalDuration) < 0) {
                 double distTraveled = (timeElapsed.toMillis() / 1000.0) * speed;
                 double progress = (startOffset + distTraveled) / length;
                 return createItemResponse(itemId, currentEdge.getId(), null, now.minus(timeElapsed), progress);
             }
 
+            // NO: Item finished this edge.
             timeElapsed = timeElapsed.minus(traversalDuration);
-            lastNodeId = currentEdge.getTargetId();
-            String nextEdgeId = (path != null && !path.isEmpty()) ? path.get(0) : null;
-            currentEdge = findNextEdge(lastNodeId, topo.outgoingEdgesMap, nextEdgeId);
 
-            if (currentEdge != null && nextEdgeId != null && currentEdge.getId().equals(nextEdgeId)) {
-                if (!(path instanceof ArrayList))
-                    path = new ArrayList<>(path);
-                path.remove(0);
+            // We have arrived at the target node
+            String arrivalNodeId = currentEdge.getTargetId();
+            lastNodeId = arrivalNodeId;
+
+            // Find next edge starting from here
+            // The logic inside findNextEdge handles the path lookup
+            currentEdge = findNextEdge(arrivalNodeId, topo.outgoingEdgesMap, path);
+        }
+
+        // 3. End of Line
+        return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
+    }
+
+    /**
+     * Finds the next edge from a node.
+     * Uses the Full Path List to decide direction.
+     */
+    private ConveyorResponse findNextEdge(
+            String currentNodeId,
+            Map<String, List<ConveyorResponse>> outgoing,
+            List<String> path) {
+
+        List<ConveyorResponse> edges = outgoing.get(currentNodeId);
+        if (edges == null || edges.isEmpty())
+            return null;
+
+        // 1. Path Priority
+        if (path != null && !path.isEmpty()) {
+            // Find where we are in the path list
+            int currentIndex = path.indexOf(currentNodeId);
+
+            // If we are in the path AND there is a next node
+            if (currentIndex >= 0 && currentIndex < path.size() - 1) {
+                String nextTargetNodeId = path.get(currentIndex + 1);
+
+                // Find the edge that connects Current -> Next
+                Optional<ConveyorResponse> match = edges.stream()
+                        .filter(e -> e.getTargetId().equals(nextTargetNodeId))
+                        .findFirst();
+
+                if (match.isPresent())
+                    return match.get();
             }
         }
 
-        return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
+        // 2. Main Path Priority
+        Optional<ConveyorResponse> main = edges.stream()
+                .filter(e -> Boolean.TRUE.equals(e.getIsMainPath()))
+                .findFirst();
+        if (main.isPresent())
+            return main.get();
+
+        // 3. Fallback
+        return edges.size() > 1 ? null : edges.get(0);
     }
+
+    // ... (Rest of the file: fetchTopology, createItemResponse, Mappers, Topology
+    // record) ...
 
     private Topology fetchTopology() {
         Map<String, LocationResponse> nodeMap = new HashMap<>();
@@ -173,21 +246,6 @@ public class GraphService {
         return new Topology(nodeMap, conveyorMap, outgoingEdgesMap);
     }
 
-    private ConveyorResponse findNextEdge(String nodeId, Map<String, List<ConveyorResponse>> outgoing,
-            String specificId) {
-        List<ConveyorResponse> edges = outgoing.get(nodeId);
-        if (edges == null || edges.isEmpty())
-            return null;
-        if (specificId != null) {
-            return edges.stream().filter(e -> e.getId().equals(specificId)).findFirst().orElse(null);
-        }
-        Optional<ConveyorResponse> main = edges.stream().filter(e -> Boolean.TRUE.equals(e.getIsMainPath()))
-                .findFirst();
-        if (main.isPresent())
-            return main.get();
-        return edges.size() > 1 ? null : edges.get(0);
-    }
-
     private ItemResponse createItemResponse(String id, String edgeId, String locId, Instant entry, Double progress) {
         ItemResponse item = new ItemResponse();
         item.setId(id);
@@ -199,7 +257,6 @@ public class GraphService {
         return item;
     }
 
-    // Internal DTO to pass topology around
     private record Topology(
             Map<String, LocationResponse> nodeMap,
             Map<String, ConveyorResponse> conveyorMap,

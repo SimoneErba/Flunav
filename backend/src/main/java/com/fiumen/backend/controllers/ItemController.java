@@ -60,6 +60,7 @@ public class ItemController {
                 item.getSpeed(),
                 item.getActive(),
                 item.getLocationId(),
+                item.getProgress(),
                 item.getProperties());
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(updatedItemProperties -> {

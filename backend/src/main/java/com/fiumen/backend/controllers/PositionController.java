@@ -34,7 +34,6 @@ public class PositionController {
         var event = new ItemPositionChangedEvent(
                 model.getItemId(),
                 model.getLocationId(),
-                model.getPositionType(),
                 model.getProgress());
 
         return eventProcessorHelper.processAndLogEvent(event)

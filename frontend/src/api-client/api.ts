@@ -221,6 +221,12 @@ export interface CreateConnection {
      * @memberof CreateConnection
      */
     'locationId'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConnection
+     */
+    'progress'?: number;
 }
 /**
  * 
@@ -397,13 +403,13 @@ export interface Item {
      * @type {string}
      * @memberof Item
      */
-    'currentEdgeId'?: string;
+    'positionId'?: string;
     /**
      * 
      * @type {string}
      * @memberof Item
      */
-    'lastNodeId'?: string;
+    'positionType'?: ItemPositionTypeEnum;
     /**
      * 
      * @type {string}
@@ -429,6 +435,14 @@ export interface Item {
      */
     'currentProgress'?: number;
 }
+
+export const ItemPositionTypeEnum = {
+    Location: 'LOCATION',
+    Conveyor: 'CONVEYOR'
+} as const;
+
+export type ItemPositionTypeEnum = typeof ItemPositionTypeEnum[keyof typeof ItemPositionTypeEnum];
+
 /**
  * 
  * @export
@@ -465,6 +479,12 @@ export interface ItemInput {
      * @memberof ItemInput
      */
     'locationId'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof ItemInput
+     */
+    'progress'?: number;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -2850,14 +2870,14 @@ export const PositionsApiAxiosParamCreator = function (configuration?: Configura
     return {
         /**
          * 
-         * @summary Create a new position connection
+         * @summary Move an item to a new position
          * @param {CreateConnection} createConnection 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createConnection: async (createConnection: CreateConnection, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        changePosition: async (createConnection: CreateConnection, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'createConnection' is not null or undefined
-            assertParamExists('createConnection', 'createConnection', createConnection)
+            assertParamExists('changePosition', 'createConnection', createConnection)
             const localVarPath = `/api/positions`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -2918,42 +2938,6 @@ export const PositionsApiAxiosParamCreator = function (configuration?: Configura
                 options: localVarRequestOptions,
             };
         },
-        /**
-         * 
-         * @summary Move an item to a new position
-         * @param {CreateConnection} createConnection 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        moveConnection: async (createConnection: CreateConnection, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'createConnection' is not null or undefined
-            assertParamExists('moveConnection', 'createConnection', createConnection)
-            const localVarPath = `/api/positions`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(createConnection, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
     }
 };
 
@@ -2966,15 +2950,15 @@ export const PositionsApiFp = function(configuration?: Configuration) {
     return {
         /**
          * 
-         * @summary Create a new position connection
+         * @summary Move an item to a new position
          * @param {CreateConnection} createConnection 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.createConnection(createConnection, options);
+        async changePosition(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.changePosition(createConnection, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['PositionsApi.createConnection']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['PositionsApi.changePosition']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -2990,19 +2974,6 @@ export const PositionsApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['PositionsApi.deleteConnections']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
-        /**
-         * 
-         * @summary Move an item to a new position
-         * @param {CreateConnection} createConnection 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.moveConnection(createConnection, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['PositionsApi.moveConnection']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
     }
 };
 
@@ -3015,13 +2986,13 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
     return {
         /**
          * 
-         * @summary Create a new position connection
+         * @summary Move an item to a new position
          * @param {CreateConnection} createConnection 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.createConnection(createConnection, options).then((request) => request(axios, basePath));
+        changePosition(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.changePosition(createConnection, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -3032,16 +3003,6 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
          */
         deleteConnections(itemId: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.deleteConnections(itemId, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @summary Move an item to a new position
-         * @param {CreateConnection} createConnection 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.moveConnection(createConnection, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -3055,14 +3016,14 @@ export const PositionsApiFactory = function (configuration?: Configuration, base
 export class PositionsApi extends BaseAPI {
     /**
      * 
-     * @summary Create a new position connection
+     * @summary Move an item to a new position
      * @param {CreateConnection} createConnection 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof PositionsApi
      */
-    public createConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig) {
-        return PositionsApiFp(this.configuration).createConnection(createConnection, options).then((request) => request(this.axios, this.basePath));
+    public changePosition(createConnection: CreateConnection, options?: RawAxiosRequestConfig) {
+        return PositionsApiFp(this.configuration).changePosition(createConnection, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -3075,18 +3036,6 @@ export class PositionsApi extends BaseAPI {
      */
     public deleteConnections(itemId: string, options?: RawAxiosRequestConfig) {
         return PositionsApiFp(this.configuration).deleteConnections(itemId, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @summary Move an item to a new position
-     * @param {CreateConnection} createConnection 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof PositionsApi
-     */
-    public moveConnection(createConnection: CreateConnection, options?: RawAxiosRequestConfig) {
-        return PositionsApiFp(this.configuration).moveConnection(createConnection, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

@@ -8,6 +8,7 @@ import com.fiumen.backend.models.response.ConveyorResponse;
 import com.fiumen.backend.models.simulation.SimulationStatus;
 
 import fiumen.context.UserContextHolder;
+import fiumen.types.PositionType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,7 @@ enum PositionStatus {
 record SocketEnvelope<T>(T payload, String senderId, long timestamp) {
 }
 
-record PositionUpdate(String itemId, String edgeId, PositionStatus status) {
+record PositionUpdate(String itemId, String edgeId, PositionStatus status, PositionType type, Double progress) {
 }
 
 record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data) {
@@ -128,13 +129,14 @@ public class WebSocketService {
 
     // --- POSITION EVENTS ---
 
-    public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp) {
-        PositionUpdate payload = new PositionUpdate(itemId, edgeId, PositionStatus.UPDATED);
+    public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp, PositionType type,
+            double progress) {
+        PositionUpdate payload = new PositionUpdate(itemId, edgeId, PositionStatus.UPDATED, type, progress);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
     }
 
     public void broadcastPositionLost(String itemId, Instant timestamp) {
-        PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST);
+        PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST, null, null);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
     }
 

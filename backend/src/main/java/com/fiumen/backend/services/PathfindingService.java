@@ -6,6 +6,9 @@ import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+
+import fiumen.types.PositionType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,61 +29,62 @@ public class PathfindingService {
     }
 
     /**
-     * Calculates the shortest path between two nodes based on physical transit
-     * time.
-     *
-     * @param sourceNodeId      The custom ID of the starting Node (Waypoint).
-     * @param destinationNodeId The custom ID of the target Node (Waypoint).
-     * @return An ordered list of CONVEYOR IDs (Edge IDs) representing the path.
+     * Calculates the shortest path.
+     * If type is LOCATION: Starts from that Location.
+     * If type is CONVEYOR: Starts from the END (Target Node) of that Conveyor.
      */
-    public List<String> calculateShortestPath(String sourceNodeId, String destinationNodeId) {
-        // 1. Define the Weight Function (JavaScript)
-        // This runs on the EDGE.
-        // Logic:
-        // - If 'fixedTransitTime' exists (e.g. Gravity Roller), use it.
-        // - Else, calculate Time = Length / Speed.
-        // - Else, return a small default cost.
+    public List<String> calculateShortestPath(String sourceId, PositionType type, String destinationNodeId) {
+
+        // 1. Determine the Source Vertex Sub-Query
+        String sourceLetClause;
+        if (type == PositionType.CONVEYOR) {
+            // If on a conveyor, start from its target node (in)
+            sourceLetClause = "$src = (SELECT expand(in) FROM Conveyor WHERE customId = :source)";
+        } else {
+            // If at a location, start from that location
+            sourceLetClause = "$src = (SELECT FROM Location WHERE customId = :source)";
+        }
+
+        // 2. Define the Destination LET clause
+        String destLetClause = "$dst = (SELECT FROM Location WHERE customId = :dest)";
+
+        // 2. Define the Weight Function (JavaScript)
+        // (Same as before)
         String weightFunction = "function(edge) {" +
                 "  var fixedTime = edge.getProperty('fixedTransitTime');" +
                 "  if (fixedTime != null && fixedTime > 0) {" +
-                "    return fixedTime / 1000.0;" + // Convert ms to seconds
+                "    return fixedTime / 1000.0;" +
                 "  }" +
                 "  var len = edge.getProperty('length');" +
                 "  var spd = edge.getProperty('speed');" +
                 "  if (len != null && spd != null && spd > 0) {" +
-                "    return len / spd;" + // Time = Distance / Speed
+                "    return len / spd;" +
                 "  }" +
-                "  return 0.1;" + // Small cost for zero-length/logical connections
+                "  return 0.1;" +
                 "}";
 
-        // 2. Execute Dijkstra
-        // Note: We select FROM Location (Nodes)
-        String query = "SELECT dijkstra(" +
-                "  (SELECT FROM Location WHERE customId = :source), " +
-                "  (SELECT FROM Location WHERE customId = :dest), " +
-                "  ?, " + // The weight function
-                "  'OUT', " +
-                "  'Conveyor'" + // Only traverse edges of class 'Conveyor'
-                ") AS path";
+        // 3. Execute Dijkstra
+        // We inject the sourceSubQuery determined above
+        String query = "SELECT $path.customId as path " +
+                "LET " + sourceLetClause + ", " + destLetClause + ", $path = dijkstra($src, $dst, :weightFunc, 'OUT')";
 
         try (ODatabaseSession db = orientDBService.getSession()) {
-            OResultSet rs = db.query(query, Map.of("source", sourceNodeId, "dest", destinationNodeId), weightFunction);
+            OResultSet rs = db.query(query, Map.of("source", sourceId, "dest", destinationNodeId, "weightFunc",
+                    weightFunction));
 
             if (rs.hasNext()) {
                 OResult result = rs.next();
-                List<OVertex> pathVertices = result.getProperty("path");
+                List<String> pathVertices = result.getProperty("path");
 
                 if (pathVertices == null || pathVertices.isEmpty()) {
                     return Collections.emptyList();
                 }
 
-                // 3. Convert Node Path to Edge Path
-                // Dijkstra returns [NodeA, NodeB, NodeC].
-                // We need [Edge_A_to_B, Edge_B_to_C].
-                return convertVertexPathToEdgePath(pathVertices);
+                // 4. Convert Node Path to Edge Path
+                return pathVertices;
             }
         } catch (Exception e) {
-            logger.error("Error calculating shortest path from {} to {}", sourceNodeId, destinationNodeId, e);
+            logger.error("Error calculating shortest path from {} ({}) to {}", sourceId, type, destinationNodeId, e);
             return Collections.emptyList();
         }
 

@@ -116,7 +116,7 @@ public class SimulationController {
             @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
 
         try {
-            simulationService.pauseSimulation(simulationId, Instant.now());
+            simulationService.pauseSimulation(simulationId);
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();

@@ -72,7 +72,7 @@ function AppContent() {
     setPlaybackSpeed(1.0);
 
     if (activeSimulation) {
-        try { await simulationClient.destroySimulation(activeSimulation.id); } 
+        try { await simulationApi.destroySimulation(activeSimulation.id); } 
         catch (e) { console.warn(e); }
     }
 
@@ -102,8 +102,8 @@ function AppContent() {
     const isPlaying = activeSimulation.status === SimulationStateResponseStatusEnum.Playing;
     try {
       if (isPlaying) {
-        await simulationApi.cancelPlayback(activeSimulation.id);
-        setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Ready } : null);
+        await simulationApi.pausePlayback(activeSimulation.id);
+        setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Paused } : null);
       } else {
         await simulationApi.startPlayback(activeSimulation.id, { 
             speedFactor: playbackSpeed,
@@ -126,7 +126,6 @@ function AppContent() {
     }
   };
 
-  // --- Effects (Same as before) ---
   useEffect(() => {
     const simId = activeSimulation?.id;
     if (!connected || !simId) return;

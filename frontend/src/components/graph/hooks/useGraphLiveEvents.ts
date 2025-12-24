@@ -96,18 +96,71 @@ export const useGraphLiveEvents = (
         }, simulationId));
 
         // 2. Item CRUD
+        // 2. Item CRUD
         unsubscribers.push(subscribeToItemCreated((item, timestamp) => {
             if (graph.hasNode(item.id)) return;
-            graph.addNode(item.id, { x: 0, y: 0, label: item.name, size: 6, color: "#FF0000", type: "square", id: item.id, isItem: true });
+
+            let startX = 0;
+            let startY = 0;
+            let isHidden = true; // Default to invisible
+
+            // Check if we have a valid location ID
+            if (item.locationId) {
+                
+                // CASE A: Spawning on a Location (Node)
+                if (graph.hasNode(item.locationId)) {
+                    const attrs = graph.getNodeAttributes(item.locationId);
+                    startX = attrs.x;
+                    startY = attrs.y;
+                    isHidden = false; // Found it, make visible
+                } 
+                
+                // CASE B: Spawning on a Conveyor (Edge)
+                else if (graph.hasEdge(item.locationId)) {
+                    const edgeId = item.locationId;
+                    const sourceId = graph.source(edgeId);
+                    const targetId = graph.target(edgeId);
+                    
+                    // Ensure source/target exist (safety check)
+                    if (graph.hasNode(sourceId) && graph.hasNode(targetId)) {
+                        const sourceNode = graph.getNodeAttributes(sourceId);
+                        const targetNode = graph.getNodeAttributes(targetId);
+                        
+                        // Use the progress from the event (default to 0 if missing)
+                        // Cast to any if 'progress' isn't in the strict ItemInput type yet
+                        const progress = (item as any).progress || 0.0;
+
+                        // Linear Interpolation based on progress %
+                        startX = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
+                        startY = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
+                        
+                        isHidden = false; // Found it, make visible
+                    }
+                }
+            }
+
+            // Add to Graph
+            graph.addNode(item.id, { 
+                x: startX, 
+                y: startY, 
+                label: item.name, 
+                size: 6, 
+                color: "#FF0000", 
+                type: "square", 
+                id: item.id, 
+                isItem: true,
+                hidden: isHidden // Start invisible if location unknown
+            });
             
+            // Update Logic State
             activeItemsRef.current.set(item.id, {
                 id: item.id, 
                 name: item.name, 
                 active: item.active,
                 locationId: item.locationId, 
-                currentEdgeId: null,
-                entryTimestamp: new Date(timestamp).toISOString(), // Use event timestamp
-                progress: 0
+                currentEdgeId: null, // Logic will resolve this on next update/frame
+                entryTimestamp: new Date(timestamp).toISOString(), 
+                progress: (item as any).progress || 0
             });
         }, simulationId));
 
@@ -124,7 +177,11 @@ export const useGraphLiveEvents = (
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
                     // Update visual label if name changes
-                    if (key === 'name') graph.setNodeAttribute(update.id, 'label', val);
+                    if (key === 'name')
+                    {
+                        graph.setNodeAttribute(update.id, 'label', val);
+                    }
+
                     graph.setNodeAttribute(update.id, key, val);
                 });
 

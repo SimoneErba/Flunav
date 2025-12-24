@@ -72,13 +72,14 @@ public class SimulationService {
      */
     public void startPlayback(String simulationId, double speedFactor) {
         SimulationState state = getSimulationState(simulationId);
-        if (state.getStatus() != SimulationStatus.READY) {
+        if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
+                && state.getStatus() != SimulationStatus.PAUSED) {
             throw new IllegalStateException(
                     "Simulation is not ready for playback. Current status: " + state.getStatus());
         }
 
-        cancelPlayback(simulationId);
-        Instant simulationStartTime = state.getTimestamp();
+        Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
+                : state.getTimestamp();
         state.setStatus(SimulationStatus.PLAYING);
         logger.info("Starting live tailing playback for simulation {} from {}", simulationId, simulationStartTime);
 
@@ -221,7 +222,7 @@ public class SimulationService {
     }
 
     // TODO: add time to the state to be used when resuming?
-    public void pauseSimulation(String simulationId, Instant timestamp) {
+    public void pauseSimulation(String simulationId) {
         // 1. Find the state and the running task.
         SimulationState state = simulationCache.get(simulationId);
         Future<?> playbackTask = activePlaybacks.get(simulationId);
@@ -239,9 +240,10 @@ public class SimulationService {
 
         // 3. Set the state to PAUSED. This MUST be done BEFORE interrupting the thread.
         state.setStatus(SimulationStatus.PAUSED);
-
+        state.setLastProcessedTimestamp(state.getLastProcessedTimestamp());
         // 4. Broadcast the update to all connected clients.
-        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED, timestamp);
+        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
+                state.getLastProcessedTimestamp());
 
         // 5. CRITICAL: Interrupt the actual background thread.
         // The 'true' parameter sends an interrupt signal, which will be caught

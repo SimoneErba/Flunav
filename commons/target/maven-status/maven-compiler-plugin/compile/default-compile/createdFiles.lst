@@ -4,7 +4,6 @@ fiumen/events/LocationCapacityChangedEvent.class
 fiumen/events/ConnectionDeletedEvent.class
 fiumen/events/LocationCoordinatesChangedEvent.class
 fiumen/events/ConnectionDeactivatedEvent.class
-fiumen/events/ItemPositionCreatedEvent.class
 fiumen/events/LocationCreatedEvent.class
 fiumen/events/ConnectionCreatedEvent.class
 fiumen/events/LocationActivatedEvent.class
@@ -19,8 +18,9 @@ fiumen/events/ItemDeletedEvent.class
 fiumen/events/ItemDeactivatedEvent.class
 fiumen/events/LocationDeactivatedEvent.class
 fiumen/events/ConnectionSpeedChangedEvent.class
-fiumen/events/ItemActivatedEvent.class
+fiumen/types/PositionType.class
 fiumen/events/ConnectionLengthChangedEvent.class
+fiumen/events/ItemActivatedEvent.class
 fiumen/context/UserContextHolder.class
 fiumen/events/ItemDestinationEvent.class
 fiumen/events/ItemPositionChangedEvent.class

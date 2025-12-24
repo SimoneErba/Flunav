@@ -168,7 +168,7 @@ public class App {
                 } catch (Exception ignored) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, new HashMap<>()), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, 0.0, new HashMap<>()), "POST");
             }
         }
     }
@@ -268,7 +268,7 @@ public class App {
                 } catch (Exception ignored) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, new HashMap<>()), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, 0.0, new HashMap<>()), "POST");
             }
         }
     }
@@ -365,7 +365,7 @@ public class App {
                 } catch (Exception e) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", new HashMap<>()), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", 0.0, new HashMap<>()), "POST");
 
                 // 2. Set Destination (if applicable)
                 if (destination != null) {

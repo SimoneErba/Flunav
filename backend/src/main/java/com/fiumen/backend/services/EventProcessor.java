@@ -67,7 +67,9 @@ public class EventProcessor {
             }
             Map<String, Object> resultMap = new HashMap<>();
             try {
-                clickHouseService.saveEvent(event);
+                if (capturedSimulationId != null) {
+                    clickHouseService.saveEventAsync(event);
+                }
                 resultMap = processEvent(event, shouldBroadcast);
                 logger.info("Successfully processed event: {}", event.getEventType());
                 return resultMap;
@@ -126,14 +128,13 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
-                    var positionType = getPositionType(e.getLocationId());
-                    itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), e.getTimestamp(), positionType,
+                    var positionType = locationService.getPositionType(e.getLocationId());
+                    itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
                             e.getProgress());
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
-                                positionType,
-                                e.getProgress());
+                                positionType, e.getProgress());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }

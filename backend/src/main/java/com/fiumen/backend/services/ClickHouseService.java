@@ -94,7 +94,7 @@ public class ClickHouseService {
                 client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow);
             }
 
-            logger.debug("Event saved: {}", event.getEventId());
+            logger.info("Event saved: {}", event.getEventId());
 
         } catch (Exception e) {
             logger.error("Error saving event {} to ClickHouse", event.getEventId(), e);
@@ -231,6 +231,8 @@ public class ClickHouseService {
 
                     if (!(event instanceof UnknownEvent)) {
                         events.add(event);
+                    } else {
+                        logger.warn("Deserialized UnknownEvent. Raw Data: {}", eventData);
                     }
                 }
             }

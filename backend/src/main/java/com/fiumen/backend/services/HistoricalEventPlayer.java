@@ -190,7 +190,11 @@ public class HistoricalEventPlayer {
                 Thread.onSpinWait();
             }
 
-            eventProcessor.processEvent(event);
+            try {
+                eventProcessor.processEvent(event);
+            } catch (Exception e) {
+                logger.warn("Failed to process event {}", event, e);
+            }
         }
     }
 }

@@ -4,6 +4,9 @@ import com.fiumen.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+
+import fiumen.types.PositionType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -24,7 +27,7 @@ public class StateRecoveryService {
 
     private final LiveItemRepository redisRepo;
     private final ClickHouseService clickHouseService;
-    private final OrientDBService orientDBService; // <--- Added Dependency
+    private final OrientDBService orientDBService;
 
     public StateRecoveryService(LiveItemRepository redisRepo,
             ClickHouseService clickHouseService,
@@ -72,7 +75,7 @@ public class StateRecoveryService {
                     .collect(Collectors.toSet());
 
             Map<String, String> namesMap = fetchNamesFromOrientDB(itemIds);
-
+            var locationTypesMap = fetchPositionTypesFromOrientDB(itemIds);
             // 4. Bulk load into Redis
             int count = 0;
             for (Map<String, Object> row : rows) {
@@ -85,9 +88,9 @@ public class StateRecoveryService {
                 if (id != null && edge != null && timestamp != null) {
                     // Retrieve name from our pre-fetched map
                     String name = namesMap.get(id);
-
+                    var type = locationTypesMap.get(id);
                     // Save with Name (if found)
-                    redisRepo.saveItemState(id, edge, timestamp, null, name);
+                    redisRepo.saveItemState(id, edge, type, timestamp, null, name);
                     count++;
                 }
             }
@@ -124,6 +127,47 @@ public class StateRecoveryService {
         } catch (Exception e) {
             logger.warn("Failed to fetch item names from OrientDB during rehydration. Items will appear without names.",
                     e);
+        }
+        return result;
+    }
+
+    /**
+     * Bulk determines if IDs are Locations or Conveyors.
+     * Returns a Map<ID, PositionType>.
+     */
+    private Map<String, PositionType> fetchPositionTypesFromOrientDB(Set<String> ids) {
+        Map<String, PositionType> result = new HashMap<>();
+        if (ids == null || ids.isEmpty()) {
+            return result;
+        }
+
+        try (ODatabaseSession session = orientDBService.getSession()) {
+            Map<String, Object> params = Map.of("ids", ids);
+
+            String locQuery = "SELECT customId FROM Location WHERE customId IN :ids";
+            try (OResultSet rs = session.query(locQuery, params)) {
+                while (rs.hasNext()) {
+                    OResult item = rs.next();
+                    String id = item.getProperty("customId");
+                    if (id != null) {
+                        result.put(id, PositionType.LOCATION);
+                    }
+                }
+            }
+
+            String convQuery = "SELECT customId FROM Conveyor WHERE customId IN :ids";
+            try (OResultSet rs = session.query(convQuery, params)) {
+                while (rs.hasNext()) {
+                    OResult item = rs.next();
+                    String id = item.getProperty("customId");
+                    if (id != null) {
+                        result.put(id, PositionType.CONVEYOR);
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            logger.warn("Failed to fetch position types in bulk.", e);
         }
         return result;
     }

@@ -2,8 +2,7 @@ package com.fiumen.backend.models.simulation;
 
 import java.time.Instant;
 
-import lombok.Data
-;
+import lombok.Data;
 
 @Data
 public class SimulationState {

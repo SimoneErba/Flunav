@@ -13,6 +13,7 @@ import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import fiumen.types.LocationType;
+import fiumen.types.PositionType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,6 +85,38 @@ public class LocationService {
         } catch (Exception e) {
             throw new RuntimeException(
                     "Error while creating location " + location.getName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    public PositionType getPositionType(String id) {
+        try (ODatabaseSession db = orientDBService.getSession()) {
+
+            // 1. Check if ID exists in Location (Vertex)
+            String locationQuery = "SELECT count(*) as count FROM Location WHERE customId = ?";
+            try (OResultSet rs = db.query(locationQuery, id)) {
+                if (rs.hasNext()) {
+                    Long count = rs.next().getProperty("count");
+                    if (count != null && count > 0) {
+                        return PositionType.LOCATION;
+                    }
+                }
+            }
+
+            // 2. Check if ID exists in Conveyor (Edge)
+            String conveyorQuery = "SELECT count(*) as count FROM Conveyor WHERE customId = ?";
+            try (OResultSet rs = db.query(conveyorQuery, id)) {
+                if (rs.hasNext()) {
+                    Long count = rs.next().getProperty("count");
+                    if (count != null && count > 0) {
+                        return PositionType.CONVEYOR;
+                    }
+                }
+            }
+
+            throw new RuntimeException("ID " + id + " not found in Locations or Conveyors.");
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error checking position type for ID " + id, e);
         }
     }
 

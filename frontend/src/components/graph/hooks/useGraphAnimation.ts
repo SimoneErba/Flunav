@@ -25,12 +25,22 @@ export const useGraphAnimation = (
                 if (itemId === draggedNodeRef.current) return;
                 if (!graph.hasNode(itemId)) return;
 
+                // Helper to find next target from full path
+                const getNextFromPath = (currentNodeId: string) => {
+                    if (!item.path) return null;
+                    const idx = item.path.indexOf(currentNodeId);
+                    // If found and there is a next node
+                    if (idx !== -1 && idx < item.path.length - 1) {
+                        return item.path[idx + 1];
+                    }
+                    return null;
+                };
+
                 // CASE 1: Item on Conveyor
                 if (item.currentEdgeId) {
                     let edgeKey: string | undefined;
                     let edgeAttrs: any;
                     
-                    // O(E) lookup - optimize with map in prod if needed
                     graph.forEachEdge((edge, attrs) => { 
                         if (attrs.id === item.currentEdgeId) { edgeKey = edge; edgeAttrs = attrs; } 
                     });
@@ -50,17 +60,26 @@ export const useGraphAnimation = (
                         } else if (timeElapsed >= totalDuration) {
                             // --- PREDICTION LOGIC ---
                             const overflow = timeElapsed - totalDuration;
-                            const nextEdgeKey = findNextEdge(targetId, graph);
+                            
+                            // 1. We are at 'targetId'. Find next node in path relative to 'targetId'
+                            const nextTargetNodeId = getNextFromPath(targetId);
+                            
+                            // 2. Find best edge
+                            const nextEdgeKey = findNextEdge(targetId, graph, nextTargetNodeId);
 
                             if (nextEdgeKey) {
                                 const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
+                                
+                                // 3. Create new item state
                                 const newItem = { 
                                     ...item, 
                                     currentEdgeId: nextEdgeAttrs.id, 
                                     locationId: null, 
                                     entryTimestamp: new Date(simTime - overflow).toISOString() 
                                 };
+
                                 activeItemsRef.current.set(itemId, newItem);
+                                
                                 graph.setNodeAttribute(itemId, "x", targetNode.x);
                                 graph.setNodeAttribute(itemId, "y", targetNode.y);
                                 needsRefresh = true;
@@ -84,16 +103,22 @@ export const useGraphAnimation = (
                 } 
                 // CASE 2: Item on Location
                 else if (item.locationId) {
-                    const nextEdgeKey = findNextEdge(item.locationId, graph);
+                    // 1. We are at 'locationId'. Find next node in path.
+                    const nextTargetNodeId = getNextFromPath(item.locationId);
+
+                    // 2. Check for outgoing edge
+                    const nextEdgeKey = findNextEdge(item.locationId, graph, nextTargetNodeId);
+                    
                     if (nextEdgeKey) {
-                         // Auto-start on next edge
                          const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
+                         
                          const newItem = { 
                              ...item, 
                              currentEdgeId: nextEdgeAttrs.id, 
                              locationId: null, 
                              entryTimestamp: new Date(simTime).toISOString() 
                          };
+
                          activeItemsRef.current.set(itemId, newItem);
                          needsRefresh = true;
                     } else if (graph.hasNode(item.locationId)) {

@@ -16,32 +16,30 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ItemCreatedEvent.class, name = "ITEM_CREATED"),
         @JsonSubTypes.Type(value = ItemDeactivatedEvent.class, name = "ITEM_DEACTIVATED"),
         @JsonSubTypes.Type(value = ItemDeletedEvent.class, name = "ITEM_DELETED"),
-        @JsonSubTypes.Type(value = ItemDestinationEvent.class, name = "ITEM_DESTINATION_CHANGED"), // Added
+        @JsonSubTypes.Type(value = ItemDestinationEvent.class, name = "ITEM_DESTINATION"),
         @JsonSubTypes.Type(value = ItemPositionChangedEvent.class, name = "ITEM_POSITION_CHANGED"),
         @JsonSubTypes.Type(value = ItemPositionDeletedEvent.class, name = "ITEM_POSITION_DELETED"),
         @JsonSubTypes.Type(value = ItemPropertiesUpdatedEvent.class, name = "ITEM_PROPERTIES_UPDATED"),
-        @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"), // Added
+        @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"),
         @JsonSubTypes.Type(value = ItemSpeedChangedEvent.class, name = "ITEM_SPEED_CHANGED"),
 
         // --- LOCATION EVENTS ---
         @JsonSubTypes.Type(value = LocationActivatedEvent.class, name = "LOCATION_ACTIVATED"),
-        @JsonSubTypes.Type(value = LocationAddToMainPath.class, name = "LOCATION_ADD_TO_MAIN_PATH"), // Added
-        @JsonSubTypes.Type(value = LocationCapacityChangedEvent.class, name = "LOCATION_CAPACITY_CHANGED"), // Added
-        @JsonSubTypes.Type(value = LocationCoordinatesChangedEvent.class, name = "LOCATION_COORDINATES_CHANGED"), // Added
+        @JsonSubTypes.Type(value = LocationAddToMainPath.class, name = "LOCATION_ADD_TO_MAIN_PATH"),
+        @JsonSubTypes.Type(value = LocationCapacityChangedEvent.class, name = "LOCATION_CAPACITY_CHANGED"),
+        @JsonSubTypes.Type(value = LocationCoordinatesChangedEvent.class, name = "LOCATION_COORDINATES_CHANGED"),
         @JsonSubTypes.Type(value = LocationCreatedEvent.class, name = "LOCATION_CREATED"),
         @JsonSubTypes.Type(value = LocationDeactivatedEvent.class, name = "LOCATION_DEACTIVATED"),
         @JsonSubTypes.Type(value = LocationDeletedEvent.class, name = "LOCATION_DELETED"),
         @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
 
         // --- CONNECTION (CONVEYOR) EVENTS ---
-        @JsonSubTypes.Type(value = ConnectionCreatedEvent.class, name = "CONNECTION_CREATED"), // Renamed for
-                                                                                               // consistency (was
-                                                                                               // LOCATION_CONNECTION_CREATED)
-        @JsonSubTypes.Type(value = ConnectionDeactivatedEvent.class, name = "CONNECTION_DEACTIVATED"), // Added
+        @JsonSubTypes.Type(value = ConnectionCreatedEvent.class, name = "CONNECTION_CREATED"),
+        @JsonSubTypes.Type(value = ConnectionDeactivatedEvent.class, name = "CONNECTION_DEACTIVATED"),
         @JsonSubTypes.Type(value = ConnectionDeletedEvent.class, name = "CONNECTION_DELETED"),
-        @JsonSubTypes.Type(value = ConnectionLengthChangedEvent.class, name = "CONNECTION_LENGTH_CHANGED"), // Added
-        @JsonSubTypes.Type(value = ConnectionRemoveFromMainPath.class, name = "CONNECTION_REMOVE_FROM_MAIN_PATH"), // Added
-        @JsonSubTypes.Type(value = ConnectionSpeedChangedEvent.class, name = "CONNECTION_SPEED_CHANGED"), // Added
+        @JsonSubTypes.Type(value = ConnectionLengthChangedEvent.class, name = "CONNECTION_LENGTH_CHANGED"),
+        @JsonSubTypes.Type(value = ConnectionRemoveFromMainPath.class, name = "CONNECTION_REMOVE_FROM_MAIN_PATH"),
+        @JsonSubTypes.Type(value = ConnectionSpeedChangedEvent.class, name = "CONNECTION_SPEED_CHANGED"),
 })
 public abstract class DomainEvent {
     private final String eventId;
