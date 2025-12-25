@@ -1,0 +1,178 @@
+package com.flonav.backend.services;
+
+import com.flonav.backend.context.DatabaseContextHolder;
+import com.flonav.backend.models.UpdateModel;
+import com.flonav.backend.models.input.ItemInput;
+import com.flonav.backend.models.input.LocationInput;
+import com.flonav.backend.models.response.ConveyorResponse;
+import com.flonav.backend.models.simulation.SimulationStatus;
+
+import flonav.context.UserContextHolder;
+import flonav.types.PositionType;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.HashMap;
+
+enum CrudOperation {
+    CREATED, DELETED
+}
+
+enum PositionStatus {
+    UPDATED, LOST
+}
+
+// --- DTO Records ---
+record SocketEnvelope<T>(T payload, String senderId, long timestamp) {
+}
+
+record PositionUpdate(String itemId, String edgeId, PositionStatus status, PositionType type, Double progress) {
+}
+
+record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data) {
+}
+
+record EntityMessage<T>(CrudOperation operation, T data) {
+}
+
+record EntityUpdateMessage(String id, Map<String, Object> properties) {
+}
+
+@Service
+public class WebSocketService {
+    private final SimpMessagingTemplate messagingTemplate;
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketService.class);
+
+    public WebSocketService(SimpMessagingTemplate messagingTemplate) {
+        this.messagingTemplate = messagingTemplate;
+    }
+
+    // --- SIMULATION CONTROL EVENTS (Updated) ---
+
+    public void broadcastSimulationUpdate(String simulationId, SimulationStatus status, Instant timestamp) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("status", status);
+        // Pass explicit ID, subtopic "status"
+        sendToTopic(simulationId, "status", message, timestamp.toEpochMilli());
+    }
+
+    public void broadcastSpeedUpdate(String simulationId, double speedFactor, Instant timestamp) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("speed", speedFactor);
+        // Pass explicit ID, subtopic "speed"
+        sendToTopic(simulationId, "speed", message, timestamp.toEpochMilli());
+    }
+
+    // --- ITEM EVENTS ---
+
+    public void broadcastItemCreated(ItemInput item, Instant timestamp) {
+        EntityMessage<ItemInput> payload = new EntityMessage<>(CrudOperation.CREATED, item);
+        sendToTopic(null, "items", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastItemDeleted(String itemId, Instant timestamp) {
+        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, itemId);
+        sendToTopic(null, "items", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastItemUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(updateModel.getId(), updateModel.getProperties());
+        sendToTopic(null, "items/updates", payload, timestamp.toEpochMilli());
+    }
+
+    // --- LOCATION EVENTS ---
+
+    public void broadcastLocationCreated(LocationInput location, Instant timestamp) {
+        EntityMessage<LocationInput> payload = new EntityMessage<>(CrudOperation.CREATED, location);
+        sendToTopic(null, "locations", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastLocationDeleted(String locationId, Instant timestamp) {
+        EntityMessage<String> payload = new EntityMessage<>(CrudOperation.DELETED, locationId);
+        sendToTopic(null, "locations", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastLocationPropertiesUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(updateModel.getId(), updateModel.getProperties());
+        sendToTopic(null, "locations/updates", payload, timestamp.toEpochMilli());
+    }
+
+    // --- CONNECTION EVENTS ---
+
+    public void broadcastConnectionCreated(ConveyorResponse conveyor, Instant timestamp) {
+        ConnectionMessage payload = new ConnectionMessage(
+                conveyor.getSourceId(),
+                conveyor.getTargetId(),
+                CrudOperation.CREATED,
+                conveyor);
+        sendToTopic(null, "connections", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastConnectionDeleted(String sourceLocationId, String targetLocationId, Instant timestamp) {
+        ConnectionMessage payload = new ConnectionMessage(
+                sourceLocationId,
+                targetLocationId,
+                CrudOperation.DELETED,
+                null);
+        sendToTopic(null, "connections", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastConnectionUpdated(UpdateModel updateModel, Instant timestamp) {
+        EntityUpdateMessage payload = new EntityUpdateMessage(updateModel.getId(), updateModel.getProperties());
+        sendToTopic(null, "connections/updates", payload, timestamp.toEpochMilli());
+    }
+
+    // --- POSITION EVENTS ---
+
+    public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp, PositionType type,
+            double progress) {
+        PositionUpdate payload = new PositionUpdate(itemId, edgeId, PositionStatus.UPDATED, type, progress);
+        sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastPositionLost(String itemId, Instant timestamp) {
+        PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST, null, null);
+        sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
+    }
+
+    // --- HELPER ---
+
+    /**
+     * Centralized method to wrap messages in an Envelope and send them to the
+     * correct topic.
+     * 
+     * @param explicitSimulationId If provided, forces the message to this
+     *                             simulation ID.
+     *                             If null, tries to get it from the Context.
+     * @param subTopic             The specific channel (e.g., "items", "status").
+     * @param payload              The business data.
+     * @param timestamp            The simulation timestamp.
+     */
+    private void sendToTopic(String explicitSimulationId, String subTopic, Object payload, long timestamp) {
+        // 1. Determine Simulation ID (Explicit > Context > Null/Live)
+        String simulationId = (explicitSimulationId != null)
+                ? explicitSimulationId
+                : DatabaseContextHolder.getSimulationId();
+
+        // 2. Construct Topic
+        // Format: /topic/simulations/{id}/{subTopic} OR /topic/{subTopic}
+        String topic = (simulationId != null)
+                ? String.format("/topic/simulations/%s/%s", simulationId, subTopic)
+                : String.format("/topic/%s", subTopic);
+
+        // 3. Get Sender ID from Context
+        String currentSenderId = UserContextHolder.getSenderId();
+
+        // 4. Wrap in Envelope
+        SocketEnvelope<Object> envelope = new SocketEnvelope<>(payload, currentSenderId, timestamp);
+
+        // 5. Send
+        // logger.debug("Broadcasting to {}: {}", topic, envelope);
+        messagingTemplate.convertAndSend(topic, envelope);
+    }
+}

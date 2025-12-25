@@ -84,7 +84,7 @@ edis pub sub if ackend is multi process
 
 
 
-# Fiumen Anomaly & Fault Detection Algorithms
+# Flonav Anomaly & Fault Detection Algorithms
 This document outlines the core algorithms for transforming raw item flow data into actionable, predictive insights. The system is designed in two phases: an offline "Learning" phase to establish baselines from historical data, and a real-time "Detection" phase to analyze live events.
 1. Statistical Baselining Engine (The "Learner")
 This engine runs offline (e.g., nightly or on-demand) to query the historical event log in ClickHouse and build a statistical model of normal operation.
@@ -147,50 +147,50 @@ Provides: Powerful diagnostic insight to help maintenance teams find the source 
 This category answers the question: "We're not broken, but how can we be faster and more efficient?"
 A) OEE (Overall Equipment Effectiveness) Calculation
 What It Is: OEE is the gold-standard KPI for manufacturing and logistics. It measures the percentage of planned production time that is truly productive. It's a score calculated as Availability x Performance x Quality.
-How Fiumen Does It:
+How Flonav Does It:
 Availability: You can calculate this easily. It's the time a conveyor is actually moving items vs. the time it was scheduled to run. A stopped conveyor (zero throughput) is "unavailable."
 Performance: You have the data for this. It's the actual throughput vs. the maximum theoretical throughput (which you can calculate from your baselines). A conveyor running slower than its baseline has low performance.
-Quality: This is the magic part. You can provide an API for the client to push "quality" data into Fiumen (e.g., {"item_id": "Item-123", "status": "REJECTED"}). Now you can correlate flow issues with quality problems.
-Value: You move from a custom tool to speaking the universal language of operations managers. This feature alone makes Fiumen instantly understandable and valuable to a huge market.
+Quality: This is the magic part. You can provide an API for the client to push "quality" data into Flonav (e.g., {"item_id": "Item-123", "status": "REJECTED"}). Now you can correlate flow issues with quality problems.
+Value: You move from a custom tool to speaking the universal language of operations managers. This feature alone makes Flonav instantly understandable and valuable to a huge market.
 B) Critical Path Analysis
 What It Is: In any complex system, there is always one path that is the primary bottleneck for the entire system's throughput. This is the "critical path."
-How Fiumen Does It: You have the entire system mapped as a graph in OrientDB and you have the avg_transit_time for every edge from your baseline analysis. You can run a graph traversal algorithm (like Dijkstra's, but modified to find the "heaviest" or slowest path) to identify the sequence of locations that has the longest cumulative transit time.
+How Flonav Does It: You have the entire system mapped as a graph in OrientDB and you have the avg_transit_time for every edge from your baseline analysis. You can run a graph traversal algorithm (like Dijkstra's, but modified to find the "heaviest" or slowest path) to identify the sequence of locations that has the longest cumulative transit time.
 Value: This is incredibly actionable. You can tell a manager: "Improving the speed of any other conveyor will have minimal impact. But if you can speed up the path from Sorter-2 to Packing-4 by 10%, you will increase your entire facility's output by 8%." This justifies capital investment.
 2. Advanced Analytics & Business Intelligence
 This category answers the question: "How are we performing over time, and where should we focus our strategic efforts?"
 A) Comparative Analysis & Benchmarking
 What It Is: Dashboards that allow managers to compare performance across different contexts.
-How Fiumen Does It: Your ClickHouse data is perfect for this. You can build queries that GROUP BY different dimensions:
+How Flonav Does It: Your ClickHouse data is perfect for this. You can build queries that GROUP BY different dimensions:
 Shift Performance: Compare the throughput, jam frequency, and OEE of the morning shift vs. the night shift.
 Line Performance: If a factory has two identical production lines, you can overlay their KPIs to see which one is performing better and why.
 Time-Based Performance: Compare performance this quarter vs. last quarter to track the impact of improvements.
-Value: Turns Fiumen into a management tool for identifying best practices and underperforming teams or equipment.
+Value: Turns Flonav into a management tool for identifying best practices and underperforming teams or equipment.
 B) Component Reliability Reporting (The "Bad Actor" Report)
 What It Is: A report that ranks every location/component by its negative impact on the system.
-How Fiumen Does It: Every time your anomaly detection engine generates an alert (Transit Time Anomaly, High Turbulence, etc.), you log it. This report is a simple query that COUNTs the number of alerts and groups them by location_id.
+How Flonav Does It: Every time your anomaly detection engine generates an alert (Transit Time Anomaly, High Turbulence, etc.), you log it. This report is a simple query that COUNTs the number of alerts and groups them by location_id.
 Value: This is a maintenance manager's dream. It gives them a data-driven "Top 10" list of the most problematic components in their entire facility. It helps them move from reactive "firefighting" to proactive, targeted maintenance.
 3. Enhanced Simulation & "What-If" Scenarios
 This category answers the question: "How can we test our ideas for improvement without risking downtime?"
 A) "What-If" Scenario Modeling
 What It Is: Allow a user to load a historical day's worth of data, but change the parameters of the system and re-run the simulation to see the outcome.
-How Fiumen Does It: The simulation engine would be modified to accept new parameters. For example, the user could say: "Run yesterday's data again, but what if Conveyor-B was 50% faster?" The simulator would process the same event stream, but when an item hits Conveyor-B, it would use the new, faster speed to calculate its transit time and project the impact on all downstream queues and bottlenecks.
+How Flonav Does It: The simulation engine would be modified to accept new parameters. For example, the user could say: "Run yesterday's data again, but what if Conveyor-B was 50% faster?" The simulator would process the same event stream, but when an item hits Conveyor-B, it would use the new, faster speed to calculate its transit time and project the impact on all downstream queues and bottlenecks.
 Value: This is a virtual commissioning tool. It allows companies to test the ROI of expensive upgrades before they buy them. It's a massive, high-value feature.
 B) Failure Impact Simulation
 What It Is: Allow a user to simulate a failure at a specific point and watch how the system reacts.
-How Fiumen Does It: The user selects a location on the map (e.g., Sorter-1) and clicks "Simulate Failure." In the simulation, any item that reaches Sorter-1 is held there indefinitely. The user can then watch the "shockwave" of jams propagate backward through the system and see how long it takes for the entire line to grind to a halt.
+How Flonav Does It: The user selects a location on the map (e.g., Sorter-1) and clicks "Simulate Failure." In the simulation, any item that reaches Sorter-1 is held there indefinitely. The user can then watch the "shockwave" of jams propagate backward through the system and see how long it takes for the entire line to grind to a halt.
 Value: Excellent for operator training, developing contingency plans, and identifying hidden weaknesses in the system design.
 4. Integration & Extensibility
-This category answers the question: "How does Fiumen fit into our existing data ecosystem?"
+This category answers the question: "How does Flonav fit into our existing data ecosystem?"
 A) Data Export & BI Connector
-What It Is: The ability for customers to get their data out of Fiumen to use in their own tools.
-How Fiumen Does It:
+What It Is: The ability for customers to get their data out of Flonav to use in their own tools.
+How Flonav Does It:
 Provide a simple API endpoint to export aggregated data (e.g., hourly throughput per location) as a CSV or Parquet file.
 For enterprise clients, build a dedicated connector for BI tools like Tableau or Power BI. This connector would essentially be a service that translates requests from the BI tool into ClickHouse SQL queries.
 Value: This makes the IT and data science teams love you. It shows that you are an open platform, not a closed data silo.
 B) External Data Ingestion for Context
-What It Is: The reverse of the above. An API that allows customers to push their own business data into Fiumen to be displayed alongside the flow data.
-How Fiumen Does It: For example, a customer could push their order fulfillment data. When you click on an item in the Fiumen UI, the sidebar could show not only its physical history but also the associated order_id, customer_name, and delivery_deadline.
-Value: This transforms Fiumen from a purely operational tool into a business visibility platform. A manager can now see not just a jam, but that the jam is holding up the order for their most important customer. This contextual information is immensely valuable.
+What It Is: The reverse of the above. An API that allows customers to push their own business data into Flonav to be displayed alongside the flow data.
+How Flonav Does It: For example, a customer could push their order fulfillment data. When you click on an item in the Flonav UI, the sidebar could show not only its physical history but also the associated order_id, customer_name, and delivery_deadline.
+Value: This transforms Flonav from a purely operational tool into a business visibility platform. A manager can now see not just a jam, but that the jam is holding up the order for their most important customer. This contextual information is immensely valuable.
 
 
 

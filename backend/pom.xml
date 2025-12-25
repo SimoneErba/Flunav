@@ -8,11 +8,11 @@
 		<version>3.3.5</version>
 		<relativePath/>
 	</parent>
-	<groupId>com.fiumen</groupId>
+	<groupId>com.flonav</groupId>
 	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>backend</name>
-	<description>Fiumen backend</description>
+	<description>Flonav backend</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -118,7 +118,7 @@
 			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 		<dependency>
-		<groupId>fiumen</groupId>
+		<groupId>flonav</groupId>
 		<artifactId>events</artifactId>
 		<version>1.0.0</version>
 		</dependency>
@@ -149,6 +149,16 @@
 				<configuration>
 					<from>
 						<image>eclipse-temurin:21-jre-alpine</image>
+						<platforms>
+							<platform>
+								<architecture>amd64</architecture>
+								<os>linux</os>
+							</platform>
+							<platform>
+								<architecture>arm64</architecture>
+								<os>linux</os>
+							</platform>
+						</platforms>
 					</from>
 					<to>
 						<image>flumen-backend:latest</image>
