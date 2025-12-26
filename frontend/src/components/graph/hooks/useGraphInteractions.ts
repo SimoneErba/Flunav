@@ -107,7 +107,6 @@ export const useGraphInteractions = (
                 }
             },
             downNode: ({ node, event }) => {
-                // FIX: Reset didMove on node down
                 didMoveRef.current = false;
                 isDraggingRef.current = false;
 
@@ -134,7 +133,6 @@ export const useGraphInteractions = (
                 }
             },
             mousemove: (event) => {
-                // FIX: Mark that we moved
                 if (isDraggingRef.current || isAddingEdgeRef.current) {
                     didMoveRef.current = true;
                 }
@@ -184,7 +182,7 @@ export const useGraphInteractions = (
                 setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, isMainPath: attrs.isMainPath });
             },
             clickNode: ({ node }) => {
-                // FIX: If we dragged, do NOT open the editor
+                // If we dragged, do NOT open the editor
                 if (didMoveRef.current) return;
 
                 if (!isDraggingRef.current && !isAddingEdgeRef.current) {

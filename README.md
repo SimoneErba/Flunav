@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" alt="Flonav Logo" width="350"/>
+  <img src="logo.svg" alt="Flunav Logo" width="350"/>
 </p>
 <p align="center">
   A real-time digital twin engine for tracking and simulating complex logistical systems.
@@ -11,15 +11,15 @@
 >
 > This project is under active development. The backend architecture and core functionalities are largely complete, while the frontend UI is undergoing further refinement.
 
-## What is Flonav?
+## What is Flunav?
 
-Flonav is a backend platform and visualization tool designed to create a **digital twin** of systems with moving assets, such as conveyor-based sorting facilities or production lines. It ingests event data from external control systems (e.g., PLCs), maintains a real-time graph model of the system's state, and provides tools for historical analysis and simulation.
+Flunav is a backend platform and visualization tool designed to create a **digital twin** of systems with moving assets, such as conveyor-based sorting facilities or production lines. It ingests event data from external control systems (e.g., PLCs), maintains a real-time graph model of the system's state, and provides tools for historical analysis and simulation.
 
 The core purpose is to transform discrete sensor data into a continuous, understandable, and actionable view of the entire operation.
 
 <p align="center">
   <!-- A GIF or screenshot of the UI would be effective here -->
-  <img src="https://i.imgur.com/your-demo-gif.gif" alt="Flonav in action"/>
+  <img src="https://i.imgur.com/your-demo-gif.gif" alt="Flunav in action"/>
 </p>
 
 ## Core Concepts
@@ -49,7 +49,7 @@ The core purpose is to transform discrete sensor data into a continuous, underst
 
 ## Architecture
 
-Flonav's architecture is designed for resilience, scalability, and data fidelity by separating concerns and using specialized data stores.
+Flunav's architecture is designed for resilience, scalability, and data fidelity by separating concerns and using specialized data stores.
 
 ### 1. Event Sourcing
 The system's source of truth is not the current state, but an immutable log of all domain events (`ItemCreated`, `PositionChanged`, etc.). This provides a complete audit trail and enables all historical features.
@@ -66,4 +66,4 @@ We use different databases for their specialized strengths:
 - **On-Demand Environments:** Historical simulations do not run against the live production database. When a user requests a historical view, a new, dedicated **in-memory OrientDB database** is created instantly.
 - **"Golden Template" Pattern:** To avoid slow schema creation, new in-memory databases are cloned in milliseconds from a pre-configured, schema-ready in-memory template that is created once at application startup. This ensures that analytical workloads are fully isolated from the live operational system.
 
-### AI Docs [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SimoneErba/Flonav)
+### AI Docs [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SimoneErba/Flunav)

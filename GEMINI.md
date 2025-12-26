@@ -1,4 +1,4 @@
-## Flonav
+## Flunav
 
 this is a tool to visualize in real time objects moving in a graph. it's main goal is to model sorting and conveyor systems.
 The db is OrientdDb, the backend is spring boot and the frontend is react with Sigma.js.

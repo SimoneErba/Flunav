@@ -8,11 +8,11 @@
 		<version>3.3.5</version>
 		<relativePath/>
 	</parent>
-	<groupId>com.flonav</groupId>
+	<groupId>com.flunav</groupId>
 	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>backend</name>
-	<description>Flonav backend</description>
+	<description>Flunav backend</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -118,7 +118,7 @@
 			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 		<dependency>
-		<groupId>flonav</groupId>
+		<groupId>flunav</groupId>
 		<artifactId>events</artifactId>
 		<version>1.0.0</version>
 		</dependency>
