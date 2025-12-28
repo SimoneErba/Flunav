@@ -67,7 +67,7 @@ public class EventProcessor {
             }
             Map<String, Object> resultMap = new HashMap<>();
             try {
-                if (capturedSimulationId != null) {
+                if (capturedSimulationId == null) {
                     clickHouseService.saveEventAsync(event);
                 }
                 resultMap = processEvent(event, shouldBroadcast);

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useMemo } from "react";
 import { SigmaContainer } from "@react-sigma/core";
 import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
@@ -22,7 +22,23 @@ export const DisplayGraph = ({
     simulationId,
     simTime
 }: DisplayGraphProps) => {
-  
+    
+    // 1. MEMOIZE SETTINGS
+    // This ensures the object reference stays the same between renders.
+    // SigmaContainer will see this and say "Oh, settings haven't changed, I can ignore this."
+    const settings = useMemo(() => ({
+        nodeProgramClasses: { square: NodeSquareProgram },
+        enableEdgeEvents: true,
+        autoRescale: true
+    }), []);
+
+    // 2. MEMOIZE STYLE
+    const style = useMemo(() => ({
+        ...sigmaStyle, 
+        backgroundColor: 'transparent', 
+        cursor: 'default' 
+    }), []);
+
   return (
         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
     
@@ -31,12 +47,8 @@ export const DisplayGraph = ({
             </div>
 
             <SigmaContainer
-                style={{ ...sigmaStyle, backgroundColor: 'transparent', cursor: 'default' }}
-                settings={{
-                    nodeProgramClasses: { square: NodeSquareProgram },
-                    enableEdgeEvents: true,
-                    autoRescale: true
-                }}
+                style={style}
+                settings={settings}
             >
                 <GraphThemeController />
                 <GraphEvents 

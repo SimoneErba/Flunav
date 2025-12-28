@@ -4,22 +4,21 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - VITE_API_BASE_URL=http://localhost:${FRONTEND_PORT} 
+        # ⚠️ CRITICAL: In production, this must be the public domain (https://api.flunav.io)
+        # or a relative path ("/api") if Nginx proxies it. Localhost won't work for users.
+        - VITE_API_BASE_URL=/api 
     container_name: flunav_frontend
-    ports:
-      - "${FRONTEND_PORT}:80"
+    # No ports exposed. Nginx will talk to this container on port 80.
     depends_on:
       - backend
     networks:
       - app-network
 
   backend:
-    # Uses the image built locally via 'mvn jib:dockerBuild'
     image: flumen-backend:latest
     pull_policy: never
     container_name: flunav_backend
-    ports:
-      - "${BACKEND_PORT}:8080"
+    # 🔒 SECURED: No ports exposed to host. Nginx proxies to port 8080 internally.
     depends_on:
       orientdb:
         condition: service_healthy
@@ -32,24 +31,15 @@ services:
     environment:
       - SPRING_APPLICATION_NAME=backend
       - SPRING_PROFILES_ACTIVE=docker
-      
-      # --- ORIENTDB CONFIG ---
       - ORIENTDB_URL=remote:orientdb/main
       - ORIENTDB_USERNAME=root
       - ORIENTDB_PASSWORD=${ORIENTDB_ROOT_PASSWORD}
-      
-      # --- REDIS CONFIG ---
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
-      
-      # --- RABBITMQ CONFIG ---
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USER}
       - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASS}
-      
-      # --- CLICKHOUSE CONFIG ---
-      # Note: Internal port is 8123
       - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB}
       - CLICKHOUSE_USERNAME=${CLICKHOUSE_USER}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
@@ -64,8 +54,9 @@ services:
       ORIENTDB_OPTS_MEMORY: "-Xms512m -Xmx512m"
       ORIENTDB_NETWORK_HOST: "0.0.0.0"
     ports:
-      - "${ORIENTDB_BINARY_PORT}:2424"
-      - "${ORIENTDB_HTTP_PORT}:2480"
+      # 🔒 SECURED: Only accessible via SSH Tunnel (localhost)
+      - "127.0.0.1:${ORIENTDB_BINARY_PORT}:2424"
+      - "127.0.0.1:${ORIENTDB_HTTP_PORT}:2480"
     volumes:
       - ./docker/orientdb/entrypoint.sh:/orientdb/entrypoint.sh
       - orientdb-data:/orientdb/databases
@@ -86,8 +77,9 @@ services:
     container_name: flunav_clickhouse
     restart: always
     ports:
-      - "${CLICKHOUSE_HTTP_PORT}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT}:9000"
+      # 🔒 SECURED: Only accessible via SSH Tunnel
+      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT}:8123"
+      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -112,8 +104,9 @@ services:
     container_name: flunav_rabbitmq
     restart: always
     ports:
-      - "${RABBITMQ_AMQP_PORT}:5672"
-      - "${RABBITMQ_UI_PORT}:15672"
+      # 🔒 SECURED: AMQP (5672) removed. Only internal containers can connect.
+      # UI (15672) locked to localhost for SSH Tunneling.
+      - "127.0.0.1:${RABBITMQ_UI_PORT}:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
@@ -132,8 +125,7 @@ services:
     image: redis:7-alpine
     restart: always
     container_name: flunav_redis
-    ports:
-      - "${REDIS_PORT}:6379"
+    # 🔒 SECURED: No ports exposed. Only Backend can talk to Redis.
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -147,7 +139,8 @@ services:
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "${REDIS_UI_PORT}:8081"
+      # 🔒 SECURED: Admin UI locked to localhost
+      - "127.0.0.1:${REDIS_UI_PORT}:8081"
     depends_on:
       - redis
     networks:
@@ -158,6 +151,7 @@ services:
     container_name: flunav-nginx
     restart: always
     ports:
+      # 🌍 PUBLIC: These are the ONLY ports exposed to the internet
       - "80:80"
       - "443:443"
     volumes:
@@ -166,6 +160,9 @@ services:
       - /var/www/certbot:/var/www/certbot
     depends_on:
       - backend
+      - frontend
+    networks:
+      - app-network
 
 networks:
   app-network:

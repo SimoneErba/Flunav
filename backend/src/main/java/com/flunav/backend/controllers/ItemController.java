@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.controllers.LocationController.PropertyUpdateRequest;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.input.ItemInput;
@@ -51,6 +52,7 @@ public class ItemController {
         return item != null ? ResponseEntity.ok(item) : ResponseEntity.notFound().build();
     }
 
+    @BlockInDemo
     @PostMapping()
     public CompletableFuture<ResponseEntity<Map<String, Object>>> createItem(@RequestBody ItemInput item) {
 
@@ -70,6 +72,7 @@ public class ItemController {
                 });
     }
 
+    @BlockInDemo
     @PutMapping("/{id}")
     public CompletableFuture<ResponseEntity<Void>> updateItem(
             @PathVariable String id,
@@ -116,6 +119,7 @@ public class ItemController {
                 });
     }
 
+    @BlockInDemo
     @PutMapping()
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateItemProperties(@PathVariable String id,
             @RequestBody PropertyUpdateRequest model) {
@@ -129,6 +133,7 @@ public class ItemController {
                 });
     }
 
+    @BlockInDemo
     @DeleteMapping("/{id}")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteItem(@PathVariable String id) {
         var event = new ItemDeletedEvent(id);

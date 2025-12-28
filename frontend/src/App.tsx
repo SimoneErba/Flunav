@@ -2,8 +2,7 @@ import './App.css'
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DisplayGraph } from './components/graph/DisplayGraph';
 import { useGraph } from './hooks/useGraph';
-import { SimulationsApi, SimulationStateResponse, SimulationStateResponseStatusEnum } from "./api-client/api";
-import { useWebSocket } from './hooks/useWebSocket';
+import { SimulationStateResponseStatusEnum } from "./api-client/api";
 import { PlaybackControls } from './components/PlaybackControls';
 import { useSimulationClock } from './components/graph/hooks/useSimulationClock';
 
@@ -13,6 +12,7 @@ import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection
 import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
 import { SimulationProvider, useSimulationContext } from './context/simulation.context';
 import { useApi } from './hooks/useApi';
+import toast, { Toaster } from 'react-hot-toast';
 
 // --- INNER COMPONENT (Can use useTheme) ---
 function AppContent() {
@@ -30,7 +30,7 @@ function AppContent() {
   const [isSelectingDate, setIsSelectingDate] = useState(false);
 
   // --- Hooks ---
-  const { graphData, loading: graphLoading, refetchGraphData } = useGraph();
+  const { graphData, loading: graphLoading, refetchGraphData, error: graphError } = useGraph();
   const { connected } = useWebSocketConnection();
   const { subscribeToSimulationStatus } = useWebSocketEvents();
   const { simulationApi } = useApi();
@@ -66,7 +66,7 @@ function AppContent() {
   const handleConfirmRestore = async () => {
     setIsSelectingDate(false);
     if (isRestoring) return;
-    if (!selectedDate) { alert('Invalid date'); return; }
+    if (!selectedDate) { toast.error('Please select a valid date'); return; }
 
     setIsRestoring(true);
     setPlaybackSpeed(1.0);
@@ -80,7 +80,7 @@ function AppContent() {
       const result = await simulationApi.createSimulation({timestamp: selectedDate.toISOString()});
       setActiveSimulation(result.data);
     } catch (error) {
-      alert(`Error: ${error}`);
+      toast.error(`Error: ${error}`);
       setIsRestoring(false);
       setActiveSimulation(null);
     }
@@ -139,7 +139,7 @@ function AppContent() {
             refetchGraphData(simId);
             setIsRestoring(false);
         } else if (update.status === SimulationStateResponseStatusEnum.Failed) {
-            alert(`Simulation failed: ${update.message}`);
+          toast.error(`Simulation failed: ${update.message}`);
             setIsRestoring(false);
         }
     };
@@ -168,7 +168,68 @@ function AppContent() {
 
   const isLoading = graphLoading || isRestoring;
 
-  // --- RENDER WITH THEME ---
+  const handleRetry = () => {
+    toast.promise(
+        refetchGraphData(activeSimulation?.id || null),
+        {
+            loading: 'Attempting to reconnect...',
+            success: 'Connected successfully!',
+            error: 'Connection failed. Backend is still down.',
+        },
+        {
+            style: {
+                borderRadius: '10px',
+                background: '#333',
+                color: '#fff',
+            },
+        }
+    );
+  };
+
+  if (graphError) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '100vh', 
+        backgroundColor: theme.background, 
+        color: theme.uiText 
+      }}>
+        <div style={{ padding: '40px', border: `1px solid ${theme.uiBorder}`, borderRadius: '12px', background: theme.headerBackground, textAlign: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+            <h2 style={{ color: '#dc3545', marginBottom: '10px' }}>Connection Failed</h2>
+            <p style={{ marginBottom: '20px', color: theme.uiText }}>
+                Could not connect to the Backend API.
+            </p>
+            <p style={{ fontSize: '0.8rem', color: 'gray', marginBottom: '20px' }}>
+                {graphError.message || "Network Error"}
+            </p>
+            <button 
+                onClick={handleRetry}
+                style={{ 
+                    padding: '10px 24px', 
+                    background: '#007bff', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    fontWeight: 'bold'
+                }}
+            >
+              Retry Connection ↻
+            </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoading && !graphData) {
+      return null;
+  }
+
+
   return (
     <div style={{ 
         display: 'flex', 
@@ -277,11 +338,11 @@ function AppContent() {
   );
 }
 
-// --- MAIN WRAPPER (Provides Theme) ---
 function App() {
   return (
     <GraphThemeProvider>
       <SimulationProvider>
+        <Toaster position="bottom-center" reverseOrder={false} />
         <AppContent />
       </SimulationProvider>
     </GraphThemeProvider>

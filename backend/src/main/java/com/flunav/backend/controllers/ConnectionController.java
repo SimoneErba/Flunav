@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.utils.ControllerHelper;
@@ -83,6 +84,7 @@ public class ConnectionController {
         return conveyor != null ? ResponseEntity.ok(conveyor) : ResponseEntity.notFound().build();
     }
 
+    @BlockInDemo
     @PostMapping
     @Operation(summary = "Create a new conveyor connection")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> createConveyor(
@@ -119,6 +121,7 @@ public class ConnectionController {
      * Translates generic map updates into specific domain events (Speed, Length,
      * MainPath).
      */
+    @BlockInDemo
     @PutMapping("/{id}")
     @Operation(summary = "Batch update conveyor properties")
     public CompletableFuture<ResponseEntity<Void>> updateConveyor(
@@ -190,6 +193,7 @@ public class ConnectionController {
                 });
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/speed")
     @Operation(summary = "Update conveyor speed")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyorSpeed(
@@ -199,6 +203,7 @@ public class ConnectionController {
                 .thenApply(ResponseEntity::ok);
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/length")
     @Operation(summary = "Update conveyor length")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyorLength(
@@ -208,6 +213,7 @@ public class ConnectionController {
                 .thenApply(ResponseEntity::ok);
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/isMainPath")
     @Operation(summary = "Update if conveyor is part of the main path")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyorIsMainPath(
@@ -219,6 +225,7 @@ public class ConnectionController {
                 .thenApply(ResponseEntity::ok);
     }
 
+    @BlockInDemo
     @DeleteMapping
     @Operation(summary = "Delete a conveyor connection by Source and Target IDs")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteConveyor(

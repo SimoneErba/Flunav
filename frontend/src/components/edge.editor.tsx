@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useTheme, THEMES } from "../context/theme.context"; // Import Context
+import toast from "react-hot-toast";
+import { confirmToast } from "./graph/utils/toastUtils";
 
 export interface EdgeEditorData {
   edgeId: string;
@@ -31,11 +33,15 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
   };
 
   const handleDelete = () => {
-    if (window.confirm(`Delete connection?`)) {
-      onDelete(data.edgeId, data.sourceId, data.targetId);
-      onClose();
-    }
-  };
+    confirmToast(
+        `Delete connection?`,
+        () => {
+            onDelete(data.edgeId, data.sourceId, data.targetId);
+            onClose();
+            toast.success("Edge deleted");
+        }
+    );
+};
 
   // Dynamic Styles based on Theme
   const panelStyle: React.CSSProperties = {

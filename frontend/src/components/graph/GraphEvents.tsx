@@ -18,7 +18,6 @@ interface GraphEventsProps {
 
 export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
-
   // 1. Load Data
   useGraphLoader(initialGraphData, activeItemsRef);
 
@@ -30,7 +29,7 @@ export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEv
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
       lineCoordinates, draggedNodeRef
-  } = useGraphInteractions(adjustItemsForSpeedChange);
+  } = useGraphInteractions(adjustItemsForSpeedChange, simulationId);
 
   // 4. Handle Physics (Animation Loop)
   useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);

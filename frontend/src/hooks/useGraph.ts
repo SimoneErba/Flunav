@@ -47,6 +47,7 @@ export const useGraph = () => {
         } catch (err) {
             console.error("Failed to fetch graph data", err);
             setError(err as Error);
+            throw err;
         } finally {
             setLoading(false);
         }

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useTheme, THEMES } from "../context/theme.context";
+import { confirmToast } from "./graph/utils/toastUtils";
+import toast from "react-hot-toast";
 
 export interface NodeEditorData {
   nodeId: string;
@@ -29,11 +31,14 @@ export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProp
   };
 
   const handleDelete = () => {
-    if (window.confirm(`Delete node "${data.name}"?`)) {
-      onDelete(data.nodeId);
-      onClose();
-    }
-  };
+    confirmToast(
+        `Delete node "${data.name}"?`,
+        () => {
+            onDelete(data.nodeId);
+            onClose();
+        }
+    );
+};
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSubmit();

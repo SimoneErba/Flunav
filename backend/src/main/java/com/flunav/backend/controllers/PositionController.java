@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.models.input.CreateConnection;
 import com.flunav.backend.utils.ControllerHelper;
 
@@ -42,6 +43,7 @@ public class PositionController {
                 });
     }
 
+    @BlockInDemo
     @DeleteMapping("/{itemId}")
     @Operation(summary = "Delete position connections for an item")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteConnections(

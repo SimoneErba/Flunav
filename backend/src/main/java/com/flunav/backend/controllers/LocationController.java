@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.domain.Location;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.services.LocationService;
@@ -66,6 +67,7 @@ public class LocationController {
         return locationService.getLocationById(id);
     }
 
+    @BlockInDemo
     @PostMapping
     public CompletableFuture<ResponseEntity<Map<String, Object>>> createLocation(@RequestBody LocationInput location) {
         var event = new LocationCreatedEvent(
@@ -95,6 +97,7 @@ public class LocationController {
      * @return A CompletableFuture with a ResponseEntity indicating success or
      *         failure.
      */
+    @BlockInDemo
     @PutMapping("/{id}")
     public CompletableFuture<ResponseEntity<Void>> updateLocation(
             @PathVariable String id,
@@ -190,6 +193,7 @@ public class LocationController {
                 });
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/properties")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationProperties(
             @PathVariable String id, @RequestBody PropertyUpdateRequest request) {
@@ -198,6 +202,7 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/speed")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationSpeed(
             @PathVariable String id, @RequestBody SpeedUpdateRequest request) {
@@ -206,6 +211,7 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/length")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationLength(
             @PathVariable String id, @RequestBody LengthUpdateRequest request) {
@@ -214,6 +220,7 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/coordinates")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationCoordinates(
             @PathVariable String id, @RequestBody CoordinatesUpdateRequest request) {
@@ -222,6 +229,7 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/isMainPath")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationIsMainPath(
             @PathVariable String id, @RequestBody IsMainPathUpdateRequest request) {
@@ -231,6 +239,7 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
+    @BlockInDemo
     @PutMapping("/{id}/capacity")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationCapacity(
             @PathVariable String id, @RequestBody CapacityUpdateRequest request) {
@@ -241,6 +250,7 @@ public class LocationController {
 
     // TODO: update type.
 
+    @BlockInDemo
     @DeleteMapping("/{id}")
     public CompletableFuture<ResponseEntity<Void>> deleteLocation(@PathVariable String id) {
         var event = new LocationDeletedEvent(id);
