@@ -9,15 +9,14 @@ import {
     Configuration,
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
-import { axiosInstance, CLIENT_ID } from '../api/config';
+import { baseURL, CLIENT_ID } from '../api/config';
 
 export const useApi = () => {
     const { activeSimulation } = useSimulationContext();
 
     const apiConfig = useMemo(() => {
-        // clone headers to avoid mutation bugs
         const headers: Record<string, string> = {
-            ...axiosInstance.defaults.headers.common,
+            'X-Sender-ID': CLIENT_ID
         };
 
         if (activeSimulation?.id) {
@@ -25,7 +24,7 @@ export const useApi = () => {
         }
 
         return new Configuration({
-            basePath: axiosInstance.defaults.baseURL,
+            basePath: baseURL,
             baseOptions: {
                 headers,
             },

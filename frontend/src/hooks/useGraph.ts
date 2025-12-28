@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
+import { baseURL } from '../api/config';
 
 export const useGraph = () => {
     const { graphApi, clientId } = useApi(); // Default API from context
@@ -23,7 +24,7 @@ export const useGraph = () => {
             // If an override is explicitly passed (null or string), create a temp config
             if (simulationIdOverride !== undefined) {
                 const config = new Configuration({
-                    basePath: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+                    basePath: baseURL,
                     baseOptions: {
                         headers: {
                             'X-Sender-ID': clientId,
