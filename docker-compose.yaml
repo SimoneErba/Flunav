@@ -1,12 +1,6 @@
 services:
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        # ⚠️ CRITICAL: In production, this must be the public domain (https://api.flunav.io)
-        # or a relative path ("/api") if Nginx proxies it. Localhost won't work for users.
-        - VITE_API_BASE_URL=/api 
+    image: ghcr.io/simoneerba/flumen-frontend:latest
     container_name: flunav_frontend
     # No ports exposed. Nginx will talk to this container on port 80.
     depends_on:
@@ -15,6 +9,7 @@ services:
       - app-network
 
   backend:
+    # Uses the image built locally via 'mvn jib:dockerBuild'
     image: flumen-backend:latest
     pull_policy: never
     container_name: flunav_backend
@@ -58,7 +53,7 @@ services:
       - "127.0.0.1:${ORIENTDB_BINARY_PORT}:2424"
       - "127.0.0.1:${ORIENTDB_HTTP_PORT}:2480"
     volumes:
-      - ./docker/orientdb/entrypoint.sh:/orientdb/entrypoint.sh
+      - ./docker/orientdb/init:/docker-entrypoint-initdb.d
       - orientdb-data:/orientdb/databases
       - orientdb-config:/orientdb/config
     healthcheck:
@@ -67,7 +62,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    entrypoint: ["/orientdb/entrypoint.sh"]
     restart: always
     networks:
       - app-network
@@ -156,13 +150,21 @@ services:
       - "443:443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - /var/www/certbot:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
     depends_on:
       - backend
       - frontend
     networks:
       - app-network
+
+  certbot:
+    image: certbot/certbot
+    container_name: flunav_certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    command: renew --quiet --wait 30
 
 networks:
   app-network:
@@ -174,3 +176,5 @@ volumes:
   clickhouse-data:
   rabbitmq_data:
   redis_data:
+  certbot-etc:
+  certbot-www:

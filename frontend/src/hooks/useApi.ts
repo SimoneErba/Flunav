@@ -1,33 +1,37 @@
 import { useMemo } from 'react';
-import { 
-    GraphApi, ItemControllerApi, LocationControllerApi, 
-    PositionsApi, SimulationsApi, ConveyorsApi, Configuration 
+import {
+    GraphApi,
+    ItemControllerApi,
+    LocationControllerApi,
+    PositionsApi,
+    SimulationsApi,
+    ConveyorsApi,
+    Configuration,
 } from '../api-client';
-import { CLIENT_ID } from '../api/config';
-import { useSimulationContext } from '../context/simulation.context'; // <--- Import
+import { useSimulationContext } from '../context/simulation.context';
+import { axiosInstance, CLIENT_ID } from '../api/config';
 
 export const useApi = () => {
-    // 1. Get the active simulation ID
     const { activeSimulation } = useSimulationContext();
 
-    // 2. Re-create config whenever simulationId changes
     const apiConfig = useMemo(() => {
+        // clone headers to avoid mutation bugs
         const headers: Record<string, string> = {
-            'X-Sender-ID': CLIENT_ID
+            ...axiosInstance.defaults.headers.common,
         };
 
-        // Inject Simulation ID if active
-        if (activeSimulation) {
-            headers['X-Simulation-ID'] = activeSimulation.id as string;
+        if (activeSimulation?.id) {
+            headers['X-Simulation-ID'] = activeSimulation.id;
         }
 
         return new Configuration({
-            basePath: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
-            baseOptions: { headers }
+            basePath: axiosInstance.defaults.baseURL,
+            baseOptions: {
+                headers,
+            },
         });
-    }, [activeSimulation?.id]); // Re-run when ID changes
+    }, [activeSimulation?.id]);
 
-    // 3. Instantiate APIs
     const graphApi = useMemo(() => new GraphApi(apiConfig), [apiConfig]);
     const itemApi = useMemo(() => new ItemControllerApi(apiConfig), [apiConfig]);
     const locationApi = useMemo(() => new LocationControllerApi(apiConfig), [apiConfig]);
@@ -35,7 +39,13 @@ export const useApi = () => {
     const simulationApi = useMemo(() => new SimulationsApi(apiConfig), [apiConfig]);
     const conveyorsApi = useMemo(() => new ConveyorsApi(apiConfig), [apiConfig]);
 
-    return { 
-        graphApi, itemApi, locationApi, positionsApi, simulationApi, conveyorsApi, clientId: CLIENT_ID 
+    return {
+        graphApi,
+        itemApi,
+        locationApi,
+        positionsApi,
+        simulationApi,
+        conveyorsApi,
+        clientId: CLIENT_ID,
     };
 };
