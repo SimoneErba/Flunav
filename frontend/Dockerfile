@@ -9,6 +9,8 @@ WORKDIR /app
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+ARG VITE_DEMO_MODE
+ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
 # Copia i file di definizione delle dipendenze.
 # pnpm usa 'pnpm-lock.yaml' invece di 'package-lock.json'.
 COPY package.json pnpm-lock.yaml ./
