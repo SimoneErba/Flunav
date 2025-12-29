@@ -23,7 +23,7 @@ import java.util.logging.Logger;
 
 public class App {
 
-    private static final String BASE_URL = "http://localhost:8080/api";
+    private static final String BASE_URL = System.getenv().getOrDefault("BASE_URL", "http://localhost:8080/api");
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     public static final Logger logger = Logger.getLogger(App.class.getName());
 
@@ -32,7 +32,7 @@ public class App {
     private static final String ACTION = System.getenv().getOrDefault("SIMULATION_ACTION", "setup"); // "setup" or
                                                                                                      // "destroy"
 
-    private static final String RABBIT_HOST = "localhost";
+    private static final String RABBIT_HOST = System.getenv().getOrDefault("RABBIT_HOST", "localhost");
     private static final String RABBIT_QUEUE = "item-events-queue";
     private static final String RABBIT_EXCHANGE = "item-events-exchange";
 

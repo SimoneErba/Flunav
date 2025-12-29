@@ -165,6 +165,23 @@ services:
       - certbot-etc:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     command: renew --quiet --wait 30
+  
+  simulator:
+    image: ghcr.io/simoneerba/flunav-simulator:latest
+    container_name: flunav_simulator
+    restart: on-failure 
+    environment:
+      - SIMULATION_MODE=${SIMULATOR_MODE}
+      - SIMULATION_ACTION=${SIMULATOR_ACTION}
+      - BASE_URL=http://backend:8080/api
+      - RABBIT_HOST=rabbitmq
+    command: ["${SIMULATOR_TYPE}"]   
+    networks:
+      - flumen-net
+    
+    depends_on:
+      - backend
+      - rabbitmq
 
 networks:
   app-network:
