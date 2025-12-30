@@ -72,8 +72,6 @@ public class GraphService {
                     continue;
 
                 Instant entryTime = Instant.ofEpochMilli(tsLong);
-
-                // Full Path (Read-Only)
                 List<String> path = (List<String>) rawItem.get("path");
 
                 // --- PATHFINDING (If missing) ---
@@ -87,10 +85,10 @@ public class GraphService {
 
                     if (startNode != null) {
                         path = pathfindingService.calculateShortestPath(startNode, type, destId);
-                        // We don't cache here anymore, we just use it for this calculation
                     }
                 }
 
+                // Calculate state. Returns NULL if the item has reached a CHUTE.
                 ItemResponse simulatedItem = calculateCurrentState(
                         id, positionId, type, entryTime, path, topology, now, accDist);
 
@@ -118,22 +116,23 @@ public class GraphService {
         if (startType == PositionType.CONVEYOR && topo.conveyorMap.containsKey(startId)) {
             // CASE A: Started on an Edge
             currentEdge = topo.conveyorMap.get(startId);
-            // We are moving towards this node
             lastNodeId = currentEdge.getTargetId();
         } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
             // CASE B: Started on a Node
-            lastNodeId = startId;
+            // Check immediately if we started on a CHUTE
+            LocationResponse startNode = topo.nodeMap.get(startId);
+            if (startNode != null && startNode.getType() == LocationType.CHUTE) {
+                return null; // Item is already discharged
+            }
 
-            // Find outgoing edge from this node
-            // We pass 'startId' as the current node. findNextEdge will look it up in the
-            // path list.
+            lastNodeId = startId;
             currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
 
             if (currentEdge == null) {
                 return createItemResponse(itemId, null, startId, lastUpdate, 0.0);
             }
         } else {
-            return null;
+            return null; // Invalid start position
         }
 
         // --- 2. TRAVERSE GRAPH ---
@@ -163,20 +162,33 @@ public class GraphService {
 
             // We have arrived at the target node
             String arrivalNodeId = currentEdge.getTargetId();
-            lastNodeId = arrivalNodeId;
 
-            // Find next edge starting from here
-            // The logic inside findNextEdge handles the path lookup
+            // --- CRITICAL CHANGE: CHUTE CHECK ---
+            LocationResponse arrivalNode = topo.nodeMap.get(arrivalNodeId);
+            if (arrivalNode != null && arrivalNode.getType() == LocationType.CHUTE) {
+                // The item has arrived at a discharge point.
+                // We return null so it is NOT added to the active list.
+                // The frontend will simply not receive this item.
+                return null;
+            }
+            // ------------------------------------
+
+            lastNodeId = arrivalNodeId;
             currentEdge = findNextEdge(arrivalNodeId, topo.outgoingEdgesMap, path);
         }
 
-        // 3. End of Line
+        // 3. End of Line (Not a chute, but no more edges)
+        // Check one last time if the final standing position is a chute
+        LocationResponse endNode = topo.nodeMap.get(lastNodeId);
+        if (endNode != null && endNode.getType() == LocationType.CHUTE) {
+            return null;
+        }
+
         return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
     }
 
     /**
-     * Finds the next edge from a node.
-     * Uses the Full Path List to decide direction.
+     * Finds the next edge from a node. Uses the Full Path List to decide direction.
      */
     private ConveyorResponse findNextEdge(
             String currentNodeId,
@@ -189,18 +201,12 @@ public class GraphService {
 
         // 1. Path Priority
         if (path != null && !path.isEmpty()) {
-            // Find where we are in the path list
             int currentIndex = path.indexOf(currentNodeId);
-
-            // If we are in the path AND there is a next node
             if (currentIndex >= 0 && currentIndex < path.size() - 1) {
                 String nextTargetNodeId = path.get(currentIndex + 1);
-
-                // Find the edge that connects Current -> Next
                 Optional<ConveyorResponse> match = edges.stream()
                         .filter(e -> e.getTargetId().equals(nextTargetNodeId))
                         .findFirst();
-
                 if (match.isPresent())
                     return match.get();
             }
@@ -216,9 +222,6 @@ public class GraphService {
         // 3. Fallback
         return edges.size() > 1 ? null : edges.get(0);
     }
-
-    // ... (Rest of the file: fetchTopology, createItemResponse, Mappers, Topology
-    // record) ...
 
     private Topology fetchTopology() {
         Map<String, LocationResponse> nodeMap = new HashMap<>();

@@ -130,7 +130,7 @@ public class EventProcessor {
                 case ItemPositionChangedEvent e -> {
                     var positionType = locationService.getPositionType(e.getLocationId());
                     itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
-                            e.getProgress());
+                            e.getProgress(), null);
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
@@ -140,7 +140,7 @@ public class EventProcessor {
                 }
 
                 case ItemPositionDeletedEvent e -> {
-                    itemService.updateItemPosition(e.getEntityId(), null, null, Instant.now(), null);
+                    itemService.updateItemPosition(e.getEntityId(), null, null, Instant.now(), null, null);
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionLost(e.getEntityId(), e.getTimestamp());
                     }

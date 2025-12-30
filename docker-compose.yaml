@@ -1,6 +1,6 @@
 services:
   frontend:
-    image: ghcr.io/simoneerba/flumen-frontend:latest
+    image: ghcr.io/simoneerba/flunav-frontend:v0.1.4
     container_name: flunav_frontend
     # No ports exposed. Nginx will talk to this container on port 80.
     depends_on:
@@ -10,8 +10,7 @@ services:
 
   backend:
     # Uses the image built locally via 'mvn jib:dockerBuild'
-    image: flumen-backend:latest
-    pull_policy: never
+    image: ghcr.io/simoneerba/flunav-backend:v0.1.4
     container_name: flunav_backend
     # 🔒 SECURED: No ports exposed to host. Nginx proxies to port 8080 internally.
     depends_on:
@@ -177,7 +176,7 @@ services:
       - RABBIT_HOST=rabbitmq
     command: ["${SIMULATOR_TYPE}"]   
     networks:
-      - flumen-net
+      - app-network
     
     depends_on:
       - backend

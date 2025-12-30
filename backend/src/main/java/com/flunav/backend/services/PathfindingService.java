@@ -80,8 +80,7 @@ public class PathfindingService {
                     return Collections.emptyList();
                 }
 
-                // 4. Convert Node Path to Edge Path
-                return pathVertices;
+                return new ArrayList<>(pathVertices);
             }
         } catch (Exception e) {
             logger.error("Error calculating shortest path from {} ({}) to {}", sourceId, type, destinationNodeId, e);

@@ -29,14 +29,13 @@ export const useGraphAnimation = (
                 const getNextFromPath = (currentNodeId: string) => {
                     if (!item.path) return null;
                     const idx = item.path.indexOf(currentNodeId);
-                    // If found and there is a next node
                     if (idx !== -1 && idx < item.path.length - 1) {
                         return item.path[idx + 1];
                     }
                     return null;
                 };
 
-                // CASE 1: Item on Conveyor
+                // CASE 1: Item on Conveyor (Moving)
                 if (item.currentEdgeId) {
                     let edgeKey: string | undefined;
                     let edgeAttrs: any;
@@ -58,19 +57,30 @@ export const useGraphAnimation = (
                         if (timeElapsed < 0) {
                             graph.setNodeAttribute(itemId, "hidden", true);
                         } else if (timeElapsed >= totalDuration) {
-                            // --- PREDICTION LOGIC ---
+                            // --- ARRIVAL LOGIC ---
+                            
+                            // 1. CHECK FOR CHUTE (Discharge)
+                            // If the destination node is a CHUTE, remove the item entirely.
+                            if (targetNode.locationType === "CHUTE") {
+                                graph.dropNode(itemId);
+                                activeItemsRef.current.delete(itemId);
+                                needsRefresh = true;
+                                return;
+                            }
+
+                            // 2. PREDICTION LOGIC
                             const overflow = timeElapsed - totalDuration;
                             
-                            // 1. We are at 'targetId'. Find next node in path relative to 'targetId'
+                            // Find next node in path relative to 'targetId'
                             const nextTargetNodeId = getNextFromPath(targetId);
                             
-                            // 2. Find best edge
+                            // Find best edge
                             const nextEdgeKey = findNextEdge(targetId, graph, nextTargetNodeId);
 
                             if (nextEdgeKey) {
                                 const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
                                 
-                                // 3. Create new item state
+                                // Create new item state
                                 const newItem = { 
                                     ...item, 
                                     currentEdgeId: nextEdgeAttrs.id, 
@@ -101,12 +111,9 @@ export const useGraphAnimation = (
                         }
                     }
                 } 
-                // CASE 2: Item on Location
+                // CASE 2: Item on Location (Stationary)
                 else if (item.locationId) {
-                    // 1. We are at 'locationId'. Find next node in path.
                     const nextTargetNodeId = getNextFromPath(item.locationId);
-
-                    // 2. Check for outgoing edge
                     const nextEdgeKey = findNextEdge(item.locationId, graph, nextTargetNodeId);
                     
                     if (nextEdgeKey) {

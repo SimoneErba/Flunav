@@ -12,7 +12,6 @@ export const useGraphLoader = (
 
     useEffect(() => {
         const graph = new MultiDirectedGraph();
-        console.log("Building graph. Snapshot Time:", initialGraphData.timestamp);
 
         // 1. Locations
         initialGraphData?.locations?.forEach((loc) => {
@@ -24,7 +23,8 @@ export const useGraphLoader = (
                 color: "#69b3a2", // Default color (will be overwritten by ThemeController)
                 type: "circle",
                 id: loc.id, 
-                capacity: loc.capacity
+                capacity: loc.capacity,
+                locationType: loc.type
             });
         });
 

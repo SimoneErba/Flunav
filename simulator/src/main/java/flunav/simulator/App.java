@@ -116,7 +116,8 @@ public class App {
             logger.info("--- Setting up a line of " + NUM_LOCATIONS + " locations ---");
             for (int i = 0; i < NUM_LOCATIONS; i++) {
                 String locationName = "LineLoc-" + i;
-                createLocation(locationName, 0.0, i * 15.0);
+                createLocation(locationName, 0.0, i * 15.0,
+                        i == NUM_LOCATIONS ? LocationType.CHUTE : LocationType.JUNCTION);
                 locations.add(locationName);
             }
 
@@ -191,18 +192,18 @@ public class App {
                 double angle = 2 * Math.PI * i / NUM_MAIN_LOCATIONS;
                 double lat = LAYOUT_RADIUS * Math.sin(angle);
                 double lon = LAYOUT_RADIUS * Math.cos(angle);
-                createLocation(locName, lat, lon);
+                createLocation(locName, lat, lon, LocationType.JUNCTION);
                 mainLoopLocations.add(locName);
             }
 
             // 2. Entrance Nodes
             for (int i = 0; i < NUM_ENTRANCES; i++) {
-                createLocation("Entrance-" + i, 0.0, -150 - (i * 20.0));
+                createLocation("Entrance-" + i, 0.0, -150 - (i * 20.0), LocationType.JUNCTION);
             }
 
             // 3. Exit Nodes
             for (int i = 0; i < NUM_EXITS; i++) {
-                createLocation("Exit-" + i, 0.0, 150 + (i * 20.0));
+                createLocation("Exit-" + i, 0.0, 150 + (i * 20.0), LocationType.CHUTE);
             }
 
             logger.info("Waiting for nodes to persist...");
@@ -281,11 +282,11 @@ public class App {
             logger.info("--- Setting up Sorting Hub Simulation ---");
 
             // 1. Create Nodes
-            createLocation("Entry", 0, -20);
-            createLocation("Hub", 0, 0);
-            createLocation("Exit_A", 20, 20); // Top Right
-            createLocation("Exit_B", 0, 20); // Middle Right
-            createLocation("Exit_Default", -20, 20); // Bottom Right
+            createLocation("Entry", 0, -20, LocationType.JUNCTION);
+            createLocation("Hub", 0, 0, LocationType.JUNCTION);
+            createLocation("Exit_A", 20, 20, LocationType.CHUTE); // Top Right
+            createLocation("Exit_B", 0, 20, LocationType.CHUTE); // Middle Right
+            createLocation("Exit_Default", -20, 20, LocationType.CHUTE); // Bottom Right
 
             logger.info("Waiting for nodes to persist...");
             Thread.sleep(1000);
@@ -454,9 +455,9 @@ public class App {
     }
 
     // --- Creation Helpers ---
-    private static void createLocation(String id, double lat, double lon) throws Exception {
+    private static void createLocation(String id, double lat, double lon, LocationType type) throws Exception {
         sendEvent(new LocationCreatedEvent(
-                id, id, true, lat, lon, LocationType.JUNCTION, 0, new HashMap<>()), "POST");
+                id, id, true, lat, lon, type, 0, new HashMap<>()), "POST");
     }
 
     private static void createConveyor(String from, String to, double length, double speed, boolean isMainPath)

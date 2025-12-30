@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -66,7 +67,7 @@ public class LiveItemRepository {
      * Updates position with support for mid-conveyor injection.
      */
     public void updatePosition(String itemId, String positionId, PositionType type, Instant entryTime,
-            double offsetMeters) {
+            double offsetMeters, List<String> path) {
         String itemKey = getNamespacedKey("item:" + itemId);
 
         Map<String, String> updates = new HashMap<>();
@@ -74,6 +75,13 @@ public class LiveItemRepository {
         updates.put("ty", type.name());
         updates.put("t", String.valueOf(entryTime.toEpochMilli()));
         updates.put("ad", String.valueOf(offsetMeters));
+        if (path != null) {
+            try {
+                updates.put("p", objectMapper.writeValueAsString(path));
+            } catch (JsonProcessingException e) {
+                logger.warn("Path invalid: {}", path);
+            }
+        }
 
         redis.opsForHash().putAll(itemKey, updates);
     }
@@ -150,6 +158,24 @@ public class LiveItemRepository {
                 String distStr = hash.get("ad");
                 itemData.put("accumulatedDistance", distStr != null ? Double.parseDouble(distStr) : 0.0);
 
+                String pathStr = hash.get("p");
+
+                // 2. Deserialize it
+                List<String> pathList;
+                if (pathStr != null && !pathStr.isEmpty()) {
+                    try {
+                        pathList = objectMapper.readValue(pathStr, new TypeReference<List<String>>() {
+                        });
+                    } catch (Exception e) {
+                        logger.warn("Failed to parse path pathStr", e);
+                        pathList = new ArrayList<>();
+                    }
+                } else {
+                    pathList = new ArrayList<>();
+                }
+
+                itemData.put("path", pathList);
+
                 result.add(itemData);
             }
         }
@@ -176,6 +202,8 @@ public class LiveItemRepository {
         }
     }
 
+    // if we want to cache the paths to avoid re running djikstra. but we need to
+    // invalidate this every time a location changes, very messy
     public List<String> getCachedPath(String sourceId, String targetId) {
         String baseKey = "path_cache:" + sourceId + ":" + targetId;
         String key = getNamespacedKey(baseKey);
