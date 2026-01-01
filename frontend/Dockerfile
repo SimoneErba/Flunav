@@ -11,6 +11,9 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 ARG VITE_DEMO_MODE
 ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
+
+ARG VITE_PUBLIC_POSTHOG_KEY
+ENV VITE_PUBLIC_POSTHOG_KEY=$VITE_PUBLIC_POSTHOG_KEY
 # Copia i file di definizione delle dipendenze.
 # pnpm usa 'pnpm-lock.yaml' invece di 'package-lock.json'.
 COPY package.json pnpm-lock.yaml ./

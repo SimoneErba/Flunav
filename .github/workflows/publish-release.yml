@@ -137,3 +137,4 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=/
             VITE_DEMO_MODE=true
+            VITE_PUBLIC_POSTHOG_KEY=phc_Cke8VNUGFWiYGJePxTwI4GcwUZqDN03mDI2mqDgZjtC
