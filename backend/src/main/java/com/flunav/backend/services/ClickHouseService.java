@@ -15,6 +15,7 @@ import flunav.events.UnknownEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PreDestroy;
@@ -31,7 +32,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @Service
 public class ClickHouseService {
@@ -41,6 +44,8 @@ public class ClickHouseService {
     private final ObjectMapper objectMapper;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
             .withZone(ZoneOffset.UTC);
+    private final BlockingQueue<DomainEvent> eventQueue = new LinkedBlockingQueue<>();
+    private static final int BATCH_SIZE = 1000;
 
     public ClickHouseService(
             @Value("${clickhouse.url}") String clickhouseUrl,
@@ -63,51 +68,67 @@ public class ClickHouseService {
 
     @PreDestroy
     public void cleanup() {
+        flushEvents();
         if (client != null) {
             client.close();
         }
     }
 
-    public void saveEvent(DomainEvent event) {
-        try {
-            Map<String, Object> clickHouseRow = new HashMap<>();
-            Instant processedTimestamp = Instant.now();
-            String formattedEventTimestamp = CLICKHOUSE_FORMATTER.format(event.getTimestamp());
-            String formattedProcessedTimestamp = CLICKHOUSE_FORMATTER.format(processedTimestamp);
+    public void saveEventAsync(DomainEvent event) {
+        eventQueue.offer(event);
 
-            clickHouseRow.put("event_type", event.getEventType());
-            clickHouseRow.put("event_id", event.getEventId());
-            clickHouseRow.put("data", event);
-            clickHouseRow.put("timestamp_received", formattedEventTimestamp);
-            clickHouseRow.put("timestamp_processed", formattedProcessedTimestamp);
-
-            if (event instanceof EntityEvent) {
-                EntityEvent entityEvent = (EntityEvent) event;
-                clickHouseRow.put("entity_id", entityEvent.getEntityId());
-            } else {
-                clickHouseRow.put("entity_id", null);
-            }
-
-            String finalJson = objectMapper.writeValueAsString(clickHouseRow);
-
-            try (var inputStream = new ByteArrayInputStream(finalJson.getBytes(StandardCharsets.UTF_8))) {
-                client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow);
-            }
-
-            logger.info("Event saved: {}", event.getEventId());
-
-        } catch (Exception e) {
-            logger.error("Error saving event {} to ClickHouse", event.getEventId(), e);
-            throw new RuntimeException("Save failed", e);
+        if (eventQueue.size() >= BATCH_SIZE) {
+            flushEvents();
         }
     }
 
-    public void saveEventAsync(DomainEvent event) {
-        CompletableFuture.runAsync(() -> saveEvent(event))
-                .exceptionally(ex -> {
-                    logger.error("Async error saving event {}", event.getEventId(), ex);
-                    return null;
-                });
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushEvents() {
+        if (eventQueue.isEmpty()) {
+            return;
+        }
+
+        List<DomainEvent> batch = new ArrayList<>();
+        // Drain the queue into a local list to unblock the queue for new incoming
+        // events
+        eventQueue.drainTo(batch, BATCH_SIZE);
+
+        if (batch.isEmpty())
+            return;
+
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+
+            for (DomainEvent event : batch) {
+                Map<String, Object> clickHouseRow = new HashMap<>();
+                Instant processedTimestamp = Instant.now();
+
+                clickHouseRow.put("event_type", event.getEventType());
+                clickHouseRow.put("event_id", event.getEventId());
+                clickHouseRow.put("data", event);
+                clickHouseRow.put("timestamp_received", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
+                clickHouseRow.put("timestamp_processed", CLICKHOUSE_FORMATTER.format(processedTimestamp));
+
+                if (event instanceof EntityEvent) {
+                    clickHouseRow.put("entity_id", ((EntityEvent) event).getEntityId());
+                } else {
+                    clickHouseRow.put("entity_id", null);
+                }
+
+                // Append JSON line
+                jsonBatch.append(objectMapper.writeValueAsString(clickHouseRow)).append("\n");
+            }
+
+            // Perform a SINGLE insert for the whole batch
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+
+            logger.info("Flushed {} events to ClickHouse", batch.size());
+
+        } catch (Exception e) {
+            logger.error("Error flushing batch to ClickHouse. Events might be lost!", e);
+        }
     }
 
     /**

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -68,13 +69,17 @@ public class LiveItemRepository {
      */
     public void updatePosition(String itemId, String positionId, PositionType type, Instant entryTime,
             double offsetMeters, List<String> path) {
+
+        // 1. Get Keys (Namespaced for Simulation support)
         String itemKey = getNamespacedKey("item:" + itemId);
+        String activeSetKey = getNamespacedKey("active_items");
 
         Map<String, String> updates = new HashMap<>();
         updates.put("e", positionId);
         updates.put("ty", type.name());
         updates.put("t", String.valueOf(entryTime.toEpochMilli()));
         updates.put("ad", String.valueOf(offsetMeters));
+
         if (path != null) {
             try {
                 updates.put("p", objectMapper.writeValueAsString(path));
@@ -83,7 +88,27 @@ public class LiveItemRepository {
             }
         }
 
+        // If it exists, it updates. If not, it creates
         redis.opsForHash().putAll(itemKey, updates);
+
+        // 3. Refresh Expiration (Keep it alive)
+        redis.expire(itemKey, Duration.ofHours(1));
+
+        redis.opsForSet().add(activeSetKey, itemId);
+    }
+
+    public void deleteItems(List<String> itemIds) {
+        if (itemIds == null || itemIds.isEmpty())
+            return;
+
+        String activeSetKey = getNamespacedKey("active_items");
+        List<String> keys = itemIds.stream()
+                .map(id -> getNamespacedKey("item:" + id))
+                .toList();
+
+        redis.delete(keys);
+
+        redis.opsForSet().remove(activeSetKey, itemIds.toArray());
     }
 
     public void checkpointPhysics(String itemId, Instant timestamp, double currentDistance) {

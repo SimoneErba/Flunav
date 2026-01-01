@@ -55,10 +55,11 @@ public class GraphService {
     private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now) {
         List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
         List<ItemResponse> activeItems = new ArrayList<>();
+        List<String> itemsToRemove = new ArrayList<>();
 
         for (Map<String, Object> rawItem : liveRawItems) {
+            String id = (String) rawItem.get("id");
             try {
-                String id = (String) rawItem.get("id");
                 String positionId = (String) rawItem.get("positionId");
                 PositionType type = (PositionType) rawItem.get("positionType");
                 if (type == null)
@@ -95,10 +96,18 @@ public class GraphService {
                 if (simulatedItem != null) {
                     simulatedItem.setDestinationId(destId);
                     activeItems.add(simulatedItem);
+                } else {
+                    itemsToRemove.add(id);
                 }
             } catch (Exception e) {
                 logger.warn("Failed to process live item state for item", e);
+                itemsToRemove.add(id);
             }
+        }
+
+        if (!itemsToRemove.isEmpty()) {
+            logger.info("Lazy Cleanup: Removing {} finished items from Redis", itemsToRemove.size());
+            redisRepository.deleteItems(itemsToRemove);
         }
         return activeItems;
     }

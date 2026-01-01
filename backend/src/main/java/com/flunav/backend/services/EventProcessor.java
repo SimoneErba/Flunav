@@ -10,6 +10,8 @@ import com.orientechnologies.orient.core.exception.OConcurrentModificationExcept
 
 import flunav.context.UserContextHolder;
 import flunav.events.*;
+import flunav.types.LocationType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -128,13 +130,27 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
+                    var location = locationService.getLocationById(e.getLocationId());
                     var positionType = locationService.getPositionType(e.getLocationId());
-                    itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
-                            e.getProgress(), null);
 
-                    if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
-                                positionType, e.getProgress());
+                    if (location.getType() == LocationType.CHUTE) {
+                        liveItemRepository.deleteItem(e.getEntityId());
+
+                        // Tell frontend to remove it visually
+                        if (shouldBroadcast) {
+                            webSocketService.broadcastItemDeleted(e.getEntityId(), e.getTimestamp());
+                        }
+                    } else {
+
+                        itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType,
+                                e.getTimestamp(),
+                                e.getProgress(), null);
+
+                        if (shouldBroadcast) {
+                            webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(),
+                                    e.getTimestamp(),
+                                    positionType, e.getProgress());
+                        }
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
