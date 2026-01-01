@@ -47,7 +47,7 @@ public class LiveItemRepository {
     public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime, String destId,
             String name) {
         String itemKey = getNamespacedKey("item:" + itemId);
-        String setKey = getNamespacedKey("sys:active_items");
+        String setKey = getNamespacedKey("active_items");
 
         Map<String, String> data = new HashMap<>();
         data.put("e", positionId); // 'e' now stores positionId (Location or Conveyor ID)
@@ -126,7 +126,7 @@ public class LiveItemRepository {
 
     public void deleteItem(String itemId) {
         String itemKey = getNamespacedKey("item:" + itemId);
-        String setKey = getNamespacedKey("sys:active_items");
+        String setKey = getNamespacedKey("active_items");
 
         redis.delete(itemKey);
         redis.opsForSet().remove(setKey, itemId);
@@ -139,76 +139,123 @@ public class LiveItemRepository {
         return redis.<String, String>opsForHash().entries(itemKey);
     }
 
+    /**
+     * Retrieves all active items efficiently using Redis Pipelining.
+     * This reduces network round-trips from N to 1.
+     */
     public List<Map<String, Object>> getAllActiveItems() {
-        String setKey = getNamespacedKey("sys:active_items");
-
+        // Get the Index (The Set of IDs)
+        String setKey = getNamespacedKey("active_items");
         Set<String> activeIds = redis.opsForSet().members(setKey);
-        if (activeIds == null || activeIds.isEmpty())
+
+        if (activeIds == null || activeIds.isEmpty()) {
             return Collections.emptyList();
+        }
 
-        List<Map<String, Object>> result = new ArrayList<>();
+        // Convert to List to ensure the order matches the pipeline results
+        List<String> idList = new ArrayList<>(activeIds);
 
-        for (String id : activeIds) {
-            String itemKey = getNamespacedKey("item:" + id);
-            Map<String, String> hash = redis.<String, String>opsForHash().entries(itemKey);
+        // Fetch all Hashes in ONE Network Call
+        // We use SessionCallback to ensure we use the StringRedisTemplate's serializers
+        List<Object> pipelineResults = redis
+                .executePipelined(new org.springframework.data.redis.core.SessionCallback<Object>() {
+                    @Override
+                    public Object execute(org.springframework.data.redis.core.RedisOperations operations)
+                            throws org.springframework.dao.DataAccessException {
+                        for (String id : idList) {
+                            String itemKey = getNamespacedKey("item:" + id);
+                            // Queue the HGETALL command
+                            operations.opsForHash().entries(itemKey);
+                        }
+                        return null; // Must return null in pipeline
+                    }
+                });
 
-            if (!hash.isEmpty()) {
+        // 3. Process results in Memory
+        List<Map<String, Object>> resultList = new ArrayList<>();
+
+        for (int i = 0; i < idList.size(); i++) {
+            String itemId = idList.get(i);
+            Object rawResponse = pipelineResults.get(i);
+
+            // Check if the result is valid
+            if (rawResponse instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, String> hash = (Map<String, String>) rawResponse;
+
+                // SELF HEALING
+                if (hash.isEmpty()) {
+                    redis.opsForSet().remove(setKey, itemId);
+                    continue;
+                }
+
+                // --- FULL MAPPING ---
                 Map<String, Object> itemData = new HashMap<>();
-                itemData.put("id", id);
+                itemData.put("id", itemId);
 
-                // Map 'e' to positionId
-                itemData.put("positionId", hash.get("e"));
+                if (hash.containsKey("e")) {
+                    itemData.put("positionId", hash.get("e"));
+                }
 
-                // Map 'ty' to PositionType Enum
                 String typeStr = hash.get("ty");
                 if (typeStr != null) {
                     try {
                         itemData.put("positionType", PositionType.valueOf(typeStr));
                     } catch (IllegalArgumentException e) {
-                        // Fallback or log error
                         itemData.put("positionType", PositionType.LOCATION);
                     }
                 }
 
                 String timeStr = hash.get("t");
                 if (timeStr != null) {
-                    itemData.put("entryTimestamp", Long.parseLong(timeStr));
+                    try {
+                        itemData.put("entryTimestamp", Long.parseLong(timeStr));
+                    } catch (NumberFormatException e) {
+                        // Ignore or log
+                    }
                 }
 
-                itemData.put("destinationId", hash.get("d"));
+                if (hash.containsKey("d")) {
+                    itemData.put("destinationId", hash.get("d"));
+                }
+
                 if (hash.containsKey("n")) {
                     itemData.put("name", hash.get("n"));
                 }
 
                 String distStr = hash.get("ad");
-                itemData.put("accumulatedDistance", distStr != null ? Double.parseDouble(distStr) : 0.0);
+                if (distStr != null) {
+                    try {
+                        itemData.put("accumulatedDistance", Double.parseDouble(distStr));
+                    } catch (NumberFormatException e) {
+                        itemData.put("accumulatedDistance", 0.0);
+                    }
+                } else {
+                    itemData.put("accumulatedDistance", 0.0);
+                }
 
                 String pathStr = hash.get("p");
-
-                // 2. Deserialize it
-                List<String> pathList;
-                if (pathStr != null && !pathStr.isEmpty()) {
+                List<String> pathList = new ArrayList<>();
+                if (pathStr != null && !pathStr.isEmpty() && !pathStr.equals("[]")) {
                     try {
                         pathList = objectMapper.readValue(pathStr, new TypeReference<List<String>>() {
                         });
                     } catch (Exception e) {
-                        logger.warn("Failed to parse path pathStr", e);
-                        pathList = new ArrayList<>();
+                        logger.warn("Failed to parse path JSON for item {}: {}", itemId, pathStr);
                     }
-                } else {
-                    pathList = new ArrayList<>();
                 }
-
                 itemData.put("path", pathList);
 
-                result.add(itemData);
+                // Add mapped item to result
+                resultList.add(itemData);
             }
         }
-        return result;
+
+        return resultList;
     }
 
     public long countActiveItems() {
-        String setKey = getNamespacedKey("sys:active_items");
+        String setKey = getNamespacedKey("active_items");
         Long size = redis.opsForSet().size(setKey);
         return size != null ? size : 0;
     }
