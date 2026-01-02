@@ -60,7 +60,6 @@ export const useGraphAnimation = (
                             // --- ARRIVAL LOGIC ---
                             
                             // 1. CHECK FOR CHUTE (Discharge)
-                            // If the destination node is a CHUTE, remove the item entirely.
                             if (targetNode.locationType === "CHUTE") {
                                 graph.dropNode(itemId);
                                 activeItemsRef.current.delete(itemId);
@@ -70,11 +69,7 @@ export const useGraphAnimation = (
 
                             // 2. PREDICTION LOGIC
                             const overflow = timeElapsed - totalDuration;
-                            
-                            // Find next node in path relative to 'targetId'
                             const nextTargetNodeId = getNextFromPath(targetId);
-                            
-                            // Find best edge
                             const nextEdgeKey = findNextEdge(targetId, graph, nextTargetNodeId);
 
                             if (nextEdgeKey) {
@@ -90,6 +85,12 @@ export const useGraphAnimation = (
 
                                 activeItemsRef.current.set(itemId, newItem);
                                 
+                                // --- SYNC GRAPH ATTRIBUTES (Transition) ---
+                                // Update the graph so the Highlighter knows we switched edges
+                                graph.setNodeAttribute(itemId, "currentEdgeId", newItem.currentEdgeId);
+                                graph.setNodeAttribute(itemId, "locationId", null);
+                                // ------------------------------------------
+
                                 graph.setNodeAttribute(itemId, "x", targetNode.x);
                                 graph.setNodeAttribute(itemId, "y", targetNode.y);
                                 needsRefresh = true;
@@ -105,8 +106,15 @@ export const useGraphAnimation = (
                             const progress = timeElapsed / totalDuration;
                             const x = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
                             const y = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
+                            
                             graph.setNodeAttribute(itemId, "x", x);
                             graph.setNodeAttribute(itemId, "y", y);
+
+                            // --- SYNC GRAPH ATTRIBUTES (Continuous) ---
+                            // Ensure the graph has the current logical state for the Highlighter
+                            graph.setNodeAttribute(itemId, "currentEdgeId", item.currentEdgeId);
+                            graph.setNodeAttribute(itemId, "locationId", null);
+
                             needsRefresh = true;
                         }
                     }
@@ -127,12 +135,20 @@ export const useGraphAnimation = (
                          };
 
                          activeItemsRef.current.set(itemId, newItem);
+
+                         graph.setNodeAttribute(itemId, "currentEdgeId", newItem.currentEdgeId);
+                         graph.setNodeAttribute(itemId, "locationId", null);
+
                          needsRefresh = true;
                     } else if (graph.hasNode(item.locationId)) {
                         const locNode = graph.getNodeAttributes(item.locationId);
                         graph.setNodeAttribute(itemId, "x", locNode.x);
                         graph.setNodeAttribute(itemId, "y", locNode.y);
                         graph.setNodeAttribute(itemId, "hidden", false);
+
+                        graph.setNodeAttribute(itemId, "currentEdgeId", null);
+                        graph.setNodeAttribute(itemId, "locationId", item.locationId);
+
                         needsRefresh = true;
                     }
                 }

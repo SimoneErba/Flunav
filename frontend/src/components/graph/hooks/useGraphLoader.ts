@@ -34,10 +34,11 @@ export const useGraphLoader = (
             conveyorLookup.set(conv.id!, conv);
             if (graph.hasNode(conv.sourceId) && graph.hasNode(conv.targetId)) {
                 let size = 3; if (conv.isMainPath) size = 6;
-                graph.addEdge(conv.sourceId, conv.targetId, {
+                graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
                     id: conv.id, type: 'arrow', size, label: conv.name,
                     speed: conv.speed, length: conv.length, isMainPath: conv.isMainPath
                 });
+                console.log("Adding", conv.id, conv.name, conv.sourceId, conv.targetId)
             }
         });
 

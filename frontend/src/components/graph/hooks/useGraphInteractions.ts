@@ -6,6 +6,7 @@ import { NodeEditorData } from "../../node.editor";
 import { LocationTypeEnum } from "../../../api-client";
 import toast from "react-hot-toast";
 import { toastWarning } from "../utils/toastUtils";
+import { HoverTarget } from "../DisplayGraph";
 
 export interface InteractionState {
     hoverTarget: HoverTarget | null;

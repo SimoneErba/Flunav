@@ -29,8 +29,7 @@ export const DisplayGraph = ({
     
     const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
     const [selectedItemData, setSelectedItemData] = useState<any | null>(null);
-    const highlightedItem = selectedItemData || (hoverTarget ? hoverTarget.attributes : null);
-
+    const highlightedItem = selectedItemData;
     // 1. MEMOIZE SETTINGS
     const settings = useMemo(() => ({
         nodeProgramClasses: { square: NodeSquareProgram }, 
