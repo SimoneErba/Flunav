@@ -9,14 +9,24 @@ import { useGraphLoader } from "./hooks/useGraphLoader";
 import { useGraphAnimation } from "./hooks/useGraphAnimation";
 import { useGraphLiveEvents } from "./hooks/useGraphLiveEvents";
 import { useGraphInteractions } from "./hooks/useGraphInteractions";
+import { HoverOverlay } from "./HoverOverlay";
+import { ItemEditor } from "../item.editor";
+import { HoverTarget } from "./DisplayGraph";
 
 interface GraphEventsProps {
   initialGraphData: GraphData;
   simulationId?: string;
   simTime: number;
+  hoverTarget: HoverTarget | null;
+  setHoverTarget: (t: HoverTarget | null) => void;
+  selectedItemData: any | null;
+  setSelectedItemData: (d: any | null) => void;
 }
 
-export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEventsProps) => {
+export const GraphEvents = ({ 
+    initialGraphData, simulationId, simTime,
+    hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData 
+}: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
   // 1. Load Data
   useGraphLoader(initialGraphData, activeItemsRef);
@@ -28,8 +38,8 @@ export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEv
   const { 
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
-      lineCoordinates, draggedNodeRef
-  } = useGraphInteractions(adjustItemsForSpeedChange, simulationId);
+      lineCoordinates, draggedNodeRef, setIsDetailsOpen
+  } = useGraphInteractions(adjustItemsForSpeedChange, { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
   useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);
@@ -43,7 +53,25 @@ export const GraphEvents = ({ initialGraphData, simulationId, simTime }: GraphEv
         )}
       </svg>
     
+      {hoverTarget && !selectedItemData && (
+        <HoverOverlay 
+            position={{ x: hoverTarget.x, y: hoverTarget.y }}
+            onCancel={() => setHoverTarget(null)}
+            onLock={() => {
+                setSelectedItemData(hoverTarget.attributes);
+                setHoverTarget(null);
+                setIsDetailsOpen(true);
+            }}
+        />
+      )}
       {/* Editors */}
+
+      {selectedItemData && (
+        <ItemEditor
+            data={selectedItemData} 
+            onClose={() => setSelectedItemData(null)} 
+        />
+      )}
       {selectedEdgeData && (
         <EdgeEditor data={selectedEdgeData} onSubmit={handleEdgeSubmit} onClose={() => setSelectedEdgeData(null)} onDelete={(id, src, tgt) => handleEdgeDelete(id, src, tgt)} />
       )}

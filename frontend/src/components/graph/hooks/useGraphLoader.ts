@@ -64,7 +64,7 @@ export const useGraphLoader = (
             
             graph.addNode(item.id, {
                 x: startX, y: startY, label: item.name, size: 6, color: "#FF0000",
-                type: "square", id: item.id, isItem: true
+                type: "square", id: item.id, isItem: true, path: item.path
             });
         });
 

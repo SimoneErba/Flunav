@@ -7,8 +7,16 @@ import { LocationTypeEnum } from "../../../api-client";
 import toast from "react-hot-toast";
 import { toastWarning } from "../utils/toastUtils";
 
+export interface InteractionState {
+    hoverTarget: HoverTarget | null;
+    setHoverTarget: (t: HoverTarget | null) => void;
+    selectedItemData: any | null;
+    setSelectedItemData: (d: any | null) => void;
+}
+
 export const useGraphInteractions = (
     adjustItemsForSpeedChange: (edgeId: string, newSpeed: number) => void,
+    { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }: InteractionState, 
     simulationId?: string | null 
 ) => {
     const sigma = useSigma();
@@ -18,31 +26,13 @@ export const useGraphInteractions = (
     const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
     const isReadOnly = isDemoMode && !simulationId;
 
-    // --- 1. STABILIZATION REFS ---
-    // We store the "unstable" things in Refs.
-    // This allows us to access the *latest* version inside events
-    // WITHOUT adding them to the useEffect dependency array.
-    const stateRef = useRef({
-        isReadOnly,
-        locationApi,
-        conveyorsApi,
-        adjustItemsForSpeedChange
-    });
-
-    // Update Refs on every render (cheap)
-    useEffect(() => {
-        stateRef.current = {
-            isReadOnly,
-            locationApi,
-            conveyorsApi,
-            adjustItemsForSpeedChange
-        };
-    }, [isReadOnly, locationApi, conveyorsApi, adjustItemsForSpeedChange]);
-
     // --- State ---
     const [selectedEdgeData, setSelectedEdgeData] = useState<EdgeEditorData | null>(null);
     const [selectedNodeData, setSelectedNodeData] = useState<NodeEditorData | null>(null);
     const [lineCoordinates, setLineCoordinates] = useState<{x1:number, y1:number, x2:number, y2:number} | null>(null);
+
+    // --- PARADOX HOVER STATE ---
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
     // Interaction Refs
     const draggedNodeRef = useRef<string | null>(null);
@@ -56,9 +46,40 @@ export const useGraphInteractions = (
         toastWarning("Modification disabled in Demo, start a simulation", { id: 'readonly-toast' });
     }, []);
 
-    // --- 2. STABLE HANDLERS ---
-    // These use stateRef.current, so they don't need to be recreated when API/ReadOnly changes.
+    // --- 1. STABILIZATION REFS ---
+    // We store ALL state that is accessed inside event handlers here.
+    // This prevents stale closures without needing to re-bind events constantly.
+    const stateRef = useRef({
+        isReadOnly,
+        locationApi,
+        conveyorsApi,
+        adjustItemsForSpeedChange,
+        // Selection State
+        selectedEdgeData,
+        selectedNodeData,
+        selectedItemData,
+        // Hover State
+        isDetailsOpen
+    });
 
+    // Update Refs on every render
+    useEffect(() => {
+        stateRef.current = {
+            isReadOnly,
+            locationApi,
+            conveyorsApi,
+            adjustItemsForSpeedChange,
+            selectedEdgeData,
+            selectedNodeData,
+            selectedItemData,
+            isDetailsOpen
+        };
+    }, [
+        isReadOnly, locationApi, conveyorsApi, adjustItemsForSpeedChange,
+        selectedEdgeData, selectedNodeData, selectedItemData, isDetailsOpen
+    ]);
+
+    // --- 2. STABLE HANDLERS (Editors) ---
     const handleEdgeSubmit = useCallback(async ({ speed, length, isMainPath }: any) => {
         const { isReadOnly, conveyorsApi, adjustItemsForSpeedChange } = stateRef.current;
         if (!selectedEdgeData || isReadOnly) return;
@@ -142,32 +163,98 @@ export const useGraphInteractions = (
         setSelectedNodeData(null);
     }, [sigma]);
 
-    // --- 3. THE MAIN EVENT LOOP (NOW STABLE) ---
-    // Notice the dependency array: It ONLY depends on [sigma, registerEvents].
-    // It does NOT depend on simTime, APIs, or ReadOnly state.
+    // --- 3. THE MAIN EVENT LOOP ---
     useEffect(() => {
         registerEvents({
+            // --- PARADOX HOVER EVENTS ---
+            enterNode: ({ node, event }) => {
+                // Access state via REF to avoid stale closures
+                const { selectedItemData, isDetailsOpen } = stateRef.current;
+                
+                if (isDraggingRef.current || isAddingEdgeRef.current || selectedItemData || isDetailsOpen) return;
+
+                const attrs = sigma.getGraph().getNodeAttributes(node);
+                if (attrs.isItem) {
+                    setHoverTarget({
+                        nodeId: node,
+                        x: event.original.clientX,
+                        y: event.original.clientY,
+                        attributes: attrs 
+                    });
+                }
+            },
+            leaveNode: () => {
+                // Access state via REF
+                const { isDetailsOpen } = stateRef.current;
+                if (!isDetailsOpen) {
+                    setHoverTarget(null);
+                }
+            },
+            wheel: () => {
+                const { isDetailsOpen } = stateRef.current;
+                if (!isDetailsOpen) setHoverTarget(null);
+            },
+
+            // --- STANDARD EVENTS ---
             downStage: () => { didMoveRef.current = false; },
 
             clickStage: ({ event }) => {
                 if (didMoveRef.current) return;
+
+                // READ FROM REF TO GET FRESH VALUES
+                const { 
+                    selectedEdgeData: currentEdge, 
+                    selectedNodeData: currentNode, 
+                    selectedItemData: currentItem,
+                    isReadOnly, 
+                    locationApi 
+                } = stateRef.current;
+
+                // Check if any panel is currently open using the REF values
+                const isPanelOpen = currentEdge !== null || currentNode !== null || currentItem !== null;
                 
+                // Clear selections (State updates)
                 setSelectedEdgeData(null);
                 setSelectedNodeData(null);
+                setSelectedItemData(null);
+                setHoverTarget(null);
+                setIsDetailsOpen(false);
 
-                // Access latest state via Ref
-                const { isReadOnly, locationApi } = stateRef.current;
+                // If a panel was open, return early. 
+                // The user's intention was just to close the panel, not create a node.
+                if (isPanelOpen) return;
+
+                // --- Node Creation Logic ---
                 if (isReadOnly) {
                     notifyReadOnly(); 
                     return; 
                 }
-                if (!isDraggingRef.current && !isAddingEdgeRef.current && !isReadOnly) {
+
+                if (!isDraggingRef.current && !isAddingEdgeRef.current) {
                     const pos = sigma.viewportToGraph(event);
                     const newNodeId = crypto.randomUUID();
-                    sigma.getGraph().addNode(newNodeId, { x: pos.x, y: pos.y, label: "New", size: 10, color: "#69b3a2", type: "circle" });
                     
-                    locationApi.createLocation({ id: newNodeId, name: "New", longitude: pos.y, latitude: pos.x, active: true, capacity: 10, type: LocationTypeEnum.Generic })
-                        .catch(() => toast.error("Failed to create location"));
+                    sigma.getGraph().addNode(newNodeId, { 
+                        x: pos.x, 
+                        y: pos.y, 
+                        label: "New", 
+                        size: 10, 
+                        color: "#69b3a2", 
+                        type: "circle" 
+                    });
+                    
+                    locationApi.createLocation({ 
+                        id: newNodeId, 
+                        name: "New", 
+                        longitude: pos.y, 
+                        latitude: pos.x, 
+                        active: true, 
+                        capacity: 10, 
+                        type: LocationTypeEnum.Generic 
+                    }).catch(() => {
+                        toast.error("Failed to create location");
+                        sigma.getGraph().dropNode(newNodeId);
+                    });
                 }
             },
             downNode: ({ node, event }) => {
@@ -261,20 +348,28 @@ export const useGraphInteractions = (
             },
             clickNode: ({ node }) => {
                 if (didMoveRef.current) return;
-                const { isReadOnly } = stateRef.current;
-                if (isReadOnly) { notifyReadOnly(); return; }
-
-                if (!isDraggingRef.current && !isAddingEdgeRef.current) {
-                    const attrs = sigma.getGraph().getNodeAttributes(node);
-                    if (!attrs.isItem) setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity });
+                
+                const attrs = sigma.getGraph().getNodeAttributes(node);
+                
+                if (attrs.isItem) {
+                    // It's an item: Lock the hover details immediately
+                    setIsDetailsOpen(true);
+                    // Ensure we have the data selected
+                    setSelectedItemData(attrs);
+                } else {
+                    // It's a location: Open editor
+                    const { isReadOnly } = stateRef.current;
+                    if (isReadOnly) { notifyReadOnly(); return; }
+                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity });
                 }
             }
         });
-    }, [sigma, registerEvents, notifyReadOnly]); // <--- STABLE DEPENDENCIES!
+    }, [sigma, registerEvents, notifyReadOnly]); // Dependency array is now clean and stable!
 
     return { 
         selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
         selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
-        lineCoordinates, draggedNodeRef 
+        lineCoordinates, draggedNodeRef,
+        isDetailsOpen, setIsDetailsOpen,
     };
 };

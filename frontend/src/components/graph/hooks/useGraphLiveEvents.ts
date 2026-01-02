@@ -149,7 +149,8 @@ export const useGraphLiveEvents = (
                 type: "square", 
                 id: item.id, 
                 isItem: true,
-                hidden: isHidden // Start invisible if location unknown
+                hidden: isHidden, // Start invisible if location unknown
+                path: item.path
             });
             
             // Update Logic State
@@ -183,6 +184,7 @@ export const useGraphLiveEvents = (
                     }
 
                     graph.setNodeAttribute(update.id, key, val);
+                    console.log("UPDATING", update.id, key, val)
                 });
 
                 // Update internal ref state
