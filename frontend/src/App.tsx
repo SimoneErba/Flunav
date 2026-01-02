@@ -1,27 +1,22 @@
-import './App.css'
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DisplayGraph } from './components/graph/DisplayGraph';
 import { useGraph } from './hooks/useGraph';
 import { SimulationStateResponseStatusEnum } from "./api-client/api";
 import { PlaybackControls } from './components/PlaybackControls';
 import { useSimulationClock } from './components/graph/hooks/useSimulationClock';
+import { ThemeToggle } from './components/theme.toggle';
 
 // Import Theme Stuff
-import { GraphThemeProvider, useTheme, THEMES } from './context/theme.context';
+import { GraphThemeProvider } from './context/theme.context';
 import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
 import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
 import { SimulationProvider, useSimulationContext } from './context/simulation.context';
 import { useApi } from './hooks/useApi';
 import toast, { Toaster } from 'react-hot-toast';
-
-// --- INNER COMPONENT (Can use useTheme) ---
+import './index.css'
+// --- INNER COMPONENT ---
 function AppContent() {
   const { activeSimulation, setActiveSimulation } = useSimulationContext();
-
-
-  // 1. Get Theme
-  const { mode } = useTheme();
-  const theme = THEMES[mode];
 
   // --- State ---
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -52,7 +47,7 @@ function AppContent() {
     return (new Date(selectedDate.getTime() - offset)).toISOString().slice(0, 16);
   }, [selectedDate]);
 
-  // --- Handlers (Same as before) ---
+  // --- Handlers ---
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
     setSelectedDate(new Date(e.target.value));
@@ -188,35 +183,18 @@ function AppContent() {
 
   if (graphError) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        height: '100vh', 
-        backgroundColor: theme.background, 
-        color: theme.uiText 
-      }}>
-        <div style={{ padding: '40px', border: `1px solid ${theme.uiBorder}`, borderRadius: '12px', background: theme.headerBackground, textAlign: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
-            <h2 style={{ color: '#dc3545', marginBottom: '10px' }}>Connection Failed</h2>
-            <p style={{ marginBottom: '20px', color: theme.uiText }}>
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        <div className="p-10 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-center shadow-xl max-w-md">
+            <h2 className="text-red-600 text-2xl font-bold mb-2">Connection Failed</h2>
+            <p className="mb-4 text-gray-700 dark:text-gray-300">
                 Could not connect to the Backend API.
             </p>
-            <p style={{ fontSize: '0.8rem', color: 'gray', marginBottom: '20px' }}>
+            <p className="text-xs text-gray-500 mb-6 font-mono bg-gray-100 dark:bg-gray-900 p-2 rounded">
                 {graphError.message || "Network Error"}
             </p>
             <button 
                 onClick={handleRetry}
-                style={{ 
-                    padding: '10px 24px', 
-                    background: '#007bff', 
-                    color: 'white', 
-                    border: 'none', 
-                    borderRadius: '6px', 
-                    cursor: 'pointer',
-                    fontSize: '1rem',
-                    fontWeight: 'bold'
-                }}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors"
             >
               Retry Connection ↻
             </button>
@@ -229,32 +207,24 @@ function AppContent() {
       return null;
   }
 
-
   return (
-    <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        height: '100vh', 
-        // Apply Theme Background to whole app
-        backgroundColor: theme.background, 
-        color: theme.headerText,
-        transition: 'background-color 0.3s ease'
-    }}>
+    <div className="flex flex-col h-screen bg-[#f0f2f5] dark:bg-[#1a1a1a] text-gray-800 dark:text-white transition-colors duration-300">
       
-      <header style={{ 
-        padding: '12px 24px', 
-        // Apply Theme Header Colors
-        backgroundColor: theme.headerBackground, 
-        borderBottom: `1px solid ${theme.headerBorder}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-      }}>
+      {/* --- HEADER --- */}
+      <header className="
+        px-6 py-3 
+        bg-white dark:bg-gray-800 
+        border-b border-gray-200 dark:border-gray-700
+        flex items-center justify-between shrink-0 shadow-sm z-50
+      ">
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <img src="/logo.svg" alt="Logo" style={{ width: 180 }} />
+        {/* Logo Area */}
+        <div className="flex items-center gap-5">
+            <img src="/logo.svg" alt="Logo" className="w-44" />
         </div>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        {/* Center Controls */}
+        <div className="flex items-center gap-4">
             {activeSimulation && !isRestoring && (
                 <PlaybackControls
                     simulation={activeSimulation}
@@ -268,37 +238,37 @@ function AppContent() {
             {!activeSimulation && !isSelectingDate && (
                 <button 
                     onClick={handleStartSimulationClick}
-                    style={{ padding: '8px 16px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm"
                 >
                     ⏱ Time Travel
                 </button>
             )}
 
             {isSelectingDate && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: theme.uiBackground, padding: '4px', borderRadius: '6px', border: `1px solid ${theme.uiBorder}` }}>
+                <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700 animate-pop-in">
                     <input
                         type="datetime-local"
                         value={dateTimeLocal}
                         onChange={handleDateChange}
-                        style={{ 
-                            padding: '6px', 
-                            border: `1px solid ${theme.uiBorder}`, 
-                            borderRadius: '4px',
-                            backgroundColor: theme.inputBackground,
-                            color: theme.inputColor,
-                            colorScheme: mode
-                        }}
+                        className="
+                          p-1.5 border rounded text-sm 
+                          bg-white dark:bg-gray-800 
+                          border-gray-300 dark:border-gray-600 
+                          text-gray-900 dark:text-white 
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 
+                          dark:[color-scheme:dark]
+                        "
                     />
                     <button 
                         onClick={handleConfirmRestore}
                         disabled={isLoading}
-                        style={{ padding: '6px 12px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded font-bold text-sm transition-colors"
                     >
                         Start
                     </button>
                     <button 
                         onClick={() => setIsSelectingDate(false)}
-                        style={{ padding: '6px 12px', background: 'transparent', color: theme.uiText, border: 'none', cursor: 'pointer' }}
+                        className="px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded font-medium text-sm transition-colors"
                     >
                         Cancel
                     </button>
@@ -306,25 +276,32 @@ function AppContent() {
             )}
         </div>
 
-        <div style={{ width: '180px', display: 'flex', justifyContent: 'flex-end' }}>
+        {/* Right Controls */}
+        <div className="w-44 flex justify-end items-center gap-3">
             {activeSimulation && (
                 <button
                     onClick={handleReturnToLive}
-                    style={{ 
-                        padding: '8px 16px', border: '1px solid #dc3545', borderRadius: '6px', 
-                        background: 'transparent', color: '#dc3545', cursor: 'pointer', fontWeight: 'bold'
-                    }}
+                    className="
+                      px-4 py-2 border border-red-500 rounded-lg text-sm font-bold 
+                      text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 
+                      transition-colors
+                    "
                 >
                     Exit Simulation
                 </button>
             )}
+            
+            <ThemeToggle />
         </div>
       </header>
 
-      <main style={{ flex: 1, position: 'relative' }}>
+      {/* --- MAIN CONTENT --- */}
+      <main className="flex-1 relative overflow-hidden">
         {isLoading ? (
-          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: theme.uiText }}>
-            <h3>{isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}</h3>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+            <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 animate-pulse">
+              {isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}
+            </h3>
           </div>
         ) : (
           <DisplayGraph 

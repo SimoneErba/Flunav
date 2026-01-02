@@ -1,68 +1,76 @@
+@import "tailwindcss";
+
+/* Force Tailwind v4 to use the .dark class selector instead of system preference */
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --animate-pop-in-center: popInCenter 0.2s ease-out forwards;
+  --animate-slide-in: slideIn 0.2s ease-out forwards;
+
+  @keyframes popInCenter {
+    from { transform: scale(0.8) translate(-50%, -50%); opacity: 0; }
+    to { transform: scale(1) translate(-50%, -50%); opacity: 1; }
+  }
+
+  @keyframes slideIn {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+}
+
+/* --- Global Resets --- */
+html, body, #root {
+  @apply h-full w-full m-0 p-0 overflow-hidden;
+  @apply transition-colors duration-300; 
+}
+
+/* --- Sigma.js Controls Styling --- */
+
+/* Define dynamic colors using CSS variables to preserve native layout */
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --sigma-bg: #ffffff;
+  --sigma-border: #e5e7eb; /* gray-200 */
+  --sigma-icon: #374151;   /* gray-700 */
+  --sigma-hover: #f3f4f6;  /* gray-100 */
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+.dark {
+  --sigma-bg: #1f2937;     /* gray-800 */
+  --sigma-border: #374151; /* gray-700 */
+  --sigma-icon: #e5e7eb;   /* gray-200 */
+  --sigma-hover: #374151;  /* gray-700 */
 }
 
-body {
-  margin: 0;
+.react-sigma-control {
+  background-color: var(--sigma-bg) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  border-radius: 0.5rem !important;
+  overflow: hidden !important;
+}
+
+.react-sigma-control button {
+  background-color: transparent !important;
+  color: var(--sigma-icon) !important;
+  border: none !important;
+  transition: background-color 0.2s !important;
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  align-items: center;
+  justify-content: center; 
+  cursor: pointer
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.react-sigma-control button:hover {
+  background-color: var(--sigma-hover) !important;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.react-sigma-control svg {
+  fill: var(--sigma-icon) !important;
+  /* Ensure icons don't get distorted */
+  width: 18px !important; 
+  height: 18px !important;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.react-sigma-control hr {
+  border-color: var(--sigma-border) !important;
+  margin: 0 !important;
 }

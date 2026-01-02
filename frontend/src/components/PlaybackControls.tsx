@@ -1,6 +1,5 @@
 import React from 'react';
 import { SimulationStateResponse, SimulationStateResponseStatusEnum } from '../api-client/api';
-import { useTheme, THEMES } from '../context/theme.context'; // <--- Import Context
 
 interface PlaybackControlsProps {
   simulation: SimulationStateResponse | null;
@@ -17,60 +16,37 @@ export const PlaybackControls = ({
   onSetSpeed,
   currentSpeed = 1,
 }: PlaybackControlsProps) => {
-  // 1. Get Theme Data
-  const { mode } = useTheme();
-  const theme = THEMES[mode];
-
+  
   const isLive = !simulation;
   const isPlaying = simulation?.status === SimulationStateResponseStatusEnum.Playing;
 
+  // Time Formatting
   const date = new Date(simTime);
   const timeStr = date.toLocaleTimeString('en-GB', { hour12: false });
   const msStr = date.getMilliseconds().toString().padStart(3, '0');
   const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      alignItems: 'center', 
-      gap: '16px', 
-      // 2. Use Theme Colors for Container
-      background: theme.uiBackground, 
-      padding: '6px 16px', 
-      borderRadius: '8px', 
-      border: `1px solid ${theme.uiBorder}`,
-      transition: 'background-color 0.3s ease, border-color 0.3s ease'
-    }}>
+    <div className="flex items-center gap-4 px-4 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 transition-colors duration-300 shadow-sm">
       
       {/* --- THE CLOCK --- */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: '1.1' }}>
-        <div style={{ 
-            fontFamily: 'monospace', 
-            fontSize: '16px', 
-            fontWeight: 'bold', 
-            color: theme.uiText, // Dynamic Text Color
-            minWidth: '110px',
-            textAlign: 'right'
-        }}>
-          {timeStr}<span style={{ fontSize: '0.8em', opacity: 0.6 }}>.{msStr}</span>
+      <div className="flex flex-col items-end leading-none">
+        <div className="font-mono text-base font-bold text-gray-900 dark:text-gray-100 min-w-[110px] text-right">
+          {timeStr}<span className="text-xs opacity-60">.{msStr}</span>
         </div>
-        <div style={{ fontSize: '10px', color: theme.uiText, opacity: 0.6, textTransform: 'uppercase' }}>
+        <div className="text-[10px] text-gray-900 dark:text-gray-100 opacity-60 uppercase mt-0.5">
             {dateStr}
         </div>
       </div>
 
       {/* Separator */}
-      <div style={{ height: '24px', width: '1px', background: theme.uiBorder }}></div>
+      <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
 
       {/* --- MODE INDICATOR / CONTROLS --- */}
       {isLive ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{
-                width: '10px', height: '10px', borderRadius: '50%', 
-                background: '#dc3545', 
-                boxShadow: '0 0 0 2px rgba(220, 53, 69, 0.2)'
-            }}></div>
-            <span style={{ fontWeight: 'bold', color: '#dc3545', fontSize: '14px', letterSpacing: '0.5px' }}>
+        <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-[0_0_0_2px_rgba(220,53,69,0.2)] animate-pulse"></div>
+            <span className="font-bold text-red-600 text-sm tracking-wide">
                 LIVE
             </span>
         </div>
@@ -78,18 +54,15 @@ export const PlaybackControls = ({
         <>
           <button
             onClick={onTogglePlay}
-            style={{
-              padding: '6px 12px',
-              border: `1px solid ${isPlaying ? '#ffc107' : '#28a745'}`,
-              borderRadius: '4px',
-              // 3. Use Theme Colors for Button Background
-              background: theme.inputBackground,
-              color: isPlaying ? '#ffc107' : '#28a745',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              minWidth: '80px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
-            }}
+            className={`
+              flex items-center justify-center gap-1.5 min-w-[80px] px-3 py-1.5 
+              border rounded text-sm font-bold cursor-pointer transition-colors
+              bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600
+              ${isPlaying 
+                ? 'border-amber-500 text-amber-500' 
+                : 'border-green-600 text-green-600'
+              }
+            `}
           >
             <span>{isPlaying ? '⏸' : '▶'}</span>
             <span>{isPlaying ? 'Pause' : 'Play'}</span>
@@ -98,17 +71,13 @@ export const PlaybackControls = ({
           <select
             value={currentSpeed}
             onChange={(e) => onSetSpeed && onSetSpeed(parseFloat(e.target.value))}
-            style={{ 
-                padding: '6px', 
-                border: `1px solid ${theme.uiBorder}`, 
-                borderRadius: '4px', 
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                // 4. Use Theme Colors for Select Input
-                backgroundColor: theme.inputBackground,
-                color: theme.uiText,
-                colorScheme: mode // Forces browser native dropdown to match theme
-            }}
+            className="
+              p-1.5 border rounded text-sm font-bold cursor-pointer
+              border-gray-200 dark:border-gray-700
+              bg-gray-50 dark:bg-gray-700 
+              text-gray-900 dark:text-gray-100
+              focus:outline-none focus:ring-2 focus:ring-blue-500
+            "
           >
             <option value={0.5}>0.5x</option>
             <option value={1}>1x</option>

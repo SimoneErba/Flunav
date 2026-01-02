@@ -38,7 +38,6 @@ export const useGraphLoader = (
                     id: conv.id, type: 'arrow', size, label: conv.name,
                     speed: conv.speed, length: conv.length, isMainPath: conv.isMainPath
                 });
-                console.log("Adding", conv.id, conv.name, conv.sourceId, conv.targetId)
             }
         });
 

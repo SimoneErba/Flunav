@@ -1,5 +1,5 @@
 import React from "react";
-import { useTheme } from "./../context/theme.context";
+import { useTheme } from "../context/theme.context";
 
 export const ThemeToggle = () => {
   const { mode, toggleTheme } = useTheme();
@@ -7,22 +7,22 @@ export const ThemeToggle = () => {
   return (
     <button
       onClick={toggleTheme}
-      style={{
-        position: "absolute",
-        top: "20px",
-        right: "20px",
-        zIndex: 1000,
-        padding: "8px 16px",
-        borderRadius: "20px",
-        border: "none",
-        cursor: "pointer",
-        backgroundColor: mode === "light" ? "#333" : "#fff",
-        color: mode === "light" ? "#fff" : "#333",
-        fontWeight: "bold",
-        boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
-      }}
+      className="
+        px-4 py-2 rounded-full
+        font-bold text-sm shadow-sm border border-gray-200 dark:border-gray-600
+        
+        transition-all duration-200 ease-in-out 
+        hover:scale-105 active:scale-95
+        
+        bg-gray-100 text-gray-800
+        hover:bg-gray-200
+        
+        dark:bg-gray-700 dark:text-white
+        dark:hover:bg-gray-600
+      "
+      aria-label="Toggle Dark Mode"
     >
-      {mode === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
+      {mode === "light" ? "🌙 Dark" : "☀️ Light"}
     </button>
   );
 };

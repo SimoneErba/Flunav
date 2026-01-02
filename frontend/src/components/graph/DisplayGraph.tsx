@@ -1,11 +1,10 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState } from "react";
 import { SigmaContainer } from "@react-sigma/core";
 import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
 
 import { GraphData } from "../../api-client/api";
 import { GraphEvents } from "./GraphEvents";
-import { sigmaStyle } from "../../styles/styles";
 import { GraphHighlighter } from "./GraphHighlighter";
 
 interface DisplayGraphProps {
@@ -29,40 +28,32 @@ export const DisplayGraph = ({
     
     const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
     const [selectedItemData, setSelectedItemData] = useState<any | null>(null);
+    
     const highlightedItem = selectedItemData;
-    // 1. MEMOIZE SETTINGS
+
     const settings = useMemo(() => ({
         nodeProgramClasses: { square: NodeSquareProgram }, 
         enableEdgeEvents: true,
         autoRescale: true,
         renderEdgeLabels: true, 
         defaultEdgeType: "arrow",
-        zIndex: true 
+        zIndex: true
     }), []);
 
-    // 2. CREATE EDGE LOOKUP MAP (Fix for missing 'graph' instance)
-    // We map EdgeID -> { source, target } so we can check the path
-    const edgeConnectionMap = useMemo(() => {
-        const map = new Map<string, { source: string, target: string }>();
-        if (initialGraphData && initialGraphData.connections) {
-            initialGraphData.connections.forEach(conn => {
-                // Assuming 'id' is the edge ID in Sigma
-                map.set(conn.id, { source: conn.sourceId, target: conn.targetId });
-            });
-        }
-        return map;
-    }, [initialGraphData]);
-
     return (
-        <div style={{ width: '100%', height: '100%' }}>
+        // --- FIX: Usa classi Tailwind invece di style={{ width: '100%', height: '100%' }} ---
+        // Questo div riempirà il <main> che ha flex-1
+        <div className="w-full h-full">
             <SigmaContainer 
                 settings={settings}
-                style={sigmaStyle}
+                // Passiamo le classi anche al contenitore interno di Sigma
+                className="w-full h-full !bg-transparent"
             >
                 <GraphHighlighter 
                     initialGraphData={initialGraphData} 
                     highlightedItem={highlightedItem} 
                 />
+
                 <GraphEvents 
                     initialGraphData={initialGraphData}
                     simulationId={simulationId}

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useTheme, THEMES } from "../context/theme.context"; // Import Context
 import toast from "react-hot-toast";
 import { confirmToast } from "./graph/utils/toastUtils";
 
@@ -9,7 +8,7 @@ export interface EdgeEditorData {
   targetId: string;
   speed: number;
   length: number;
-  isMainPath?: boolean; // Added this as it was missing in interface but used in logic
+  isMainPath?: boolean;
 }
 
 interface EdgeEditorProps {
@@ -20,9 +19,6 @@ interface EdgeEditorProps {
 }
 
 export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProps) => {
-  const { mode } = useTheme();
-  const theme = THEMES[mode];
-
   const [speed, setSpeed] = useState(data.speed);
   const [length, setLength] = useState(data.length);
   const [isMainPath, setIsMainPath] = useState(data.isMainPath || false);
@@ -41,94 +37,115 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
             toast.success("Edge deleted");
         }
     );
-};
-
-  // Dynamic Styles based on Theme
-  const panelStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "20px",
-    left: "20px",
-    padding: "15px",
-    borderRadius: "8px",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
-    zIndex: 1000,
-    width: "250px",
-    backgroundColor: theme.uiBackground,
-    color: theme.uiText,
-    border: `1px solid ${theme.uiBorder}`,
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px"
-  };
-
-  const inputStyle: React.CSSProperties = {
-    padding: "6px",
-    borderRadius: "4px",
-    border: `1px solid ${theme.uiBorder}`,
-    backgroundColor: theme.inputBackground,
-    color: theme.inputColor,
-    width: "100%",
-    colorScheme: mode // Forces browser native inputs (checkboxes/numbers) to match theme
-  };
-
-  const buttonStyle: React.CSSProperties = {
-    padding: "6px 12px",
-    borderRadius: "4px",
-    border: "none",
-    cursor: "pointer",
-    backgroundColor: mode === 'dark' ? '#444' : '#e0e0e0',
-    color: theme.uiText,
-    flex: 1
   };
 
   return (
-    <div style={panelStyle}>
-      <h4 style={{ margin: "0 0 10px 0", borderBottom: `1px solid ${theme.uiBorder}`, paddingBottom: "5px" }}>
-        Edit Connection
-      </h4>
-      
-      <div style={{ fontSize: "0.9em", opacity: 0.8 }}>
-        <div>From: {data.sourceId}</div>
-        <div>To: {data.targetId}</div>
+    <div className="
+      absolute top-5 left-5 z-[1000] w-72 p-4
+      flex flex-col gap-3
+      bg-white dark:bg-gray-800 
+      text-gray-900 dark:text-gray-100
+      border border-gray-200 dark:border-gray-700 
+      rounded-lg shadow-xl animate-slide-in
+    ">
+      {/* Header */}
+      <div className="border-b border-gray-200 dark:border-gray-700 pb-2">
+        <h4 className="text-lg font-semibold m-0">Edit Connection</h4>
+        <div className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-1 truncate">
+          {data.sourceId} <span className="text-gray-400">➝</span> {data.targetId}
+        </div>
       </div>
       
+      {/* Speed Input */}
       <div>
-        <label style={{ display: "block", marginBottom: "4px", fontSize: "0.9em" }}>Speed (m/s):</label>
+        <label className="block mb-1 text-sm font-medium text-gray-600 dark:text-gray-400">
+          Speed (m/s):
+        </label>
         <input 
             type="number" 
             value={speed} 
             min="0.1" 
             step="0.1"
             onChange={e => setSpeed(parseFloat(e.target.value))} 
-            style={inputStyle}
+            className="
+              w-full p-2 rounded border text-sm
+              bg-gray-50 dark:bg-gray-900 
+              border-gray-300 dark:border-gray-600 
+              text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
+              dark:[color-scheme:dark]
+            "
         />
       </div>
       
+      {/* Length Input */}
       <div>
-        <label style={{ display: "block", marginBottom: "4px", fontSize: "0.9em" }}>Length (m):</label>
+        <label className="block mb-1 text-sm font-medium text-gray-600 dark:text-gray-400">
+          Length (m):
+        </label>
         <input 
             type="number" 
             value={length} 
             min="1" 
             onChange={e => setLength(parseFloat(e.target.value))} 
-            style={inputStyle}
+            className="
+              w-full p-2 rounded border text-sm
+              bg-gray-50 dark:bg-gray-900 
+              border-gray-300 dark:border-gray-600 
+              text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
+              dark:[color-scheme:dark]
+            "
         />
       </div>
       
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      {/* Main Path Checkbox */}
+      <div className="flex items-center gap-2 py-1">
         <input 
             type="checkbox" 
+            id="isMainPath"
             checked={isMainPath} 
             onChange={e => setIsMainPath(e.target.checked)}
-            style={{ accentColor: "#007bff" }}
+            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
         />
-        <label style={{ fontSize: "0.9em" }}>Is Main Path</label>
+        <label htmlFor="isMainPath" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+          Is Main Path
+        </label>
       </div>
 
-      <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-        <button onClick={handleDelete} style={{ ...buttonStyle, backgroundColor: "#d32f2f", color: "white" }} title="Delete">🗑️</button>
-        <button onClick={onClose} style={buttonStyle} title="Close">Cancel</button>
-        <button onClick={handleSubmit} style={{ ...buttonStyle, backgroundColor: "#28a745", color: "white" }} title="Save">Save</button>
+      {/* Action Buttons */}
+      <div className="flex gap-2 mt-2">
+        <button 
+          onClick={handleDelete} 
+          className="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+          title="Delete"
+        >
+          🗑️
+        </button>
+        
+        <button 
+          onClick={onClose} 
+          className="
+            flex-1 px-3 py-1.5 rounded font-medium transition-colors
+            bg-gray-200 dark:bg-gray-700 
+            text-gray-800 dark:text-gray-200 
+            hover:bg-gray-300 dark:hover:bg-gray-600
+          "
+          title="Close"
+        >
+          Cancel
+        </button>
+        
+        <button 
+          onClick={handleSubmit} 
+          className="
+            flex-1 px-3 py-1.5 rounded font-medium text-white transition-colors
+            bg-green-600 hover:bg-green-700
+          "
+          title="Save"
+        >
+          Save
+        </button>
       </div>
     </div>
   );

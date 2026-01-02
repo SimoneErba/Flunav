@@ -28,6 +28,7 @@ export const GraphEvents = ({
     hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData 
 }: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
+  
   // 1. Load Data
   useGraphLoader(initialGraphData, activeItemsRef);
 
@@ -47,12 +48,20 @@ export const GraphEvents = ({
   return (
     <>
       {/* SVG Line for Edge Creation */}
-      <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 100 }}>
+      {/* Converted inline styles to Tailwind classes */}
+      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[100]">
         {lineCoordinates && (
-          <line x1={lineCoordinates.x1} y1={lineCoordinates.y1} x2={lineCoordinates.x2} y2={lineCoordinates.y2} stroke="#ff5500" strokeWidth="2" />
+          <line 
+            x1={lineCoordinates.x1} 
+            y1={lineCoordinates.y1} 
+            x2={lineCoordinates.x2} 
+            y2={lineCoordinates.y2} 
+            className="stroke-[#ff5500] stroke-2" 
+          />
         )}
       </svg>
     
+      {/* Paradox Hover Overlay */}
       {hoverTarget && !selectedItemData && (
         <HoverOverlay 
             position={{ x: hoverTarget.x, y: hoverTarget.y }}
@@ -64,19 +73,29 @@ export const GraphEvents = ({
             }}
         />
       )}
-      {/* Editors */}
 
+      {/* Editors */}
       {selectedItemData && (
         <ItemEditor
             data={selectedItemData} 
-            onClose={() => setSelectedItemData(null)} 
+            onClose={() => {setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false)}} 
         />
       )}
       {selectedEdgeData && (
-        <EdgeEditor data={selectedEdgeData} onSubmit={handleEdgeSubmit} onClose={() => setSelectedEdgeData(null)} onDelete={(id, src, tgt) => handleEdgeDelete(id, src, tgt)} />
+        <EdgeEditor 
+            data={selectedEdgeData} 
+            onSubmit={handleEdgeSubmit} 
+            onClose={() => {setSelectedEdgeData(null); setHoverTarget(null); setIsDetailsOpen(false)}} 
+            onDelete={(id, src, tgt) => handleEdgeDelete(id, src, tgt)} 
+        />
       )}
       {selectedNodeData && (
-        <NodeEditor data={selectedNodeData} onSubmit={handleNodeSubmit} onClose={() => setSelectedNodeData(null)} onDelete={handleNodeDelete} />
+        <NodeEditor 
+            data={selectedNodeData} 
+            onSubmit={handleNodeSubmit} 
+            onClose={() => setSelectedNodeData(null)} 
+            onDelete={handleNodeDelete} 
+        />
       )}
       
       <ControlsContainer position={"bottom-right"}>

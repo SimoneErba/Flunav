@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useTheme, THEMES } from "../context/theme.context";
 import { confirmToast } from "./graph/utils/toastUtils";
-import toast from "react-hot-toast";
+import { createPortal } from "react-dom";
 
 export interface NodeEditorData {
   nodeId: string;
@@ -17,9 +16,6 @@ interface NodeEditorProps {
 }
 
 export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
-  const { mode } = useTheme();
-  const theme = THEMES[mode];
-
   const [name, setName] = useState(data.name);
   const [capacity, setCapacity] = useState(data.capacity || 0);
 
@@ -38,86 +34,103 @@ export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProp
             onClose();
         }
     );
-};
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSubmit();
     else if (e.key === 'Escape') onClose();
   };
 
-  // Dynamic Styles
-  const panelStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "20px",
-    left: "20px",
-    padding: "15px",
-    borderRadius: "8px",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
-    zIndex: 1000,
-    width: "250px",
-    backgroundColor: theme.uiBackground,
-    color: theme.uiText,
-    border: `1px solid ${theme.uiBorder}`,
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px"
-  };
-
-  const inputStyle: React.CSSProperties = {
-    padding: "6px",
-    borderRadius: "4px",
-    border: `1px solid ${theme.uiBorder}`,
-    backgroundColor: theme.inputBackground,
-    color: theme.inputColor,
-    width: "100%",
-    colorScheme: mode
-  };
-
-  const buttonStyle: React.CSSProperties = {
-    padding: "6px 12px",
-    borderRadius: "4px",
-    border: "none",
-    cursor: "pointer",
-    backgroundColor: mode === 'dark' ? '#444' : '#e0e0e0',
-    color: theme.uiText,
-    flex: 1
-  };
-
-  return (
-    <div style={panelStyle}>
-      <h4 style={{ margin: "0 0 10px 0", borderBottom: `1px solid ${theme.uiBorder}`, paddingBottom: "5px" }}>
+  const content = (
+    <div className="
+      fixed top-24 left-5 z-[1000] w-64 p-4 
+      flex flex-col gap-3
+      bg-white dark:bg-gray-800 
+      text-gray-900 dark:text-gray-100
+      border border-gray-200 dark:border-gray-700 
+      rounded-lg shadow-xl animate-slide-in
+      max-h-[80vh] overflow-y-auto 
+    ">
+      <h4 className="text-lg font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 m-0">
         Edit Location
       </h4>
       
       <div>
-        <label style={{ display: "block", marginBottom: "4px", fontSize: "0.9em" }}>Name:</label>
+        <label className="block mb-1 text-sm font-medium text-gray-600 dark:text-gray-400">
+          Name:
+        </label>
         <input 
             type="text" 
             value={name} 
             onChange={e => setName(e.target.value)}
             onKeyDown={handleKeyPress}
             autoFocus
-            style={inputStyle}
+            className="
+              w-full p-2 rounded border text-sm
+              bg-gray-50 dark:bg-gray-900 
+              border-gray-300 dark:border-gray-600 
+              text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
+            "
         />
       </div>
 
       <div>
-        <label style={{ display: "block", marginBottom: "4px", fontSize: "0.9em" }}>Capacity:</label>
+        <label className="block mb-1 text-sm font-medium text-gray-600 dark:text-gray-400">
+          Capacity:
+        </label>
         <input 
             type="number" 
             value={capacity} 
             min="0"
             onChange={e => setCapacity(parseFloat(e.target.value))}
             onKeyDown={handleKeyPress}
-            style={inputStyle}
+            className="
+              w-full p-2 rounded border text-sm
+              bg-gray-50 dark:bg-gray-900 
+              border-gray-300 dark:border-gray-600 
+              text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
+              dark:[color-scheme:dark]
+            "
         />
       </div>
 
-      <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-        <button onClick={handleDelete} style={{ ...buttonStyle, backgroundColor: "#d32f2f", color: "white" }} title="Delete">🗑️</button>
-        <button onClick={onClose} style={buttonStyle} title="Close">Cancel</button>
-        <button onClick={handleSubmit} style={{ ...buttonStyle, backgroundColor: "#28a745", color: "white" }} title="Save">Save</button>
+      <div className="flex gap-2 mt-2">
+        <button 
+          onClick={handleDelete} 
+          className="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+          title="Delete"
+        >
+          🗑️
+        </button>
+        
+        <button 
+          onClick={onClose} 
+          className="
+            flex-1 px-3 py-1.5 rounded font-medium transition-colors
+            bg-gray-200 dark:bg-gray-700 
+            text-gray-800 dark:text-gray-200 
+            hover:bg-gray-300 dark:hover:bg-gray-600
+          "
+          title="Close"
+        >
+          Cancel
+        </button>
+        
+        <button 
+          onClick={handleSubmit} 
+          className="
+            flex-1 px-3 py-1.5 rounded font-medium text-white transition-colors
+            bg-green-600 hover:bg-green-700
+          "
+          title="Save"
+        >
+          Save
+        </button>
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 };
