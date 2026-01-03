@@ -1,5 +1,7 @@
 package com.flunav.backend.models.response;
 
+import java.util.Map;
+
 import flunav.types.ConveyorType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -22,4 +24,6 @@ public class ConveyorResponse {
     private Boolean active;
     private Boolean isMainPath;
     private Integer capacity;
+
+    private Map<String, Object> properties;
 }

@@ -24,7 +24,8 @@ export const useGraphLoader = (
                 type: "circle",
                 id: loc.id, 
                 capacity: loc.capacity,
-                locationType: loc.type
+                locationType: loc.type,
+                properties: loc.properties
             });
         });
 
@@ -64,7 +65,8 @@ export const useGraphLoader = (
             
             graph.addNode(item.id, {
                 x: startX, y: startY, label: item.name, size: 6, color: "#FF0000",
-                type: "square", id: item.id, isItem: true, path: item.path
+                type: "square", id: item.id, isItem: true, path: item.path, properties: item.properties, isActive: item.active
+
             });
         });
 

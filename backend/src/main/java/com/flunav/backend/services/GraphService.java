@@ -300,6 +300,7 @@ public class GraphService {
         conv.setActive(res.getProperty("active"));
         conv.setIsMainPath(res.getProperty("isMainPath"));
         conv.setCapacity(res.getProperty("capacity"));
+        conv.setProperties(res.getProperty("properties"));
         String typeStr = res.getProperty("type");
         conv.setType(typeStr != null ? ConveyorType.valueOf(typeStr) : ConveyorType.BELT);
         return conv;

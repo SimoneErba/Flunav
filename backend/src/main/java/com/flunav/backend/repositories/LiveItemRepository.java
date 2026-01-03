@@ -51,7 +51,7 @@ public class LiveItemRepository {
 
         Map<String, String> data = new HashMap<>();
         data.put("e", positionId); // 'e' now stores positionId (Location or Conveyor ID)
-        data.put("ty", type.name()); // Store Enum name ("LOCATION" or "CONVEYOR")
+        data.put("ty", type != null ? type.name() : null); // Store Enum name ("LOCATION" or "CONVEYOR")
         data.put("t", String.valueOf(entryTime.toEpochMilli()));
         data.put("ad", "0.0");
 

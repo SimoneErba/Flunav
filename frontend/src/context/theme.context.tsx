@@ -1,19 +1,31 @@
 import React, { useEffect, createContext, useContext, useState } from "react";
 import { useSigma } from "@react-sigma/core";
 
-// Palette per Sigma.js (WebGL canvas) - separata dal CSS UI
+// Defined Palette including both CANVAS (WebGL) and UI (HTML Panels) colors
 export const THEMES = {
   light: {
+    // --- Sigma/WebGL Colors ---
     label: "#000000", 
     nodeDefault: "#333333",
     edgeDefault: "#cccccc",
     itemColor: "#d32f2f",
+    
+    // --- UI/Panel Colors (Used by Editors) ---
+    uiBorder: "#e5e7eb", // Tailwind gray-200
+    uiText: "#1f2937",   // Tailwind gray-800
+    uiBackground: "#ffffff",
   },
   dark: {
+    // --- Sigma/WebGL Colors ---
     label: "#ffffff", 
     nodeDefault: "#4db6ac",
     edgeDefault: "#555555",
     itemColor: "#ff5252",
+
+    // --- UI/Panel Colors (Used by Editors) ---
+    uiBorder: "#374151", // Tailwind gray-700
+    uiText: "#f3f4f6",   // Tailwind gray-100
+    uiBackground: "#1f2937",
   },
 };
 

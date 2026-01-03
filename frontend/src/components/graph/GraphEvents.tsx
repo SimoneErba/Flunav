@@ -39,7 +39,7 @@ export const GraphEvents = ({
   const { 
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
-      lineCoordinates, draggedNodeRef, setIsDetailsOpen
+      lineCoordinates, draggedNodeRef, setIsDetailsOpen, handleItemSubmit, handleItemDelete
   } = useGraphInteractions(adjustItemsForSpeedChange, { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
@@ -77,6 +77,8 @@ export const GraphEvents = ({
       {/* Editors */}
       {selectedItemData && (
         <ItemEditor
+            onSubmit={handleItemSubmit}
+            onDelete={handleItemDelete}
             data={selectedItemData} 
             onClose={() => {setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false)}} 
         />

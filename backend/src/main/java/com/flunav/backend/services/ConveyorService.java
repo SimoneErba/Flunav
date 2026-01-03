@@ -130,6 +130,7 @@ public class ConveyorService {
                         edge.setProperty("length", conveyor.getLength());
                         edge.setProperty("active", conveyor.isActive());
                         edge.setProperty("isMainPath", conveyor.isMainPath());
+                        edge.setProperty("properties", conveyor.getProperties());
                         if (conveyor.getCapacity() != null) {
                             edge.setProperty("capacity", conveyor.getCapacity());
                         }
@@ -180,6 +181,7 @@ public class ConveyorService {
                 type,
                 edge.getProperty("active") != null ? edge.getProperty("active") : true,
                 edge.getProperty("capacity"),
-                edge.getProperty("isMainPath") != null ? edge.getProperty("isMainPath") : false);
+                edge.getProperty("isMainPath") != null ? edge.getProperty("isMainPath") : false,
+                edge.getProperty("properties"));
     }
 }

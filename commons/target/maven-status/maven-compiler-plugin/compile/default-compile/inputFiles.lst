@@ -3,6 +3,7 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionDeactivatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionDeletedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionLengthChangedEvent.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionPropertiesUpdatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionRemoveFromMainPath.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionSpeedChangedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/DomainEvent.java

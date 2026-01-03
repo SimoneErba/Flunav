@@ -5,6 +5,7 @@ import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
+import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.simulation.SimulationStatus;
 
 import flunav.context.UserContextHolder;
@@ -70,8 +71,8 @@ public class WebSocketService {
 
     // --- ITEM EVENTS ---
 
-    public void broadcastItemCreated(ItemInput item, Instant timestamp) {
-        EntityMessage<ItemInput> payload = new EntityMessage<>(CrudOperation.CREATED, item);
+    public void broadcastItemCreated(ItemResponse item, Instant timestamp) {
+        EntityMessage<ItemResponse> payload = new EntityMessage<>(CrudOperation.CREATED, item);
         sendToTopic(null, "items", payload, timestamp.toEpochMilli());
     }
 

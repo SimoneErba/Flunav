@@ -1,5 +1,7 @@
 package com.flunav.backend.domain;
 
+import java.util.Map;
+
 import flunav.types.ConveyorType;
 import lombok.Getter;
 import lombok.Setter;
@@ -17,9 +19,10 @@ public class Conveyor {
     private boolean active;
     private Integer capacity;
     private boolean isMainPath;
+    private Map<String, Object> properties;
 
     public Conveyor(String id, String sourceId, String targetId, Double length, Double speed, ConveyorType type,
-            boolean active, Integer capacity, boolean isMainPath) {
+            boolean active, Integer capacity, boolean isMainPath, Map<String, Object> properties) {
         this.id = id;
         this.sourceLocationId = sourceId;
         this.targetLocationId = targetId;
@@ -29,5 +32,6 @@ public class Conveyor {
         this.active = active;
         this.capacity = capacity;
         this.isMainPath = isMainPath;
+        this.properties = properties;
     }
 }

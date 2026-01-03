@@ -22,7 +22,7 @@ export const useGraphInteractions = (
 ) => {
     const sigma = useSigma();
     const registerEvents = useRegisterEvents();
-    const { locationApi, conveyorsApi } = useApi();
+    const { locationApi, conveyorsApi, itemApi } = useApi();
 
     const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
     const isReadOnly = isDemoMode && !simulationId;
@@ -53,6 +53,7 @@ export const useGraphInteractions = (
     const stateRef = useRef({
         isReadOnly,
         locationApi,
+        itemApi,
         conveyorsApi,
         adjustItemsForSpeedChange,
         // Selection State
@@ -69,6 +70,7 @@ export const useGraphInteractions = (
             isReadOnly,
             locationApi,
             conveyorsApi,
+            itemApi,
             adjustItemsForSpeedChange,
             selectedEdgeData,
             selectedNodeData,
@@ -81,7 +83,7 @@ export const useGraphInteractions = (
     ]);
 
     // --- 2. STABLE HANDLERS (Editors) ---
-    const handleEdgeSubmit = useCallback(async ({ speed, length, isMainPath }: any) => {
+    const handleEdgeSubmit = useCallback(async ({ speed, length, isMainPath, properties }: any) => {
         const { isReadOnly, conveyorsApi, adjustItemsForSpeedChange } = stateRef.current;
         if (!selectedEdgeData || isReadOnly) return;
         
@@ -95,9 +97,10 @@ export const useGraphInteractions = (
             graph.setEdgeAttribute(edgeId, 'length', Number(length));
             graph.setEdgeAttribute(edgeId, 'isMainPath', isMainPath);
             graph.setEdgeAttribute(edgeId, 'size', isMainPath ? 6 : 3);
+            graph.setNodeAttribute(edgeId, 'properties', properties);
 
             if (conveyorId) {
-                await conveyorsApi.updateConveyor(conveyorId, { speed: Number(speed), length: Number(length), isMainPath });
+                await conveyorsApi.updateConveyor(conveyorId, { speed: Number(speed), length: Number(length), isMainPath, properties });
                 toast.success("Conveyor updated");
             }
             sigma.refresh();
@@ -108,7 +111,7 @@ export const useGraphInteractions = (
         }
     }, [sigma, selectedEdgeData]);
 
-    const handleNodeSubmit = useCallback(async ({ name, capacity }: any) => {
+    const handleNodeSubmit = useCallback(async ({ name, capacity, properties }: any) => {
         const { isReadOnly, locationApi } = stateRef.current;
         if (!selectedNodeData || isReadOnly) return;
         
@@ -118,8 +121,9 @@ export const useGraphInteractions = (
         try {
             graph.setNodeAttribute(nodeId, 'label', name);
             graph.setNodeAttribute(nodeId, 'capacity', capacity);
+            graph.setNodeAttribute(nodeId, 'properties', properties);
             sigma.refresh();
-            await locationApi.updateLocation(nodeId, { name, capacity });
+            await locationApi.updateLocation(nodeId, { name, capacity, properties });
             toast.success("Location updated");
         } catch (error) { 
             console.error(error);
@@ -127,6 +131,26 @@ export const useGraphInteractions = (
         }
         setSelectedNodeData(null);
     }, [sigma, selectedNodeData]);
+
+    const handleItemSubmit = useCallback(async ({ name, properties }: any) => {
+        const { isReadOnly, itemApi } = stateRef.current;
+        if (!selectedItemData || isReadOnly) return;
+        
+        const graph = sigma.getGraph();
+        const { itemId } = selectedItemData;
+        
+        try {
+            graph.setNodeAttribute(itemId, 'label', name);
+            graph.setNodeAttribute(itemId, 'properties', properties);
+            sigma.refresh();
+            await itemApi.updateItem(itemId, { name, properties });
+            toast.success("Item updated");
+        } catch (error) { 
+            console.error(error);
+            toast.error("Failed to update item");
+        }
+        setSelectedItemData(null);
+    }, [sigma, selectedItemData]);
 
     const handleEdgeDelete = useCallback(async (edgeId: string, sourceId: string, targetId: string) => {
         const { isReadOnly, conveyorsApi } = stateRef.current;
@@ -162,6 +186,24 @@ export const useGraphInteractions = (
             }
         }
         setSelectedNodeData(null);
+    }, [sigma]);
+
+    const handleItemDelete = useCallback(async (itemId: string) => {
+        const { isReadOnly, itemApi } = stateRef.current;
+        if (isReadOnly) return;
+
+        const graph = sigma.getGraph();
+        if (graph.hasNode(itemId)) {
+            try {
+                graph.dropNode(itemId);
+                sigma.refresh();
+                await itemApi.deleteItem(itemId);
+                toast.success("Item deleted");
+            } catch (error) {
+                toast.error("Failed to delete item");
+            }
+        }
+        setSelectedItemData(null);
     }, [sigma]);
 
     // --- 3. THE MAIN EVENT LOOP ---
@@ -304,7 +346,7 @@ export const useGraphInteractions = (
                     const attrs = sigma.getGraph().getNodeAttributes(node);
                     const { isReadOnly, locationApi } = stateRef.current;
 
-                    if (!isReadOnly && !attrs.isItem) {
+                    if (didMoveRef.current && !isReadOnly && !attrs.isItem) {
                         locationApi.updateLocationCoordinates(node, { latitude: attrs.x, longitude: attrs.y })
                             .catch(() => toast.error("Failed to save node position"));
                     }
@@ -345,7 +387,7 @@ export const useGraphInteractions = (
                 
                 const graph = sigma.getGraph();
                 const attrs = graph.getEdgeAttributes(edge);
-                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, isMainPath: attrs.isMainPath });
+                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, isMainPath: attrs.isMainPath, properties: attrs.properties });
             },
             clickNode: ({ node }) => {
                 if (didMoveRef.current) return;
@@ -361,7 +403,7 @@ export const useGraphInteractions = (
                     // It's a location: Open editor
                     const { isReadOnly } = stateRef.current;
                     if (isReadOnly) { notifyReadOnly(); return; }
-                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity });
+                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity, properties: attrs.properties });
                 }
             }
         });
@@ -371,6 +413,6 @@ export const useGraphInteractions = (
         selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
         selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
         lineCoordinates, draggedNodeRef,
-        isDetailsOpen, setIsDetailsOpen,
+        isDetailsOpen, setIsDetailsOpen, handleItemSubmit,handleItemDelete
     };
 };

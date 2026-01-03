@@ -53,7 +53,8 @@ public class ConnectionController {
             Boolean isMainPath,
             Boolean isActive,
             ConveyorType type,
-            Integer capacity) {
+            Integer capacity,
+            Map<String, Object> properties) {
     }
 
     public record SpeedUpdateRequest(Double speed) {
@@ -107,7 +108,8 @@ public class ConnectionController {
                 input.name(),
                 input.isActive(),
                 input.type(),
-                input.capacity());
+                input.capacity(),
+                input.properties());
 
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> {
@@ -160,6 +162,19 @@ public class ConnectionController {
                 }
                 boolean isMain = (Boolean) value;
                 events.add(isMain ? new LocationAddToMainPath(id) : new ConnectionRemoveFromMainPath(id));
+            }
+
+            if (updates.containsKey("properties")) {
+                Object value = updates.get("properties");
+                if (value instanceof Map) {
+
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> props = (Map<String, Object>) value;
+                    events.add(new ConnectionPropertiesUpdatedEvent(id, props));
+                } else {
+                    logger.warn("Invalid type for 'properties' on conveyor {}", id);
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
             }
 
             // Note: If you have events for renaming or changing active status, add them

@@ -165,6 +165,19 @@ public class LocationController {
                 events.add(new LocationCoordinatesChangedEvent(id, ((Number) latObj).doubleValue(),
                         ((Number) lonObj).doubleValue()));
             }
+
+            if (updates.containsKey("properties")) {
+                Object value = updates.get("properties");
+                if (value instanceof Map) {
+
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> props = (Map<String, Object>) value;
+                    events.add(new LocationPropertiesUpdatedEvent(id, props));
+                } else {
+                    logger.warn("Invalid type for 'properties' on item {}", id);
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+            }
         } catch (Exception e) {
             logger.error("An unexpected error occurred during payload validation for location {}", id, e);
             return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());

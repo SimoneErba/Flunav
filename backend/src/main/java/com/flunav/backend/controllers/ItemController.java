@@ -91,6 +91,19 @@ public class ItemController {
                 events.add(new ItemRenamedEvent(id, (String) value));
             }
 
+            if (updates.containsKey("properties")) {
+                Object value = updates.get("properties");
+                if (value instanceof Map) {
+
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> props = (Map<String, Object>) value;
+                    events.add(new ItemPropertiesUpdatedEvent(id, props));
+                } else {
+                    logger.warn("Invalid type for 'properties' on item {}", id);
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+            }
+
         } catch (Exception e) {
             logger.error("An unexpected error occurred during payload validation for location {}", id, e);
             return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
@@ -116,20 +129,6 @@ public class ItemController {
                     logger.error("Error processing event batch for item {}. At least one event failed.", id,
                             ex.getCause());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build();
-                });
-    }
-
-    @BlockInDemo
-    @PutMapping()
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateItemProperties(@PathVariable String id,
-            @RequestBody PropertyUpdateRequest model) {
-        var event = new ItemPropertiesUpdatedEvent(
-                id,
-                model.properties());
-        return eventProcessorHelper.processAndLogEvent(event)
-                .thenApply(updatedItemProperties -> {
-
-                    return ResponseEntity.ok(updatedItemProperties);
                 });
     }
 

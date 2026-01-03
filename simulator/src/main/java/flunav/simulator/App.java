@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
@@ -366,7 +367,27 @@ public class App {
                 } catch (Exception e) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", 0.0, new HashMap<>()), "POST");
+                double weight = 1.0 + random.nextDouble() * 49.0;
+
+                // Dimensions: Integers between 10 and 80 cm
+                int height = 10 + random.nextInt(71);
+                int width = 10 + random.nextInt(71);
+                int depth = 10 + random.nextInt(71);
+
+                // Barcode: A 12-digit numeric string, padded with zeros
+                long barcodeValue = random.nextLong(1_000_000_000_000L);
+                String barcode = String.format("%012d", barcodeValue);
+
+                // Create the attributes map
+                Map<String, Object> attributes = new HashMap<>();
+                attributes.put("weight", Double.parseDouble(String.format("%.2f", weight)));
+                attributes.put("height", height);
+                attributes.put("width", width);
+                attributes.put("depth", depth);
+                attributes.put("barcode", barcode);
+
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", 0.0, attributes),
+                        "POST");
 
                 // 2. Set Destination (if applicable)
                 if (destination != null) {
@@ -478,7 +499,7 @@ public class App {
                 "Conveyor_" + from + "_" + to,
                 true,
                 ConveyorType.BELT,
-                0);
+                0, new HashMap<>());
 
         sendEvent(event, "POST");
     }

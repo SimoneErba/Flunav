@@ -1,20 +1,51 @@
-import { ItemResponse } from "../api-client";
-import { PropertiesViewer } from "./properties.viewer";
+import { useState, useEffect } from "react";
+import { PropertiesEditor } from "./properties.editor";
+import { confirmToast } from "./graph/utils/toastUtils";
 
-interface ItemPanelProps {
-  data: ItemResponse;
+interface ItemEditorProps {
+  data: any;
   onClose: () => void;
+  onSubmit: (updatedData: any) => void; 
+  onDelete: (id: string) => void;
 }
 
-export const ItemEditor = ({ data, onClose }: ItemPanelProps) => {
+export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProps) => {
+  // Master State
+  const [name, setName] = useState(data.label || "");
+  const [properties, setProperties] = useState(data.properties || {});
+
+  // Sync state if data prop changes (e.g. selection change)
+  useEffect(() => {
+    setName(data.label || "");
+    setProperties(data.properties || {});
+  }, [data]);
+
+  const handleSubmit = () => {
+    // Single payload sent to parent
+    onSubmit({
+      name: name,
+      properties: properties
+    });
+    // Optional: close on save, or stay open
+    // onClose(); 
+  };
+
+  const handleDelete = () => {
+    confirmToast(`Delete item ${data.id}?`, () => {
+      onDelete(data.id);
+      onClose();
+    });
+  };
+
   return (
     <div className="
-      absolute top-5 left-5 z-[1000] w-72 p-4
-      flex flex-col gap-3
+      absolute top-5 left-5 z-[1000] w-80 p-4
+      flex flex-col gap-4
       bg-white dark:bg-gray-800 
       text-gray-900 dark:text-gray-100
       border border-gray-200 dark:border-gray-700 
-      rounded-lg shadow-xl 
+      rounded-lg shadow-xl animate-slide-in
+      max-h-[85vh] overflow-y-auto
     ">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-2">
@@ -24,50 +55,58 @@ export const ItemEditor = ({ data, onClose }: ItemPanelProps) => {
         </span>
       </div>
 
-      {/* Name Field */}
+      {/* Name Input (Now Editable) */}
       <div>
         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
           Name
         </label>
-        <div className="text-base font-medium truncate">
-          {data.name || "Unnamed Item"}
-        </div>
+        <input 
+          type="text" 
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full p-2 rounded border text-sm bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+        />
       </div>
 
-      {/* Speed & Status Grid */}
-      <div className="flex gap-4">
-        <div className="flex-1">
-            <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-              Status
-            </label>
-            <div className={`font-bold text-sm ${
-                data.status === 'ACTIVE' 
-                  ? 'text-green-600 dark:text-green-400' 
-                  : 'text-amber-600 dark:text-amber-400'
-            }`}>
-                {data.status}
-            </div>
-        </div>
+      {/* Status (Read Only) */}
+      <div>
+          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Status
+          </label>
+          <div className={`font-bold text-sm ${data.isActive ? 'text-green-600' : 'text-amber-600'}`}>
+              {data.isActive ? "ACTIVE": "INACTIVE"}
+          </div>
       </div>
 
-      {/* Dynamic Properties Section */}
-      {/* We add a separator line before properties for visual separation */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-1">
-        <PropertiesViewer properties={data.properties} />
+      {/* Unified Properties Editor */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+        <PropertiesEditor 
+          properties={properties} 
+          onChange={(newProps) => setProperties(newProps)} 
+        />
       </div>
 
-      {/* Close Button */}
-      <button 
-        onClick={onClose} 
-        className="
-          w-full mt-2 px-4 py-2 rounded font-medium transition-colors
-          bg-gray-200 dark:bg-gray-700 
-          text-gray-800 dark:text-gray-200 
-          hover:bg-gray-300 dark:hover:bg-gray-600
-        "
-      >
-        Close
-      </button>
+      {/* Action Buttons */}
+      <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <button 
+          onClick={handleDelete}
+          className="px-3 py-2 rounded bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 transition-colors"
+        >
+          🗑️
+        </button>
+        <button 
+          onClick={onClose} 
+          className="flex-1 px-4 py-2 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium transition-colors"
+        >
+          Cancel
+        </button>
+        <button 
+          onClick={handleSubmit} 
+          className="flex-1 px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-sm"
+        >
+          Save Changes
+        </button>
+      </div>
     </div>
   );
 };

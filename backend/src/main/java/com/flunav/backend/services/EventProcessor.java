@@ -5,6 +5,7 @@ import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
+import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
@@ -12,6 +13,7 @@ import flunav.events.*;
 import flunav.types.LocationType;
 import jakarta.annotation.PreDestroy;
 
+import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,8 @@ public class EventProcessor {
     private final WebSocketService webSocketService;
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
+
+    ModelMapper modelMapper = new ModelMapper();
 
     // --- NUOVA LOGICA: Gestori di Esecuzione ---
 
@@ -205,7 +209,8 @@ public class EventProcessor {
                     itemService.createItem(item);
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastItemCreated(item, e.getTimestamp());
+                        ItemResponse response = modelMapper.map(item, ItemResponse.class);
+                        webSocketService.broadcastItemCreated(response, e.getTimestamp());
                     }
                     yield Map.of("status", "CREATED", "itemId", e.getEntityId());
                 }
@@ -394,7 +399,8 @@ public class EventProcessor {
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionCreated(new ConveyorResponse(e.getConnectionId(),
                                 e.getSourceId(), e.getTargetId(), e.getName(), e.getLength(), e.getSpeed(), e.getType(),
-                                e.getIsActive(), e.getIsMainPath(), e.getCapacity()), e.getTimestamp());
+                                e.getIsActive(), e.getIsMainPath(), e.getCapacity(),
+                                e.getProperties()), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -419,6 +425,19 @@ public class EventProcessor {
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), Map.of("length", e.getLength())), e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ConnectionPropertiesUpdatedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setProperties(e.getUpdatedProperties());
+                    conveyorService.updateConveyor(conveyor);
+
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("properties", e.getUpdatedProperties())),
+                                e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }

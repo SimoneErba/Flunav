@@ -1,5 +1,7 @@
 package flunav.events;
 
+import java.util.Map;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -21,6 +23,8 @@ public class ConnectionCreatedEvent extends EntityEvent {
     private final Integer capacity;
     private final ConveyorType type;
 
+    private final Map<String, Object> properties;
+
     @JsonCreator
     public ConnectionCreatedEvent(
             @JsonProperty("connectionId") String connectionId,
@@ -33,7 +37,8 @@ public class ConnectionCreatedEvent extends EntityEvent {
             @JsonProperty("name") String name,
             @JsonProperty("isActive") Boolean isActive,
             @JsonProperty("type") ConveyorType type,
-            @JsonProperty("capacity") Integer capacity) {
+            @JsonProperty("capacity") Integer capacity,
+            @JsonProperty("properties") Map<String, Object> properties) {
         super(connectionId, "CONNECTION_CREATED");
         this.connectionId = connectionId;
         this.sourceId = sourceId;
@@ -46,5 +51,6 @@ public class ConnectionCreatedEvent extends EntityEvent {
         this.isActive = (isActive != null) ? isActive : true;
         this.capacity = capacity;
         this.type = type;
+        this.properties = properties;
     }
 }

@@ -150,7 +150,8 @@ export const useGraphLiveEvents = (
                 id: item.id, 
                 isItem: true,
                 hidden: isHidden, // Start invisible if location unknown
-                path: item.path
+                properties: item.properties,
+                isActive: item.active
             });
             
             // Update Logic State
@@ -200,7 +201,7 @@ export const useGraphLiveEvents = (
             if (graph.hasNode(loc.id)) return;
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id!), y: loc.longitude ?? hashToNumber(loc.id + "random"),
-                label: loc.name, size: 10, color: "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity
+                label: loc.name, size: 10, color: "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, properties: loc.properties
             });
         }, simulationId));
 

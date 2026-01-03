@@ -40,6 +40,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ConnectionLengthChangedEvent.class, name = "CONNECTION_LENGTH_CHANGED"),
         @JsonSubTypes.Type(value = ConnectionRemoveFromMainPath.class, name = "CONNECTION_REMOVE_FROM_MAIN_PATH"),
         @JsonSubTypes.Type(value = ConnectionSpeedChangedEvent.class, name = "CONNECTION_SPEED_CHANGED"),
+        @JsonSubTypes.Type(value = ConnectionPropertiesUpdatedEvent.class, name = "CONNECTION_PROPERTIES_UPDATED"),
 })
 public abstract class DomainEvent {
     private final String eventId;
