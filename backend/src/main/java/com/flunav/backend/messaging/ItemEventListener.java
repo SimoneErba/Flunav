@@ -4,8 +4,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.PreDestroy;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -13,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.amqp.core.Message;
 
 import flunav.events.DomainEvent;
+import jakarta.annotation.PreDestroy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

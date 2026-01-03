@@ -7,10 +7,10 @@ import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
-
 import flunav.context.UserContextHolder;
 import flunav.events.*;
 import flunav.types.LocationType;
+import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +23,12 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import com.flunav.backend.context.DatabaseContextHolder;
 
@@ -30,6 +36,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 public class EventProcessor {
     private static final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
 
+    // --- Servizi Dipendenti (Invariati) ---
     private final ClickHouseService clickHouseService;
     private final ItemService itemService;
     private final LocationService locationService;
@@ -37,6 +44,15 @@ public class EventProcessor {
     private final WebSocketService webSocketService;
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
+
+    // --- NUOVA LOGICA: Gestori di Esecuzione ---
+
+    // 1. Un unico pool di thread principale, che useremo per tutte le operazioni.
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+    // 2. La mappa che tiene traccia dei "lavori in corso" per ogni entityId.
+    // Il valore è il Future dell'ULTIMO task in coda per quell'ID.
+    private final ConcurrentMap<String, CompletableFuture<Void>> processingFutures = new ConcurrentHashMap<>();
 
     public EventProcessor(
             ClickHouseService clickHouseService,
@@ -55,34 +71,97 @@ public class EventProcessor {
         this.liveItemRepository = liveItemRepository;
     }
 
+    /**
+     * Metodo pubblico principale, ora con logica di chaining per l'ordinamento.
+     */
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
+        final String entityId = (event instanceof EntityEvent e) ? e.getEntityId() : null;
+
+        // Se non c'è un ID, esegui subito in modo asincrono usando il nostro helper
+        // standard.
+        if (entityId == null) {
+            return executeOn(event, shouldBroadcast, executor);
+        }
+
+        // Questo Future rappresenta il risultato del *nostro* task specifico.
+        CompletableFuture<Map<String, Object>> taskResultFuture = new CompletableFuture<>();
+
+        // Aggiorna atomicamente la mappa per concatenare il nostro task.
+        processingFutures.compute(entityId, (id, previousTaskCompletion) -> {
+
+            // Definiamo il nostro lavoro come un Supplier<CompletableFuture>
+            Supplier<CompletableFuture<Map<String, Object>>> workSupplier = () -> executeOn(event, shouldBroadcast,
+                    executor);
+
+            if (previousTaskCompletion == null || previousTaskCompletion.isDone()) {
+                // Nessun task precedente, esegui subito.
+                workSupplier.get()
+                        .whenComplete((result, error) -> {
+                            if (error != null)
+                                taskResultFuture.completeExceptionally(error);
+                            else
+                                taskResultFuture.complete(result);
+                        });
+            } else {
+                // C'è un task precedente, agganciati alla sua fine.
+                previousTaskCompletion.whenComplete((ignored, throwable) -> {
+                    workSupplier.get()
+                            .whenComplete((result, error) -> {
+                                if (error != null)
+                                    taskResultFuture.completeExceptionally(error);
+                                else
+                                    taskResultFuture.complete(result);
+                            });
+                });
+            }
+
+            // Il nuovo "ultimo task" della catena è il nostro.
+            return taskResultFuture.thenApply(v -> null); // Converti a CompletableFuture<Void>
+        });
+
+        return taskResultFuture;
+    }
+
+    /**
+     * Metodo helper privato per eseguire la logica di business su un executor
+     * specifico.
+     * È il "worker" che viene chiamato dalla logica di 'process'.
+     * La gestione dei ThreadLocal è centralizzata qui.
+     */
+    private CompletableFuture<Map<String, Object>> executeOn(DomainEvent event, boolean shouldBroadcast,
+            Executor executor) {
+        return CompletableFuture.supplyAsync(() -> executeBusinessLogic(event, shouldBroadcast), executor);
+    }
+
+    /**
+     * Contiene la logica di business effettiva.
+     * Centralizza la gestione dei ThreadLocal e le chiamate ai servizi.
+     */
+    private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast) {
         String capturedSimulationId = DatabaseContextHolder.getSimulationId();
         String capturedSenderId = UserContextHolder.getSenderId();
-        return CompletableFuture.supplyAsync(() -> {
 
-            // We inject the values into this new thread's ThreadLocal
-            if (capturedSimulationId != null) {
+        try {
+            if (capturedSimulationId != null)
                 DatabaseContextHolder.enterSimulationContext(capturedSimulationId);
-            }
-            if (capturedSenderId != null) {
+            if (capturedSenderId != null)
                 UserContextHolder.setSenderId(capturedSenderId);
+
+            if (capturedSimulationId == null) {
+                clickHouseService.saveEventAsync(event);
             }
-            Map<String, Object> resultMap = new HashMap<>();
-            try {
-                if (capturedSimulationId == null) {
-                    clickHouseService.saveEventAsync(event);
-                }
-                resultMap = processEvent(event, shouldBroadcast);
-                logger.info("Successfully processed event: {}", event.getEventType());
-                return resultMap;
-            } catch (Exception e) {
-                logger.error("Error processing event: {}", event.getEventType(), e);
-                throw new CompletionException(e);
-            } finally {
-                DatabaseContextHolder.clearSimulation();
-                UserContextHolder.clear();
-            }
-        });
+
+            Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
+            logger.info("Successfully processed event: {}", event.getEventType());
+            return resultMap;
+
+        } catch (Exception e) {
+            logger.error("Error processing event: {}", event.getEventType(), e);
+            throw new CompletionException(e);
+        } finally {
+            DatabaseContextHolder.clearSimulation();
+            UserContextHolder.clear();
+        }
     }
 
     private <T> T executeWithRetry(Supplier<T> operation) {
@@ -104,6 +183,8 @@ public class EventProcessor {
             }
         }
     }
+
+    // --- Metodi di processamento interni (Invariati) ---
 
     public Map<String, Object> processEvent(DomainEvent event) {
         return processEvent(event, true);
@@ -407,6 +488,27 @@ public class EventProcessor {
                     liveItemRepository.checkpointPhysics(itemId, nowInstant, totalDistance);
                 }
             }
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        logger.info("Shutting down EventProcessor executor...");
+        shutdownExecutor(executor, "Main Executor");
+        logger.info("Executor has been shut down.");
+    }
+
+    private void shutdownExecutor(ExecutorService exec, String name) {
+        exec.shutdown();
+        try {
+            if (!exec.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("{} did not terminate in 5 seconds. Forcing shutdown.", name);
+                exec.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            logger.error("Shutdown was interrupted for {}.", name, e);
+            exec.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }
