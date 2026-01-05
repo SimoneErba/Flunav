@@ -37,12 +37,11 @@ export const DisplayGraph = ({
         autoRescale: true,
         renderEdgeLabels: true, 
         defaultEdgeType: "arrow",
-        zIndex: true
+        zIndex: true,
+        allowInvalidContainer: true,
     }), []);
 
     return (
-        // --- FIX: Usa classi Tailwind invece di style={{ width: '100%', height: '100%' }} ---
-        // Questo div riempirà il <main> che ha flex-1
         <div className="w-full h-full">
             <SigmaContainer 
                 settings={settings}

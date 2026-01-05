@@ -177,9 +177,16 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
         sigma.refresh();
 
         return () => {
-            sigma.setSetting("edgeReducer", null);
-            sigma.setSetting("nodeReducer", null);
-            sigma.refresh();
+            try {
+                sigma.setSetting("edgeReducer", null);
+                sigma.setSetting("nodeReducer", null);
+
+                const container = sigma.getContainer();
+                if (container && container.clientWidth > 0) {
+                    sigma.refresh();
+                }
+            } catch (e) {
+            }
         };
 
     }, [sigma, graph, highlightedItem]);
