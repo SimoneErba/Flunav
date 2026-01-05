@@ -5,6 +5,7 @@ import { SimulationStateResponseStatusEnum } from "./api-client/api";
 import { PlaybackControls } from './components/PlaybackControls';
 import { useSimulationClock } from './components/graph/hooks/useSimulationClock';
 import { ThemeToggle } from './components/theme.toggle';
+import SettingsPanel from './components/SettingsPanel';
 
 // Import Theme Stuff
 import { GraphThemeProvider } from './context/theme.context';
@@ -311,6 +312,7 @@ function AppContent() {
           />
         )}
       </main>
+      <SettingsPanel />
     </div>
   );
 }
