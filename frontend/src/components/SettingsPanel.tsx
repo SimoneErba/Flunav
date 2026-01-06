@@ -2,130 +2,11 @@ import React, { useRef, useState, useEffect, useCallback, memo } from "react";
 import { useApi } from "../hooks/useApi";
 import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from "../api-client";
 import toast from "react-hot-toast";
+import { RuleRow } from "./RuleRow";
+import { v4 as uuidv4 } from 'uuid'; // Use uuid for reliable keys if available, otherwise simpler generator
 
-// --- RuleRow Component ---
-interface RuleRowProps {
-  rule: DisplayRule;
-  orientation: 'horizontal' | 'vertical';
-  onChange: (updatedRule: DisplayRule) => void;
-  onDelete: () => void;
-}
-
-const InputWrapper: React.FC<{ children: React.ReactNode, label: string, orientation: 'horizontal' | 'vertical', className?: string }> = ({ children, label, orientation, className }) => (
-  <div className={`${orientation === 'horizontal' ? 'min-w-0' : 'w-full'} flex flex-col ${className || ''}`}>
-    <label className={`block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1`}>
-      {label}
-    </label>
-    {children}
-  </div>
-);
-
-export const RuleRow = ({ rule, orientation, onChange, onDelete }: RuleRowProps) => {
-
-  const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    onChange({ ...rule, dataType: e.target.value as DisplayRuleDataTypeEnum });
-  };
-
-  const handleOperatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    onChange({ ...rule, operator: e.target.value as DisplayRuleOperatorEnum });
-  };
-
-  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...rule, value: e.target.value });
-  };
-
-  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...rule, color: e.target.value });
-  };
-
-  const layoutClasses = orientation === 'horizontal' 
-    ? 'grid grid-cols-6 gap-2 items-start' 
-    : 'flex flex-col gap-2';
-
-  return (
-    <div className={`${layoutClasses} p-2 rounded bg-gray-100/50 dark:bg-black/20 border-t border-gray-200 dark:border-gray-700`}>
-      <InputWrapper label="Field" orientation={orientation}>
-        <input 
-          type="text" 
-          placeholder="Field Name"
-          value={rule.fieldName || ''}
-          onChange={e => onChange({ ...rule, fieldName: e.target.value })}
-          className="w-full p-2 rounded border text-sm
-                     bg-white text-gray-900 border-gray-300
-                     dark:bg-gray-800 dark:text-white dark:border-gray-600
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </InputWrapper>
-
-      <InputWrapper label="Type" orientation={orientation}>
-        <select 
-          value={rule.dataType || ''} 
-          onChange={handleTypeChange}
-          className="w-full p-2 rounded border text-sm
-                     bg-white text-gray-900 border-gray-300
-                     dark:bg-gray-800 dark:text-white dark:border-gray-600
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="" disabled>Select Type</option>
-          {Object.values(DisplayRuleDataTypeEnum).map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
-      </InputWrapper>
-
-      <InputWrapper label="Operator" orientation={orientation}>
-        <select 
-          value={rule.operator || ''} 
-          onChange={handleOperatorChange}
-          className="w-full p-2 rounded border text-sm
-                     bg-white text-gray-900 border-gray-300
-                     dark:bg-gray-800 dark:text-white dark:border-gray-600
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="" disabled>Select Operator</option>
-          {Object.values(DisplayRuleOperatorEnum).map(op => (
-            <option key={op} value={op}>{op}</option>
-          ))}
-        </select>
-      </InputWrapper>
-
-      <InputWrapper label="Value" orientation={orientation}>
-        <input
-          type="text"
-          value={rule.value || ''}
-          placeholder="Value"
-          onChange={handleValueChange}
-          className="w-full p-2 rounded border text-sm
-                     bg-white text-gray-900 border-gray-300
-                     dark:bg-gray-800 dark:text-white dark:border-gray-600
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </InputWrapper>
-
-      <InputWrapper label="Color" orientation={orientation} className="relative">
-        <div className={`relative w-full flex ${orientation === 'horizontal' ? 'justify-center' : 'justify-start'} items-center h-10`}>
-            <div className="w-8 h-8 rounded-full border border-gray-500 cursor-pointer" style={{ backgroundColor: rule.color }}></div>
-            <input
-                type="color"
-                value={rule.color || '#ffffff'}
-                onChange={handleColorChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                title="Select color"
-            />
-        </div>
-      </InputWrapper>
-
-      <div className="flex items-center justify-end h-full">
-        <button
-          onClick={onDelete}
-          className="p-2 h-10 rounded bg-red-900/50 hover:bg-red-900/80 text-red-300 transition-colors"
-        >
-          🗑️
-        </button>
-      </div>
-    </div>
-  );
-};
+// Extended type for local state with ID
+type ExtendedDisplayRule = DisplayRule & { _localId: string };
 
 // --- ICONS ---
 const IconDockLeft = (props: any) => (
@@ -163,9 +44,10 @@ type DockSide = 'left' | 'right' | 'bottom';
 const SettingsPanel = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [dockSide, setDockSide] = useState<DockSide>('bottom');
-  const [rules, setRules] = useState<DisplayRule[]>([]);
+  const [rules, setRules] = useState<ExtendedDisplayRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const { displayRuleApi } = useApi();
 
@@ -212,14 +94,14 @@ const SettingsPanel = () => {
   const addRule = () => {
     setRules(prev => [
       ...prev,
-      { id: `rule_${Date.now()}`, fieldName: '', dataType: DisplayRuleDataTypeEnum.String, operator: DisplayRuleOperatorEnum.Equal, value: '', color: '#ffffff' }
+      { _localId: `rule_${Date.now()}`, fieldName: '', dataType: DisplayRuleDataTypeEnum.String, operator: DisplayRuleOperatorEnum.Equal, value: '', color: '#ffffff' }
     ]);
   };
 
   const updateRule = (index: number, updatedRule: DisplayRule) => {
     setRules(prev => {
       const newRules = [...prev];
-      newRules[index] = updatedRule;
+      newRules[index] = { ...updatedRule, _localId: prev[index]._localId };
       return newRules;
     });
   };
@@ -229,7 +111,16 @@ const SettingsPanel = () => {
   const sendRules = async () => {
     try {
       setSaving(true);
-      await displayRuleApi.updateDisplayRules(rules);
+      // Clean local ID and assign Priority based on index (1-based)
+      const rulesToSend = rules.map((r, index) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { _localId, ...rest } = r;
+        return {
+            ...rest,
+            priority: index + 1
+        };
+      });
+      await displayRuleApi.updateDisplayRules(rulesToSend);
       toast.success("Rules saved successfully!");
     } catch (err) {
       console.error(err);
@@ -243,7 +134,12 @@ const SettingsPanel = () => {
     try {
       setLoading(true);
       const backendRules = (await displayRuleApi.getDisplayRules()).data;
-      setRules(backendRules);
+      // Sort by priority if available
+      backendRules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+      
+      // Assign local stable IDs
+      const rulesWithIds = backendRules.map(r => ({ ...r, _localId: uuidv4() }));
+      setRules(rulesWithIds);
     } catch (err) {
       console.error(err);
     } finally {
@@ -252,6 +148,31 @@ const SettingsPanel = () => {
   }, [displayRuleApi]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  // --- Drag & Drop Handlers ---
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault(); // Necessary to allow dropping
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    // Live swapping
+    setRules(prev => {
+        const newRules = [...prev];
+        const draggedItem = newRules[draggedIndex];
+        newRules.splice(draggedIndex, 1);
+        newRules.splice(index, 0, draggedItem);
+        return newRules;
+    });
+    setDraggedIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+  };
+
 
   // --- Collapsed state ---
   if (!isExpanded) {
@@ -318,13 +239,21 @@ const SettingsPanel = () => {
             <div className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">Loading rules...</div>
           ) : (
             rules.map((rule, idx) => (
-              <RuleRow
-                key={idx}
-                rule={rule}
-                onChange={updated => updateRule(idx, updated)}
-                onDelete={() => deleteRule(idx)}
-                orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
-              />
+              <div
+                key={rule._localId}
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                className={`transition-opacity ${draggedIndex === idx ? 'opacity-50' : 'opacity-100'}`}
+              >
+                <RuleRow
+                  rule={rule}
+                  onChange={updated => updateRule(idx, updated)}
+                  onDelete={() => deleteRule(idx)}
+                  orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
+                />
+              </div>
             ))
           )}
 

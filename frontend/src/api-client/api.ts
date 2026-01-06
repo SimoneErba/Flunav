@@ -378,6 +378,12 @@ export interface DisplayRule {
      * @memberof DisplayRule
      */
     'color'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof DisplayRule
+     */
+    'priority'?: number;
 }
 
 export const DisplayRuleDataTypeEnum = {
@@ -630,6 +636,12 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'path'?: Array<string>;
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'customColor'?: string;
 }
 /**
  * 
@@ -860,6 +872,12 @@ export interface LocationResponse {
      * @memberof LocationResponse
      */
     'properties'?: { [key: string]: object; };
+    /**
+     * 
+     * @type {string}
+     * @memberof LocationResponse
+     */
+    'customColor'?: string;
 }
 
 export const LocationResponseTypeEnum = {
