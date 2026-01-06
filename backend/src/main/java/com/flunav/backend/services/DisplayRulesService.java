@@ -77,6 +77,9 @@ public class DisplayRulesService {
     public String applyDisplayRules(
             Map<String, Object> properties,
             List<DisplayRule> rules) {
+
+        if (properties == null)
+            return null;
         return rules.stream()
                 .sorted(Comparator.comparingInt(DisplayRule::getPriority))
                 .filter(rule -> applies(properties, rule))
@@ -121,6 +124,7 @@ public class DisplayRulesService {
         doc.setProperty("operator", rule.getOperator());
         doc.setProperty("value", rule.getValue());
         doc.setProperty("color", rule.getColor());
+        doc.setProperty("priority", rule.getPriority());
         return doc;
     }
 
@@ -135,6 +139,7 @@ public class DisplayRulesService {
         rule.setOperator(typeStr == null ? OperatorType.EQUAL : OperatorType.fromString(opStr));
         rule.setValue(doc.getProperty("value"));
         rule.setColor(doc.getProperty("color"));
+        rule.setPriority(doc.getProperty("priority"));
         return rule;
     }
 
