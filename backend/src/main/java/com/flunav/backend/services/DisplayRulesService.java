@@ -88,6 +88,7 @@ public class DisplayRulesService {
                 .orElse(null);
     }
 
+    // TODO: maybe cache on redis
     public List<DisplayRule> getDisplayRules() {
         try (ODatabaseSession session = orientDBService.getSession()) {
             OResultSet rs = session.query("SELECT FROM " + DISPLAY_RULES_CLASS);

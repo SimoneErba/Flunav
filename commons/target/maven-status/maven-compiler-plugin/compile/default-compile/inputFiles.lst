@@ -28,6 +28,8 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/LocationPropertiesUpdatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/UnknownEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/ConveyorType.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/DataType.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/DisplayRule.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/LocationType.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/OperatorType.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/PositionType.java

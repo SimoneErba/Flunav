@@ -46,6 +46,7 @@ public class EventProcessor {
     private final WebSocketService webSocketService;
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
+    private final DisplayRulesService displayRulesService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -65,7 +66,8 @@ public class EventProcessor {
             ConveyorService conveyorService,
             WebSocketService webSocketService,
             PathfindingService pathfindingService,
-            LiveItemRepository liveItemRepository) {
+            LiveItemRepository liveItemRepository,
+            DisplayRulesService displayRulesService) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
@@ -73,6 +75,7 @@ public class EventProcessor {
         this.webSocketService = webSocketService;
         this.pathfindingService = pathfindingService;
         this.liveItemRepository = liveItemRepository;
+        this.displayRulesService = displayRulesService;
     }
 
     /**
@@ -207,9 +210,10 @@ public class EventProcessor {
                 case ItemCreatedEvent e -> {
                     var item = new ItemInput(e);
                     itemService.createItem(item);
-
                     if (shouldBroadcast) {
                         ItemResponse response = modelMapper.map(item, ItemResponse.class);
+                        response.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(),
+                                this.displayRulesService.getDisplayRules()));
                         webSocketService.broadcastItemCreated(response, e.getTimestamp());
                     }
                     yield Map.of("status", "CREATED", "itemId", e.getEntityId());
@@ -295,9 +299,13 @@ public class EventProcessor {
                 case ItemPropertiesUpdatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     item.updateProperties(e);
-                    var updateModel = new UpdateModel(item.getId(), Map.of("properties", item.getProperties()));
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("properties", item.getProperties());
+                    var updateModel = new UpdateModel(item.getId(), map);
                     itemService.updateItem(updateModel);
                     if (shouldBroadcast) {
+                        map.put("customColor", this.displayRulesService.applyDisplayRules(item.getProperties(),
+                                this.displayRulesService.getDisplayRules()));
                         webSocketService.broadcastItemUpdated(updateModel, e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -345,9 +353,13 @@ public class EventProcessor {
                 case LocationPropertiesUpdatedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     location.updateProperties(e);
-                    var updateModel = new UpdateModel(location.getId(), Map.of("properties", location.getProperties()));
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("properties", location.getProperties());
+                    var updateModel = new UpdateModel(location.getId(), map);
                     locationService.updateLocation(updateModel);
                     if (shouldBroadcast) {
+                        map.put("customColor", this.displayRulesService.applyDisplayRules(location.getProperties(),
+                                this.displayRulesService.getDisplayRules()));
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -436,7 +448,10 @@ public class EventProcessor {
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
-                                new UpdateModel(conveyor.getId(), Map.of("properties", e.getUpdatedProperties())),
+                                new UpdateModel(conveyor.getId(),
+                                        Map.of("properties", e.getUpdatedProperties(), "customColor",
+                                                this.displayRulesService.applyDisplayRules(conveyor.getProperties(),
+                                                        this.displayRulesService.getDisplayRules()))),
                                 e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");

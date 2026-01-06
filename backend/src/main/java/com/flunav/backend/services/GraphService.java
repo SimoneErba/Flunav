@@ -63,6 +63,9 @@ public class GraphService {
     }
 
     private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now) {
+        // Fetch properties from OrientDB
+        Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
+
         List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
         List<ItemResponse> activeItems = new ArrayList<>();
         List<String> itemsToRemove = new ArrayList<>();
@@ -104,6 +107,8 @@ public class GraphService {
                         id, positionId, type, entryTime, path, topology, now, accDist);
 
                 if (simulatedItem != null) {
+                    simulatedItem.setName((String) rawItem.get("name"));
+                    simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
                     simulatedItem.setDestinationId(destId);
                     activeItems.add(simulatedItem);
                 } else {
@@ -120,6 +125,24 @@ public class GraphService {
             redisRepository.deleteItems(itemsToRemove);
         }
         return activeItems;
+    }
+
+    private Map<String, Map<String, Object>> fetchItemProperties() {
+        Map<String, Map<String, Object>> propertiesMap = new HashMap<>();
+        try (ODatabaseSession session = orientDBService.getSession()) {
+            String query = "SELECT customId, properties FROM Item";
+            try (OResultSet rs = session.query(query)) {
+                while (rs.hasNext()) {
+                    OResult res = rs.next();
+                    String id = res.getProperty("customId");
+                    Map<String, Object> props = res.getProperty("properties");
+                    if (id != null) {
+                        propertiesMap.put(id, props != null ? props : new HashMap<>());
+                    }
+                }
+            }
+        }
+        return propertiesMap;
     }
 
     private ItemResponse calculateCurrentState(
