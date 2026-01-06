@@ -1,4 +1,5 @@
 import React, { useRef, useState, memo } from "react";
+import { RuleRow, Rule } from "./RuleRow";
 
 type DockSide = 'left' | 'right' | 'bottom';
 
@@ -37,6 +38,7 @@ const DockButton = memo(({ Svg, isActive, onClick }: { Svg: React.FC<any>, isAct
 const SettingsPanel = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [dockSide, setDockSide] = useState<DockSide>('bottom');
+  const [rules, setRules] = useState<Rule[]>([]);
   
   // --- STATE CHANGE: Store dimensions separately ---
   const [dimensions, setDimensions] = useState({ width: 350, height: 300 });
@@ -89,6 +91,30 @@ const SettingsPanel = () => {
     document.removeEventListener("pointerup", stopResize);
     document.body.style.userSelect = '';
   };
+  
+  // --- RULE MANAGEMENT ---
+  const addRule = () => {
+    const newRule: Rule = {
+      id: `rule_${Date.now()}`,
+      fieldName: '',
+      dataType: null,
+      operator: null,
+      value: '',
+      color: '#ffffff'
+    };
+    setRules([...rules, newRule]);
+  };
+
+  const updateRule = (index: number, updatedRule: Rule) => {
+    const newRules = [...rules];
+    newRules[index] = updatedRule;
+    setRules(newRules);
+  };
+
+  const deleteRule = (index: number) => {
+    setRules(rules.filter((_, i) => i !== index));
+  };
+
 
   // --- COLLAPSED STATE ---
   if (!isExpanded) {
@@ -137,7 +163,7 @@ const SettingsPanel = () => {
         
         {/* Header Bar */}
         <div className="flex justify-between items-center px-4 py-2 border-b border-gray-600 bg-black/20 shrink-0">
-          <strong className="text-base">Settings</strong>
+          <strong className="text-base">Display rules</strong>
           
           <div className="flex items-center gap-3">
             {/* Dock Controls */}
@@ -159,15 +185,22 @@ const SettingsPanel = () => {
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col gap-3">
-            <div>
-                <label className="block mb-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Animation Speed</label>
-                <input type="text" readOnly value="1.0x" className="w-full p-2 rounded border text-sm bg-gray-700/50 border-gray-600 text-white focus:outline-none" />
-            </div>
-            <div>
-                <label className="block mb-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Display Labels</label>
-                <input type="text" readOnly value="On" className="w-full p-2 rounded border text-sm bg-gray-700/50 border-gray-600 text-white focus:outline-none" />
-            </div>
+          <div className="flex flex-col gap-2">
+            {rules.map((rule, index) => (
+              <RuleRow 
+                key={rule.id}
+                rule={rule}
+                onChange={updatedRule => updateRule(index, updatedRule)}
+                onDelete={() => deleteRule(index)}
+                orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
+              />
+            ))}
+             <button 
+              onClick={addRule}
+              className="cursor-pointer mt-1 w-full py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-900/20 border border-dashed border-blue-700 rounded transition-colors flex items-center justify-center gap-1"
+            >
+              + Add Display Rule
+            </button>
           </div>
         </div>
       </div>

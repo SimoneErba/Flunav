@@ -137,13 +137,13 @@ export const useGraphInteractions = (
         if (!selectedItemData || isReadOnly) return;
         
         const graph = sigma.getGraph();
-        const { itemId } = selectedItemData;
+        const { id } = selectedItemData;
         
         try {
-            graph.setNodeAttribute(itemId, 'label', name);
-            graph.setNodeAttribute(itemId, 'properties', properties);
+            graph.setNodeAttribute(id, 'label', name);
+            graph.setNodeAttribute(id, 'properties', properties);
             sigma.refresh();
-            await itemApi.updateItem(itemId, { name, properties });
+            await itemApi.updateItem(id, { name, properties });
             toast.success("Item updated");
         } catch (error) { 
             console.error(error);

@@ -1,3 +1,5 @@
+GEMINI_MODEL="gemini-3.0-pro" gemini
+
 ### TODO
 
 allow items to move in the middle of a coveyour. not just locations. add a param maybe in the event, edge or lcoation. 
