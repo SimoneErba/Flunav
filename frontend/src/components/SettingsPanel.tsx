@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, memo } from "react";
 import { useApi } from "../hooks/useApi";
 import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from "../api-client";
+import toast from "react-hot-toast";
 
 // --- RuleRow Component ---
 interface RuleRowProps {
@@ -9,6 +10,15 @@ interface RuleRowProps {
   onChange: (updatedRule: DisplayRule) => void;
   onDelete: () => void;
 }
+
+const InputWrapper: React.FC<{ children: React.ReactNode, label: string, orientation: 'horizontal' | 'vertical', className?: string }> = ({ children, label, orientation, className }) => (
+  <div className={`${orientation === 'horizontal' ? 'min-w-0' : 'w-full'} flex flex-col ${className || ''}`}>
+    <label className={`block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1`}>
+      {label}
+    </label>
+    {children}
+  </div>
+);
 
 export const RuleRow = ({ rule, orientation, onChange, onDelete }: RuleRowProps) => {
 
@@ -28,72 +38,91 @@ export const RuleRow = ({ rule, orientation, onChange, onDelete }: RuleRowProps)
     onChange({ ...rule, color: e.target.value });
   };
 
+  const layoutClasses = orientation === 'horizontal' 
+    ? 'grid grid-cols-6 gap-2 items-start' 
+    : 'flex flex-col gap-2';
+
   return (
-    <div className={`flex gap-2 ${orientation === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
-      <input
-        type="text"
-        value={rule.fieldName || ''}
-        placeholder="Field name"
-        onChange={(e) => onChange({ ...rule, fieldName: e.target.value })}
-        className="flex-1 p-2 rounded border text-sm
-                   bg-white text-gray-900 border-gray-300
-                   dark:bg-gray-800 dark:text-white dark:border-gray-600
-                   focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
+    <div className={`${layoutClasses} p-2 rounded bg-gray-100/50 dark:bg-black/20 border-t border-gray-200 dark:border-gray-700`}>
+      <InputWrapper label="Field" orientation={orientation}>
+        <input 
+          type="text" 
+          placeholder="Field Name"
+          value={rule.fieldName || ''}
+          onChange={e => onChange({ ...rule, fieldName: e.target.value })}
+          className="w-full p-2 rounded border text-sm
+                     bg-white text-gray-900 border-gray-300
+                     dark:bg-gray-800 dark:text-white dark:border-gray-600
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </InputWrapper>
 
-      <select
-        value={rule.dataType || ''}
-        onChange={handleTypeChange}
-        className="p-2 rounded border text-sm
-                   bg-white text-gray-900 border-gray-300
-                   dark:bg-gray-800 dark:text-white dark:border-gray-600
-                   focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
-        <option value="" disabled>Select Type</option>
-        {Object.values(DisplayRuleDataTypeEnum).map(type => (
-          <option key={type} value={type}>{type}</option>
-        ))}
-      </select>
+      <InputWrapper label="Type" orientation={orientation}>
+        <select 
+          value={rule.dataType || ''} 
+          onChange={handleTypeChange}
+          className="w-full p-2 rounded border text-sm
+                     bg-white text-gray-900 border-gray-300
+                     dark:bg-gray-800 dark:text-white dark:border-gray-600
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="" disabled>Select Type</option>
+          {Object.values(DisplayRuleDataTypeEnum).map(type => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
+      </InputWrapper>
 
-      <select
-        value={rule.operator || ''}
-        onChange={handleOperatorChange}
-        className="p-2 rounded border text-sm
-                   bg-white text-gray-900 border-gray-300
-                   dark:bg-gray-800 dark:text-white dark:border-gray-600
-                   focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
-        <option value="" disabled>Select Operator</option>
-        {Object.values(DisplayRuleOperatorEnum).map(op => (
-          <option key={op} value={op}>{op}</option>
-        ))}
-      </select>
+      <InputWrapper label="Operator" orientation={orientation}>
+        <select 
+          value={rule.operator || ''} 
+          onChange={handleOperatorChange}
+          className="w-full p-2 rounded border text-sm
+                     bg-white text-gray-900 border-gray-300
+                     dark:bg-gray-800 dark:text-white dark:border-gray-600
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="" disabled>Select Operator</option>
+          {Object.values(DisplayRuleOperatorEnum).map(op => (
+            <option key={op} value={op}>{op}</option>
+          ))}
+        </select>
+      </InputWrapper>
 
-      <input
-        type="text"
-        value={rule.value || ''}
-        placeholder="Value"
-        onChange={handleValueChange}
-        className="flex-1 p-2 rounded border text-sm
-                   bg-white text-gray-900 border-gray-300
-                   dark:bg-gray-800 dark:text-white dark:border-gray-600
-                   focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
+      <InputWrapper label="Value" orientation={orientation}>
+        <input
+          type="text"
+          value={rule.value || ''}
+          placeholder="Value"
+          onChange={handleValueChange}
+          className="w-full p-2 rounded border text-sm
+                     bg-white text-gray-900 border-gray-300
+                     dark:bg-gray-800 dark:text-white dark:border-gray-600
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </InputWrapper>
 
-      <input
-        type="color"
-        value={rule.color || '#ffffff'}
-        onChange={handleColorChange}
-        className="w-10 h-10 p-0 border rounded
-                   bg-white border-gray-300 dark:bg-gray-800 dark:border-gray-600"
-      />
+      <InputWrapper label="Color" orientation={orientation} className="relative">
+        <div className={`relative w-full flex ${orientation === 'horizontal' ? 'justify-center' : 'justify-start'} items-center h-10`}>
+            <div className="w-8 h-8 rounded-full border border-gray-500 cursor-pointer" style={{ backgroundColor: rule.color }}></div>
+            <input
+                type="color"
+                value={rule.color || '#ffffff'}
+                onChange={handleColorChange}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                title="Select color"
+            />
+        </div>
+      </InputWrapper>
 
-      <button
-        onClick={onDelete}
-        className="px-2 py-1 text-sm font-medium rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800 transition-colors"
-      >
-        ✕
-      </button>
+      <div className="flex items-center justify-end h-full">
+        <button
+          onClick={onDelete}
+          className="p-2 h-10 rounded bg-red-900/50 hover:bg-red-900/80 text-red-300 transition-colors"
+        >
+          🗑️
+        </button>
+      </div>
     </div>
   );
 };
@@ -157,12 +186,19 @@ const SettingsPanel = () => {
   const onResize = (e: PointerEvent) => {
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = requestAnimationFrame(() => {
-      let delta = dockSide === 'bottom' ? startPos.current - e.clientY : startPos.current - e.clientX;
-      const newSize = Math.max(200, startDim.current + delta);
-      setDimensions(prev => ({
-        ...prev,
-        [dockSide === 'bottom' ? 'height' : 'width']: newSize
-      }));
+        let delta;
+        if (dockSide === 'bottom') {
+            delta = startPos.current - e.clientY;
+        } else if (dockSide === 'left') {
+            delta = e.clientX - startPos.current;
+        } else { // 'right'
+            delta = startPos.current - e.clientX;
+        }
+        const newSize = Math.max(200, startDim.current + delta);
+        setDimensions(prev => ({
+            ...prev,
+            [dockSide === 'bottom' ? 'height' : 'width']: newSize
+        }));
     });
   };
 
@@ -194,10 +230,10 @@ const SettingsPanel = () => {
     try {
       setSaving(true);
       await displayRuleApi.updateDisplayRules(rules);
-      alert("Rules saved successfully!");
+      toast.success("Rules saved successfully!");
     } catch (err) {
       console.error(err);
-      alert("Failed to save rules");
+      toast.error("Failed to save rules");
     } finally {
       setSaving(false);
     }
@@ -292,22 +328,24 @@ const SettingsPanel = () => {
             ))
           )}
 
-          <button
-            onClick={addRule}
-            className="cursor-pointer mt-1 w-full py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900/20 border border-dashed border-blue-300 rounded transition-colors flex items-center justify-center gap-1"
-          >
-            + Add Display Rule
-          </button>
+          <div className={`flex gap-2 ${dockSide === 'bottom' ? 'flex-row' : 'flex-col'}`}>
+              <button
+                onClick={addRule}
+                className="cursor-pointer mt-1 w-full py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900/20 border border-dashed border-blue-300 rounded transition-colors flex items-center justify-center gap-1"
+              >
+                + Add Display Rule
+              </button>
 
-          <button
-            onClick={sendRules}
-            disabled={saving || rules.length === 0}
-            className={`mt-2 w-full py-2 text-sm font-semibold rounded ${
-              saving || rules.length === 0 ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-600 dark:text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'
-            } transition-colors`}
-          >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
+              <button
+                onClick={sendRules}
+                disabled={saving || rules.length === 0}
+                className={`mt-1 w-full py-2 text-sm font-semibold rounded ${
+                  saving || rules.length === 0 ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-600 dark:text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'
+                } transition-colors`}
+              >
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+          </div>
         </div>
       </div>
     </div>
