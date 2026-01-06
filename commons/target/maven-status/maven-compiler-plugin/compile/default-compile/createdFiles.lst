@@ -28,5 +28,6 @@ flunav/events/EntityEvent.class
 flunav/events/LocationActivatedEvent.class
 flunav/events/LocationDeletedEvent.class
 flunav/types/PositionType.class
+flunav/types/DisplayRule.class
 flunav/events/ItemDestinationEvent.class
 flunav/events/ConnectionCreatedEvent.class

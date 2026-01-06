@@ -204,6 +204,12 @@ public class OrientDBService {
                 conveyorClass.createProperty("speed", OType.DOUBLE);
             }
 
+            // 4. DisplayRules (Document)
+            if (session.getClass("DisplayRules") == null) {
+                OClass displayRulesClass = session.createClass("DisplayRules");
+                displayRulesClass.createProperty("rules", OType.EMBEDDEDLIST, OType.EMBEDDED);
+            }
+
             logger.debug("Schema verified for database: {}", session.getName());
         }
 

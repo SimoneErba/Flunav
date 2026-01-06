@@ -92,6 +92,12 @@ export interface Conveyor {
     'capacity'?: number;
     /**
      * 
+     * @type {{ [key: string]: object; }}
+     * @memberof Conveyor
+     */
+    'properties'?: { [key: string]: object; };
+    /**
+     * 
      * @type {boolean}
      * @memberof Conveyor
      */
@@ -173,6 +179,12 @@ export interface ConveyorResponse {
      * @memberof ConveyorResponse
      */
     'capacity'?: number;
+    /**
+     * 
+     * @type {{ [key: string]: object; }}
+     * @memberof ConveyorResponse
+     */
+    'properties'?: { [key: string]: object; };
 }
 
 export const ConveyorResponseTypeEnum = {
@@ -300,6 +312,12 @@ export interface CreateConveyorInput {
      * @memberof CreateConveyorInput
      */
     'capacity'?: number;
+    /**
+     * 
+     * @type {{ [key: string]: object; }}
+     * @memberof CreateConveyorInput
+     */
+    'properties'?: { [key: string]: object; };
 }
 
 export const CreateConveyorInputTypeEnum = {
@@ -324,6 +342,60 @@ export interface CreateSimulationRequest {
      */
     'timestamp'?: string;
 }
+/**
+ * 
+ * @export
+ * @interface DisplayRule
+ */
+export interface DisplayRule {
+    /**
+     * 
+     * @type {string}
+     * @memberof DisplayRule
+     */
+    'fieldName'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof DisplayRule
+     */
+    'dataType'?: DisplayRuleDataTypeEnum;
+    /**
+     * 
+     * @type {string}
+     * @memberof DisplayRule
+     */
+    'operator'?: DisplayRuleOperatorEnum;
+    /**
+     * 
+     * @type {object}
+     * @memberof DisplayRule
+     */
+    'value'?: object;
+    /**
+     * 
+     * @type {string}
+     * @memberof DisplayRule
+     */
+    'color'?: string;
+}
+
+export const DisplayRuleDataTypeEnum = {
+    String: 'STRING',
+    Number: 'NUMBER',
+    Boolean: 'BOOLEAN',
+    Datetime: 'DATETIME'
+} as const;
+
+export type DisplayRuleDataTypeEnum = typeof DisplayRuleDataTypeEnum[keyof typeof DisplayRuleDataTypeEnum];
+export const DisplayRuleOperatorEnum = {
+    Equal: 'EQUAL',
+    Lesser: 'LESSER',
+    Greater: 'GREATER'
+} as const;
+
+export type DisplayRuleOperatorEnum = typeof DisplayRuleOperatorEnum[keyof typeof DisplayRuleOperatorEnum];
+
 /**
  * 
  * @export
@@ -1515,6 +1587,170 @@ export class ConveyorsApi extends BaseAPI {
 
 
 /**
+ * DisplayRulesControllerApi - axios parameter creator
+ * @export
+ */
+export const DisplayRulesControllerApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getDisplayRules: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/display-rules`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @param {Array<DisplayRule>} displayRule 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateDisplayRules: async (displayRule: Array<DisplayRule>, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'displayRule' is not null or undefined
+            assertParamExists('updateDisplayRules', 'displayRule', displayRule)
+            const localVarPath = `/api/display-rules`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(displayRule, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * DisplayRulesControllerApi - functional programming interface
+ * @export
+ */
+export const DisplayRulesControllerApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = DisplayRulesControllerApiAxiosParamCreator(configuration)
+    return {
+        /**
+         * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getDisplayRules(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<DisplayRule>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getDisplayRules(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DisplayRulesControllerApi.getDisplayRules']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {Array<DisplayRule>} displayRule 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateDisplayRules(displayRule, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DisplayRulesControllerApi.updateDisplayRules']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * DisplayRulesControllerApi - factory interface
+ * @export
+ */
+export const DisplayRulesControllerApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = DisplayRulesControllerApiFp(configuration)
+    return {
+        /**
+         * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getDisplayRules(options?: RawAxiosRequestConfig): AxiosPromise<Array<DisplayRule>> {
+            return localVarFp.getDisplayRules(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {Array<DisplayRule>} displayRule 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateDisplayRules(displayRule, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * DisplayRulesControllerApi - object-oriented interface
+ * @export
+ * @class DisplayRulesControllerApi
+ * @extends {BaseAPI}
+ */
+export class DisplayRulesControllerApi extends BaseAPI {
+    /**
+     * 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DisplayRulesControllerApi
+     */
+    public getDisplayRules(options?: RawAxiosRequestConfig) {
+        return DisplayRulesControllerApiFp(this.configuration).getDisplayRules(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {Array<DisplayRule>} displayRule 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DisplayRulesControllerApi
+     */
+    public updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig) {
+        return DisplayRulesControllerApiFp(this.configuration).updateDisplayRules(displayRule, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
  * GraphApi - axios parameter creator
  * @export
  */
@@ -1790,41 +2026,6 @@ export const ItemControllerApiAxiosParamCreator = function (configuration?: Conf
                 options: localVarRequestOptions,
             };
         },
-        /**
-         * 
-         * @param {PropertyUpdateRequest} propertyUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateItemProperties: async (propertyUpdateRequest: PropertyUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'propertyUpdateRequest' is not null or undefined
-            assertParamExists('updateItemProperties', 'propertyUpdateRequest', propertyUpdateRequest)
-            const localVarPath = `/api/items`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(propertyUpdateRequest, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
     }
 };
 
@@ -1895,18 +2096,6 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItem']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
-        /**
-         * 
-         * @param {PropertyUpdateRequest} propertyUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateItemProperties(propertyUpdateRequest, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItemProperties']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
     }
 };
 
@@ -1961,15 +2150,6 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
          */
         updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
             return localVarFp.updateItem(id, requestBody, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @param {PropertyUpdateRequest} propertyUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateItemProperties(propertyUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -2034,17 +2214,6 @@ export class ItemControllerApi extends BaseAPI {
      */
     public updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig) {
         return ItemControllerApiFp(this.configuration).updateItem(id, requestBody, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @param {PropertyUpdateRequest} propertyUpdateRequest 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof ItemControllerApi
-     */
-    public updateItemProperties(propertyUpdateRequest: PropertyUpdateRequest, options?: RawAxiosRequestConfig) {
-        return ItemControllerApiFp(this.configuration).updateItemProperties(propertyUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

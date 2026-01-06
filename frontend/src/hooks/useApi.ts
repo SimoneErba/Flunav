@@ -7,6 +7,7 @@ import {
     SimulationsApi,
     ConveyorsApi,
     Configuration,
+    DisplayRulesControllerApi
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
 import { baseURL, CLIENT_ID } from '../api/config';
@@ -37,6 +38,7 @@ export const useApi = () => {
     const positionsApi = useMemo(() => new PositionsApi(apiConfig), [apiConfig]);
     const simulationApi = useMemo(() => new SimulationsApi(apiConfig), [apiConfig]);
     const conveyorsApi = useMemo(() => new ConveyorsApi(apiConfig), [apiConfig]);
+    const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig), [apiConfig]);
 
     return {
         graphApi,
@@ -45,6 +47,7 @@ export const useApi = () => {
         positionsApi,
         simulationApi,
         conveyorsApi,
+        displayRuleApi,
         clientId: CLIENT_ID,
     };
 };

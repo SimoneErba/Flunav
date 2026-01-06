@@ -1,31 +1,19 @@
 import React from 'react';
-
-// Define the structure of a single rule
-export interface Rule {
-  id: string;
-  fieldName: string;
-  dataType: 'string' | 'number' | 'boolean' | 'date' | null;
-  operator: '>' | '<' | '=' | null;
-  value: any;
-  color: string;
-}
+import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from '../api-client';
 
 interface RuleRowProps {
-  rule: Rule;
+  rule: DisplayRule;
   orientation: 'horizontal' | 'vertical';
-  onChange: (updatedRule: Rule) => void;
+  onChange: (updatedRule: DisplayRule) => void;
   onDelete: () => void;
 }
 
-// An array of available data types for the dropdown
-const dataTypes: Array<Rule['dataType']> = ['string', 'number', 'boolean', 'date'];
-
 // A map to determine which operators are valid for each data type
-const validOperators: Record<NonNullable<Rule['dataType']>, Array<Rule['operator']>> = {
-  string: ['='],
-  number: ['=', '>', '<'],
-  boolean: ['='],
-  date: ['=', '>', '<'],
+const validOperators: Record<NonNullable<DisplayRuleDataTypeEnum>, Array<DisplayRuleOperatorEnum>> = {
+  STRING: [DisplayRuleOperatorEnum.Equal],
+  NUMBER: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.Lesser],
+  BOOLEAN: [DisplayRuleOperatorEnum.Equal],
+  DATETIME: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.Lesser],
 };
 
 const InputWrapper: React.FC<{ children: React.ReactNode, label: string, orientation: 'horizontal' | 'vertical', className?: string }> = ({ children, label, orientation, className }) => (
@@ -40,16 +28,16 @@ const InputWrapper: React.FC<{ children: React.ReactNode, label: string, orienta
 export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps) => {
   
   const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newType = e.target.value as Rule['dataType'];
+    const newType = e.target.value as DisplayRuleDataTypeEnum;
     let defaultValue: any = '';
-    let operator: Rule['operator'] = null;
+    let operator: DisplayRuleOperatorEnum = null;
 
-    if (newType === 'string') {
-      operator = '=';
-    } else if (newType === 'boolean') {
+    if (newType === DisplayRuleDataTypeEnum.String) {
+      operator = DisplayRuleOperatorEnum.Equal;
+    } else if (newType === DisplayRuleDataTypeEnum.Boolean) {
       defaultValue = false;
-      operator = '=';
-    } else if (newType === 'number') {
+      operator = DisplayRuleOperatorEnum.Equal;
+    } else if (newType === DisplayRuleDataTypeEnum.Number) {
       defaultValue = 0;
     }
 
@@ -59,7 +47,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps)
   const renderValueInput = () => {
     const commonInputClasses = "w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500";
     
-    if (rule.dataType === 'boolean') {
+    if (rule.dataType === DisplayRuleDataTypeEnum.Boolean) {
       return (
         <div className="flex items-center justify-center h-10 px-2 bg-gray-700/50 dark:bg-gray-800/50 border border-gray-600 dark:border-gray-700 rounded">
           <input
@@ -73,9 +61,9 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps)
     }
 
     switch (rule.dataType) {
-      case 'date':
+      case DisplayRuleDataTypeEnum.Datetime:
         return <input type="date" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} className={`${commonInputClasses} dark:[color-scheme:dark]`} />;
-      case 'number':
+      case DisplayRuleDataTypeEnum.Number:
         return <input type="number" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
       default: // string
         return <input type="text" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
@@ -85,7 +73,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps)
   const availableOperators = rule.dataType ? validOperators[rule.dataType] : [];
 
   // Progressive Disclosure Checks
-  const showOperatorSelect = rule.dataType && rule.dataType !== 'string' && rule.dataType !== 'boolean';
+  const showOperatorSelect = rule.dataType && rule.dataType !== DisplayRuleDataTypeEnum.String && rule.dataType !== DisplayRuleDataTypeEnum.Boolean;
   const showValue = !!rule.operator;
   const showColor = showValue && (rule.value !== '' && rule.value !== undefined && rule.value !== null);
 
@@ -112,7 +100,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps)
           className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="" disabled>Select Type</option>
-          {dataTypes.map(type => type && <option key={type} value={type}>{type}</option>)}
+          {Object.values(DisplayRuleDataTypeEnum).map(type => type && <option key={type} value={type}>{type}</option>)}
         </select>
       </InputWrapper>
 
@@ -120,13 +108,13 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation }: RuleRowProps)
         {showOperatorSelect ? (
           <select 
             value={rule.operator || ''} 
-            onChange={e => onChange({ ...rule, operator: e.target.value as Rule['operator'] })}
+            onChange={e => onChange({ ...rule, operator: e.target.value as DisplayRuleOperatorEnum })}
             className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="" disabled>Op</option>
             {availableOperators.map(op => op && <option key={op} value={op}>{op}</option>)}
           </select>
-        ) : rule.dataType && (rule.dataType === 'string' || rule.dataType === 'boolean') ? (
+        ) : rule.dataType && (rule.dataType === DisplayRuleDataTypeEnum.String || rule.dataType === DisplayRuleDataTypeEnum.Boolean) ? (
             <div className="h-10 w-full flex items-center justify-center rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-gray-400">
                 =
             </div>
