@@ -9,6 +9,7 @@ import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import flunav.types.ConveyorType;
+import flunav.types.DisplayRule;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
@@ -27,19 +28,28 @@ public class GraphService {
     private final OrientDBService orientDBService;
     private final LiveItemRepository redisRepository;
     private final PathfindingService pathfindingService;
+    private final DisplayRulesService displayRulesService;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
-            PathfindingService pathfindingService) {
+            PathfindingService pathfindingService,
+            DisplayRulesService displayRulesService) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.pathfindingService = pathfindingService;
+        this.displayRulesService = displayRulesService;
     }
 
     public GraphData getGraphData() {
         Instant now = Instant.now();
         Topology topology = fetchTopology();
         List<ItemResponse> activeItems = calculateAllItemStates(topology, now);
+
+        var customDisplayRules = this.displayRulesService.getDisplayRules();
+
+        for (var item : activeItems) {
+            item.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(), customDisplayRules));
+        }
 
         return new GraphData(
                 new ArrayList<>(topology.nodeMap.values()),

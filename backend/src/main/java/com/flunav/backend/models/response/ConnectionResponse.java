@@ -14,4 +14,5 @@ public class ConnectionResponse {
     private String targetId;
     private String direction; // Direction: "in" or "out"
     private Map<String, Object> properties;
+    private String customColor;
 }

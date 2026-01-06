@@ -24,8 +24,5 @@ public class LocationResponse {
 
     // Metadata
     private Map<String, Object> properties;
-
-    // REMOVED: length, speed, isMainPath (Moved to ConveyorResponse)
-    // REMOVED: items (Moved to GraphData)
-    // REMOVED: connections (Implicit in ConveyorResponse source/target)
+    private String customColor;
 }

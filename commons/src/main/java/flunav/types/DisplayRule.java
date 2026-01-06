@@ -13,4 +13,5 @@ public class DisplayRule {
     private OperatorType operator;
     private Object value;
     private String color;
+    private Integer priority;
 }

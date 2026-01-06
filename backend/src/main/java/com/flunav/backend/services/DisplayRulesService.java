@@ -12,7 +12,10 @@ import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,6 +28,61 @@ public class DisplayRulesService {
 
     public DisplayRulesService(OrientDBService orientDBService) {
         this.orientDBService = orientDBService;
+    }
+
+    public boolean applies(Map<String, Object> properties, DisplayRule rule) {
+        Object propValue = properties.get(rule.getFieldName());
+        if (propValue == null || rule.getOperator() == null) {
+            return false;
+        }
+
+        Object ruleValue = rule.getValue();
+
+        try {
+            switch (rule.getDataType()) {
+                case STRING:
+                    return propValue.toString().equals(ruleValue.toString());
+
+                case BOOLEAN:
+                    return Boolean.parseBoolean(propValue.toString()) == Boolean.parseBoolean(ruleValue.toString());
+
+                case NUMBER:
+                    double propNum = Double.parseDouble(propValue.toString());
+                    double ruleNum = Double.parseDouble(ruleValue.toString());
+
+                    return switch (rule.getOperator()) {
+                        case EQUAL -> propNum == ruleNum;
+                        case GREATER -> propNum > ruleNum;
+                        case LESSER -> propNum < ruleNum;
+                    };
+
+                case DATETIME:
+                    Instant propTime = Instant.parse(propValue.toString());
+                    Instant ruleTime = Instant.parse(ruleValue.toString());
+
+                    return switch (rule.getOperator()) {
+                        case EQUAL -> propTime.equals(ruleTime);
+                        case GREATER -> propTime.isAfter(ruleTime);
+                        case LESSER -> propTime.isBefore(ruleTime);
+                    };
+
+                default:
+                    return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public String applyDisplayRules(
+            Map<String, Object> properties,
+            List<DisplayRule> rules) {
+        return rules.stream()
+                .sorted(Comparator.comparingInt(DisplayRule::getPriority))
+                .filter(rule -> applies(properties, rule))
+                .map(DisplayRule::getColor)
+                .findFirst()
+                .orElse(null);
     }
 
     public List<DisplayRule> getDisplayRules() {
