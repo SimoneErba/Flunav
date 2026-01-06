@@ -3,6 +3,13 @@ package com.flunav.backend.services;
 import flunav.types.DataType;
 import flunav.types.DisplayRule;
 import flunav.types.OperatorType;
+import com.flunav.backend.context.DatabaseContextHolder;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 
@@ -20,14 +27,28 @@ import java.util.stream.Collectors;
 
 @Service
 public class DisplayRulesService {
+    private static final Logger logger = LoggerFactory.getLogger(DisplayRulesService.class);
 
     private static final String DISPLAY_RULES_CLASS = "DisplayRules";
     private static final String RULES_PROPERTY = "rules";
+    private static final String REDIS_KEY_PREFIX = "display_rules";
 
     private final OrientDBService orientDBService;
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
 
-    public DisplayRulesService(OrientDBService orientDBService) {
+    public DisplayRulesService(OrientDBService orientDBService, StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this.orientDBService = orientDBService;
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    private String getNamespacedKey() {
+        String simId = DatabaseContextHolder.getSimulationId();
+        if (simId != null) {
+            return "sim:" + simId + ":" + REDIS_KEY_PREFIX;
+        }
+        return REDIS_KEY_PREFIX;
     }
 
     public boolean applies(Map<String, Object> properties, DisplayRule rule) {
@@ -88,23 +109,45 @@ public class DisplayRulesService {
                 .orElse(null);
     }
 
-    // TODO: maybe cache on redis
     public List<DisplayRule> getDisplayRules() {
+        // 1. Try Cache
+        String key = getNamespacedKey();
+        String cachedJson = redisTemplate.opsForValue().get(key);
+        if (cachedJson != null) {
+            try {
+                return objectMapper.readValue(cachedJson, new TypeReference<List<DisplayRule>>() {});
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to parse display rules from cache", e);
+            }
+        }
+
+        // 2. Fetch from DB
         try (ODatabaseSession session = orientDBService.getSession()) {
             OResultSet rs = session.query("SELECT FROM " + DISPLAY_RULES_CLASS);
+            List<DisplayRule> rules = List.of();
             if (rs.hasNext()) {
                 OResult result = rs.next();
                 OElement element = result.getElement().orElse(null);
                 if (element != null) {
                     List<ODocument> ruleDocs = element.getProperty(RULES_PROPERTY);
-                    return ruleDocs.stream().map(this::toDisplayRule).collect(Collectors.toList());
+                    rules = ruleDocs.stream().map(this::toDisplayRule).collect(Collectors.toList());
                 }
             }
-            return List.of();
+
+            // 3. Update Cache
+            try {
+                String json = objectMapper.writeValueAsString(rules);
+                redisTemplate.opsForValue().set(key, json);
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize display rules for cache", e);
+            }
+
+            return rules;
         }
     }
 
     public void updateDisplayRules(List<DisplayRule> rules) {
+        // 1. Update DB
         orientDBService.withTransaction(session -> {
             // Delete existing rules
             session.command("DELETE FROM " + DISPLAY_RULES_CLASS);
@@ -116,6 +159,15 @@ public class DisplayRulesService {
                     com.orientechnologies.orient.core.metadata.schema.OType.EMBEDDEDLIST);
             session.save(doc);
         });
+
+        // 2. Update Cache (Write-Through)
+        try {
+            String key = getNamespacedKey();
+            String json = objectMapper.writeValueAsString(rules);
+            redisTemplate.opsForValue().set(key, json);
+        } catch (JsonProcessingException e) {
+            logger.warn("Failed to update display rules cache", e);
+        }
     }
 
     private ODocument toDocument(DisplayRule rule) {

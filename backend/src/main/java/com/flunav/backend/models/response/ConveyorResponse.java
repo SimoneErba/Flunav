@@ -26,4 +26,5 @@ public class ConveyorResponse {
     private Integer capacity;
 
     private Map<String, Object> properties;
+    private String customColor;
 }

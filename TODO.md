@@ -2,40 +2,27 @@ GEMINI_MODEL="gemini-3.0-pro" gemini
 
 ### TODO
 
+TEST:
+
 allow items to move in the middle of a coveyour. not just locations. add a param maybe in the event, edge or lcoation. 
-store in redis the location id togehter with the type, edge or lcoation.
-
-need to mnove conveyour bnames over the edges.. .
-conjunctions may also not have a name--
 
 ---
 
-in BE, do we remove lat, long from conveyours? and they use the ones of the conjunctions? 
----
+TODO:
 
-uscite, attese, ricircoli
+color input is out of the page
+simualtin is not filled with items
+attese, ricircoli
+
 see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode
-item state colors and mapping
 edit active simulations to see "what if"
 outlet box: save to orient db only if websocket can be sent (transaction)
 page to see item history
 chatbot to ask about item history or location events
 puppygraph or ckickgraph for analytics (BI) - 
 
-
-                // if stuff is done at the forntend maybe we dont need to do anything here, just send thevent. but about progress?
-                // maybe we send the current situation when a frontend connectes in the middle of items going.
-                // the problem is that just the current speed is not enough, we need the progress info otherwise
-                // we dont know the speed in the past and cant calculate the correct posiiton?
-                // I thni  we need to make a fairly complex simualtion for each item since the last known location and making sure we keep an open eye
-                // for speed changes. then to the fronted we say, item is here with a completion bar (43% for example) on this location.
-                // we then compute all events until the present time 
-                // the problem is, let's say i have conveyours A , B, C, D. last know posiiton for item 1 is A. after some time, it reaches B, then C. so the progress info for the item it's not just about A -> B, but in all the graph
-                // when i get a sort inst, i need to calcualte the shortest path and send the fonrtend the list of locations it will take
-                
-                
-                
+            
                 //if we dont receive a item position update when we expect it (for item reaching their destination for example)
                 // we can reput them on the system on the main path
 

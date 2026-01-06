@@ -51,6 +51,14 @@ public class GraphService {
             item.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(), customDisplayRules));
         }
 
+        for (var loc : topology.nodeMap.values()) {
+            loc.setCustomColor(this.displayRulesService.applyDisplayRules(loc.getProperties(), customDisplayRules));
+        }
+
+        for (var conv : topology.conveyorMap.values()) {
+            conv.setCustomColor(this.displayRulesService.applyDisplayRules(conv.getProperties(), customDisplayRules));
+        }
+
         return new GraphData(
                 new ArrayList<>(topology.nodeMap.values()),
                 new ArrayList<>(topology.conveyorMap.values()),

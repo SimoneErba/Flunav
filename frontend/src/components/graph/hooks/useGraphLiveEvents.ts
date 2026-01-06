@@ -145,13 +145,14 @@ export const useGraphLiveEvents = (
                 y: startY, 
                 label: item.name, 
                 size: 6, 
-                color: "#FF0000", 
+                color: item.customColor || "#FF0000", 
                 type: "square", 
                 id: item.id, 
                 isItem: true,
                 hidden: isHidden, // Start invisible if location unknown
                 properties: item.properties,
-                isActive: item.active
+                isActive: item.active,
+                customColor: item.customColor
             });
             
             // Update Logic State
@@ -162,7 +163,8 @@ export const useGraphLiveEvents = (
                 locationId: item.locationId, 
                 currentEdgeId: undefined, // Logic will resolve this on next update/frame
                 entryTimestamp: new Date(timestamp).toISOString(), 
-                progress: item.progress || 0
+                progress: item.progress || 0,
+                customColor: item.customColor
             });
         }, simulationId));
 
@@ -179,13 +181,14 @@ export const useGraphLiveEvents = (
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
                     // Update visual label if name changes
-                    if (key === 'name')
-                    {
+                    if (key === 'name') {
                         graph.setNodeAttribute(update.id, 'label', val);
+                    }
+                    if (key === 'customColor') {
+                        graph.setNodeAttribute(update.id, 'color', val);
                     }
 
                     graph.setNodeAttribute(update.id, key, val);
-                    console.log("UPDATING", update.id, key, val)
                 });
 
                 // Update internal ref state
@@ -201,7 +204,7 @@ export const useGraphLiveEvents = (
             if (graph.hasNode(loc.id)) return;
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id!), y: loc.longitude ?? hashToNumber(loc.id + "random"),
-                label: loc.name, size: 10, color: "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, properties: loc.properties
+                label: loc.name, size: 10, color: loc.customColor || "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, properties: loc.properties, customColor: loc.customColor
             });
         }, simulationId));
 
@@ -213,6 +216,9 @@ export const useGraphLiveEvents = (
             if (update.id && graph.hasNode(update.id) && update.properties) {
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
+                    if (key === 'customColor') {
+                        graph.setNodeAttribute(update.id, 'color', val);
+                    }
                     graph.setNodeAttribute(update.id, key === 'name' ? 'label' : key, val);
                 });
             }
@@ -227,7 +233,8 @@ export const useGraphLiveEvents = (
                 const isMainPath = data?.isMainPath ?? false;
                 const label = data?.name ?? "";
                 const id = data?.id;
-                graph.addEdge(from, to, { id, type: 'arrow', size: isMainPath ? 6 : 3, label, speed, length, isMainPath });
+                const customColor = data?.customColor;
+                graph.addEdge(from, to, { id, type: 'arrow', size: isMainPath ? 6 : 3, label, speed, length, isMainPath, color: customColor, customColor });
             }
         }, simulationId));
 
@@ -243,6 +250,9 @@ export const useGraphLiveEvents = (
                 }
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
+                    if (key === 'customColor') {
+                        graph.setEdgeAttribute(edge, 'color', val);
+                    }
                     graph.setEdgeAttribute(edge, key, val);
                 });
             }

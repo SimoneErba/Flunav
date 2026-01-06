@@ -185,6 +185,12 @@ export interface ConveyorResponse {
      * @memberof ConveyorResponse
      */
     'properties'?: { [key: string]: object; };
+    /**
+     * 
+     * @type {string}
+     * @memberof ConveyorResponse
+     */
+    'customColor'?: string;
 }
 
 export const ConveyorResponseTypeEnum = {

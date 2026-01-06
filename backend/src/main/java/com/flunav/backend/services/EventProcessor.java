@@ -409,10 +409,12 @@ public class EventProcessor {
                             e.getIsMainPath(),
                             e.getIsActive());
                     if (shouldBroadcast) {
+                        String customColor = this.displayRulesService.applyDisplayRules(e.getProperties(),
+                                this.displayRulesService.getDisplayRules());
                         webSocketService.broadcastConnectionCreated(new ConveyorResponse(e.getConnectionId(),
                                 e.getSourceId(), e.getTargetId(), e.getName(), e.getLength(), e.getSpeed(), e.getType(),
                                 e.getIsActive(), e.getIsMainPath(), e.getCapacity(),
-                                e.getProperties()), e.getTimestamp());
+                                e.getProperties(), customColor), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }

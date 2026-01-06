@@ -156,7 +156,7 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
             if (!highlightedItem) return res;
 
             if (node === highlightedItem.id) {
-                res.color = STYLES.item.color;
+                res.color = data.customColor || STYLES.item.color;
                 res.size = STYLES.item.size;
                 res.zIndex = 20;
                 res.highlighted = true;

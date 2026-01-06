@@ -20,12 +20,13 @@ export const useGraphLoader = (
                 y: loc.longitude ?? hashToNumber(loc.id + "random"),
                 label: loc.name, 
                 size: 10, 
-                color: "#69b3a2", // Default color (will be overwritten by ThemeController)
+                color: loc.customColor || "#69b3a2", // Default color (will be overwritten by ThemeController)
                 type: "circle",
                 id: loc.id, 
                 capacity: loc.capacity,
                 locationType: loc.type,
-                properties: loc.properties
+                properties: loc.properties,
+                customColor: loc.customColor
             });
         });
 
@@ -37,7 +38,9 @@ export const useGraphLoader = (
                 let size = 3; if (conv.isMainPath) size = 6;
                 graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
                     id: conv.id, type: 'arrow', size, label: conv.name,
-                    speed: conv.speed, length: conv.length, isMainPath: conv.isMainPath
+                    speed: conv.speed, length: conv.length, isMainPath: conv.isMainPath,
+                    color: conv.customColor, // Optional: if undefined, sigma uses default
+                    customColor: conv.customColor
                 });
             }
         });
@@ -64,8 +67,9 @@ export const useGraphLoader = (
             }
             
             graph.addNode(item.id, {
-                x: startX, y: startY, label: item.name, size: 6, color: "#FF0000",
-                type: "square", id: item.id, isItem: true, path: item.path, properties: item.properties, isActive: item.active
+                x: startX, y: startY, label: item.name, size: 6, color: item.customColor || "#FF0000",
+                type: "square", id: item.id, isItem: true, path: item.path, properties: item.properties, isActive: item.active,
+                customColor: item.customColor
 
             });
         });
