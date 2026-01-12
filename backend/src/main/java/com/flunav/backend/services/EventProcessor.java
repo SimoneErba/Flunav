@@ -137,24 +137,27 @@ public class EventProcessor {
      */
     private CompletableFuture<Map<String, Object>> executeOn(DomainEvent event, boolean shouldBroadcast,
             Executor executor) {
-        return CompletableFuture.supplyAsync(() -> executeBusinessLogic(event, shouldBroadcast), executor);
+        // CAPTURE CONTEXT FROM CALLER THREAD
+        final String currentSimId = DatabaseContextHolder.getSimulationId();
+        final String currentSenderId = UserContextHolder.getSenderId();
+
+        return CompletableFuture.supplyAsync(
+                () -> executeBusinessLogic(event, shouldBroadcast, currentSimId, currentSenderId), executor);
     }
 
     /**
      * Contiene la logica di business effettiva.
      * Centralizza la gestione dei ThreadLocal e le chiamate ai servizi.
      */
-    private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast) {
-        String capturedSimulationId = DatabaseContextHolder.getSimulationId();
-        String capturedSenderId = UserContextHolder.getSenderId();
-
+    private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast, String simulationId,
+            String senderId) {
         try {
-            if (capturedSimulationId != null)
-                DatabaseContextHolder.enterSimulationContext(capturedSimulationId);
-            if (capturedSenderId != null)
-                UserContextHolder.setSenderId(capturedSenderId);
+            if (simulationId != null)
+                DatabaseContextHolder.enterSimulationContext(simulationId);
+            if (senderId != null)
+                UserContextHolder.setSenderId(senderId);
 
-            if (capturedSimulationId == null) {
+            if (simulationId == null) {
                 clickHouseService.saveEventAsync(event);
             }
 

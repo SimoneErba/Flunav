@@ -28,13 +28,16 @@ public class StateRecoveryService {
     private final LiveItemRepository redisRepo;
     private final ClickHouseService clickHouseService;
     private final OrientDBService orientDBService;
+    private final GraphService graphService;
 
     public StateRecoveryService(LiveItemRepository redisRepo,
             ClickHouseService clickHouseService,
-            OrientDBService orientDBService) {
+            OrientDBService orientDBService,
+            GraphService graphService) {
         this.redisRepo = redisRepo;
         this.clickHouseService = clickHouseService;
         this.orientDBService = orientDBService;
+        this.graphService = graphService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -95,7 +98,15 @@ public class StateRecoveryService {
                 }
             }
 
-            logger.info("Rehydration complete. Restored {} items (with names) from history.", count);
+            logger.info("Rehydration: Loaded {} candidate items. Running physics cleanup...", count);
+
+            // 5. Run Physics-Based Cleanup
+            // This calculates the state of every item against Instant.now().
+            // Items that have logically exited the system (time elapsed) or are at CHUTES
+            // will be detected and removed from Redis by GraphService's lazy cleanup.
+            graphService.getAllItemStates();
+
+            logger.info("Rehydration complete. Physics cleanup finished.");
 
         } catch (Exception e) {
             logger.error("CRITICAL: Failed to rehydrate state. System starting with empty state.", e);
