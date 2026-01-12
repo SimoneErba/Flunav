@@ -17,6 +17,7 @@ public class ItemInput {
     private Boolean active;
     private String locationId;
     private Double progress;
+    private java.time.Instant timestamp;
 
     private Map<String, Object> properties;
 
@@ -28,5 +29,6 @@ public class ItemInput {
         this.locationId = event.getLocationId();
         this.properties = event.getProperties();
         this.progress = event.getProgress();
+        this.timestamp = event.getTimestamp();
     }
 }

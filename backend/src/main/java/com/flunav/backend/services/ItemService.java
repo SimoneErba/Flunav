@@ -167,17 +167,18 @@ public class ItemService {
             // 2. Create Live State in Redis
             // Default to LOCATION type for new items unless specified otherwise
             // (ItemInput doesn't have type yet, usually items spawn at nodes)
+            Instant entryTime = itemInput.getTimestamp() != null ? itemInput.getTimestamp() : Instant.now();
             redisRepository.saveItemState(
                     itemInput.getId(),
                     itemInput.getLocationId(),
                     PositionType.LOCATION, // Default
-                    Instant.now(),
+                    entryTime,
                     null,
                     itemInput.getName());
 
             // Return the merged object
             Item createdItem = vertexToItem(itemVertex);
-            createdItem.updatePosition(itemInput.getLocationId(), PositionType.LOCATION, Instant.now(), 0.0);
+            createdItem.updatePosition(itemInput.getLocationId(), PositionType.LOCATION, entryTime, 0.0);
             return createdItem;
 
         } catch (Exception e) {

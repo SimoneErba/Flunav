@@ -421,7 +421,7 @@ public class EventProcessor {
 
                 case ConnectionSpeedChangedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
-                    checkpointItems(e.getEntityId(), conveyor.getSpeed());
+                    checkpointItems(e.getEntityId(), conveyor.getSpeed(), e.getTimestamp());
                     conveyor.setSpeed(e.getSpeed());
                     conveyorService.updateConveyor(conveyor);
                     if (shouldBroadcast) {
@@ -504,10 +504,10 @@ public class EventProcessor {
      * Checkpoints items on a conveyor when speed changes.
      * We save the distance traveled so far and reset the timer to 'now'.
      */
-    private void checkpointItems(String edgeId, double oldSpeed) {
+    private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         List<Map<String, Object>> allItems = liveItemRepository.getAllActiveItems();
-        long now = System.currentTimeMillis();
-        Instant nowInstant = Instant.ofEpochMilli(now);
+        long now = timestamp.toEpochMilli();
+        Instant nowInstant = timestamp;
 
         for (Map<String, Object> itemData : allItems) {
             String currentEdgeId = (String) itemData.get("edgeId");
