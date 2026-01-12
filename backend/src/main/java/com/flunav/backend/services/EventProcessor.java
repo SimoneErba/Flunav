@@ -421,9 +421,9 @@ public class EventProcessor {
 
                 case ConnectionSpeedChangedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
-                    conveyorService.updateConveyor(conveyor);
                     checkpointItems(e.getEntityId(), conveyor.getSpeed());
                     conveyor.setSpeed(e.getSpeed());
+                    conveyorService.updateConveyor(conveyor);
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), Map.of("speed", e.getSpeed())), e.getTimestamp());
@@ -461,6 +461,8 @@ public class EventProcessor {
 
                 case LocationAddToMainPath e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setMainPath(true);
+                    conveyorService.updateConveyor(conveyor);
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
@@ -471,6 +473,8 @@ public class EventProcessor {
 
                 case ConnectionRemoveFromMainPath e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setMainPath(false);
+                    conveyorService.updateConveyor(conveyor);
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(

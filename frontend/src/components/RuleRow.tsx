@@ -27,7 +27,7 @@ const InputWrapper: React.FC<{ children: React.ReactNode, label: string, orienta
 );
 
 export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps }: RuleRowProps) => {
-  const [isCollapsed, setIsCollapsed] = useState(orientation === 'vertical');
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newType = e.target.value as DisplayRuleDataTypeEnum;

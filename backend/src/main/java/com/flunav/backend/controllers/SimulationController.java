@@ -66,12 +66,18 @@ public class SimulationController {
             @Parameter(description = "The ID of the simulation") @PathVariable String simulationId) {
 
         SimulationState state = simulationService.getSimulationState(simulationId);
-        if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.PLAYING) {
+        if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.PLAYING
+                && state.getStatus() != SimulationStatus.PAUSED && state.getStatus() != SimulationStatus.STOPPED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
 
+        Instant simulationTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
+                : state.getTimestamp();
+        
+        org.slf4j.LoggerFactory.getLogger(SimulationController.class).info("GetGraphData for SimID: {}, Time: {}", simulationId, simulationTime);
+
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
-            GraphData data = graphService.getGraphData();
+            GraphData data = graphService.getGraphData(simulationTime);
             return ResponseEntity.ok(data);
         }
     }

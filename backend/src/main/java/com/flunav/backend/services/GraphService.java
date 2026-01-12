@@ -41,7 +41,10 @@ public class GraphService {
     }
 
     public GraphData getGraphData() {
-        Instant now = Instant.now();
+        return getGraphData(Instant.now());
+    }
+
+    public GraphData getGraphData(Instant now) {
         Topology topology = fetchTopology();
         List<ItemResponse> activeItems = calculateAllItemStates(topology, now);
 
@@ -156,6 +159,12 @@ public class GraphService {
     private ItemResponse calculateCurrentState(
             String itemId, String startId, PositionType startType, Instant lastUpdate,
             List<String> path, Topology topo, Instant now, Double accDist) {
+
+        // DEBUG: Trace time calculation for specific item or first item
+        if (itemId.equals("BoxMulti-1")) {
+            logger.info("Calc State for {}: Now={}, Entry={}, Diff={}ms, AccDist={}", 
+                itemId, now, lastUpdate, Duration.between(lastUpdate, now).toMillis(), accDist);
+        }
 
         Duration timeElapsed = Duration.between(lastUpdate, now);
         ConveyorResponse currentEdge = null;

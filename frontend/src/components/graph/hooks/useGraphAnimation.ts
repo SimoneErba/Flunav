@@ -52,7 +52,17 @@ export const useGraphAnimation = (
 
                         const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
                         const entryTime = new Date(item.entryTimestamp).getTime();
-                        const timeElapsed = simTime - entryTime;
+                        let timeElapsed = simTime - entryTime;
+
+                        // FIX: Clamp small negative values (sync jitter)
+                        if (timeElapsed < 0 && timeElapsed > -500) {
+                             timeElapsed = 0;
+                        }
+
+                        // DEBUG LOG (Enable if needed)
+                        // if (activeItemsRef.current.keys().next().value === itemId) {
+                        //     console.log(`[Anim] Item ${itemId}: Sim=${simTime}, Entry=${entryTime}, Delta=${timeElapsed}`);
+                        // }
 
                         if (timeElapsed < 0) {
                             graph.setNodeAttribute(itemId, "hidden", true);

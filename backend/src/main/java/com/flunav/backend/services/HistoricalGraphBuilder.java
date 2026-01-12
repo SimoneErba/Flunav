@@ -6,12 +6,14 @@ import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.models.simulation.SimulationStatus;
+import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.services.ClickHouseService.Snapshot;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import flunav.events.DomainEvent;
+import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -33,13 +35,16 @@ public class HistoricalGraphBuilder {
     private final EventProcessor eventProcessor;
     private final OrientDBService orientDBService;
     private final SimulationService simulationService;
+    private final LiveItemRepository liveItemRepository;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
-            OrientDBService orientDBService, SimulationService simulationService) {
+            OrientDBService orientDBService, SimulationService simulationService,
+            LiveItemRepository liveItemRepository) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.orientDBService = orientDBService;
         this.simulationService = simulationService;
+        this.liveItemRepository = liveItemRepository;
     }
 
     @Async("taskExecutor")
@@ -177,6 +182,9 @@ public class HistoricalGraphBuilder {
                         }
 
                         itemVertex.save();
+
+                        // Restore to Redis (for GraphService visibility)
+                        restoreItemToRedis(itemData);
                     }
                 }
 
@@ -188,6 +196,30 @@ public class HistoricalGraphBuilder {
                 throw new RuntimeException("Snapshot restore failed and was rolled back.", e);
             }
         });
+    }
+
+    private void restoreItemToRedis(ItemResponse itemData) {
+        String positionId;
+        PositionType type;
+
+        if (itemData.getCurrentEdgeId() != null) {
+            positionId = itemData.getCurrentEdgeId();
+            type = PositionType.CONVEYOR;
+        } else {
+            positionId = itemData.getLocationId();
+            type = PositionType.LOCATION;
+        }
+
+        if (positionId != null && itemData.getEntryTimestamp() != null) {
+            liveItemRepository.saveItemState(
+                    itemData.getId(),
+                    positionId,
+                    type,
+                    itemData.getEntryTimestamp(),
+                    itemData.getDestinationId(),
+                    itemData.getName()
+            );
+        }
     }
 
     private void clearDatabase(ODatabaseSession session) {
