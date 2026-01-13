@@ -33,7 +33,6 @@ public class LiveItemRepository {
 
     private String getNamespacedKey(String baseKey) {
         String simId = DatabaseContextHolder.getSimulationId();
-        logger.info("Accessing Redis Key. SimID: {}, BaseKey: {}", simId, baseKey);
         if (simId != null) {
             return "sim:" + simId + ":" + baseKey;
         }

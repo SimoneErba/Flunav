@@ -1,5 +1,7 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.DatabaseContextHolder.SimulationContext;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
@@ -29,25 +31,31 @@ public class GraphService {
     private final LiveItemRepository redisRepository;
     private final PathfindingService pathfindingService;
     private final DisplayRulesService displayRulesService;
+    private final SimulationService simulationService;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
             PathfindingService pathfindingService,
-            DisplayRulesService displayRulesService) {
+            DisplayRulesService displayRulesService,
+            SimulationService simulationService) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.pathfindingService = pathfindingService;
         this.displayRulesService = displayRulesService;
+        this.simulationService = simulationService;
     }
 
     public GraphData getGraphData() {
+        var currentSimualtion = simulationService.getCurrentSimulation();
+        if (currentSimualtion != null) {
+            return getGraphData(currentSimualtion.getTimestamp());
+        }
         return getGraphData(Instant.now());
     }
 
     public GraphData getGraphData(Instant now) {
         Topology topology = fetchTopology();
         List<ItemResponse> activeItems = calculateAllItemStates(topology, now);
-
         var customDisplayRules = this.displayRulesService.getDisplayRules();
 
         for (var item : activeItems) {
@@ -78,6 +86,7 @@ public class GraphService {
         Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
 
         List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
+
         List<ItemResponse> activeItems = new ArrayList<>();
         List<String> itemsToRemove = new ArrayList<>();
 
@@ -162,8 +171,8 @@ public class GraphService {
 
         // DEBUG: Trace time calculation for specific item or first item
         if (itemId.equals("BoxMulti-1")) {
-            logger.info("Calc State for {}: Now={}, Entry={}, Diff={}ms, AccDist={}", 
-                itemId, now, lastUpdate, Duration.between(lastUpdate, now).toMillis(), accDist);
+            logger.info("Calc State for {}: Now={}, Entry={}, Diff={}ms, AccDist={}",
+                    itemId, now, lastUpdate, Duration.between(lastUpdate, now).toMillis(), accDist);
         }
 
         Duration timeElapsed = Duration.between(lastUpdate, now);

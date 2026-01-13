@@ -148,7 +148,6 @@ public class ItemService {
 
     public Item createItem(ItemInput itemInput) {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            db.begin();
 
             if (OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
                 throw new IllegalArgumentException("Item with ID " + itemInput.getId() + " already exists.");
@@ -162,11 +161,8 @@ public class ItemService {
             itemVertex.setProperty("properties", itemInput.getProperties());
 
             itemVertex.save();
-            db.commit();
 
-            // 2. Create Live State in Redis
-            // Default to LOCATION type for new items unless specified otherwise
-            // (ItemInput doesn't have type yet, usually items spawn at nodes)
+            // TODO: allow for insertion in edge
             Instant entryTime = itemInput.getTimestamp() != null ? itemInput.getTimestamp() : Instant.now();
             redisRepository.saveItemState(
                     itemInput.getId(),

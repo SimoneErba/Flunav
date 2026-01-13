@@ -1,5 +1,6 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import org.slf4j.Logger;
@@ -252,6 +253,15 @@ public class SimulationService {
 
         // 6. Clean up the task from the active list.
         activePlaybacks.remove(simulationId);
+    }
+
+    public SimulationState getCurrentSimulation() {
+        var simulationId = DatabaseContextHolder.getSimulationId();
+        if (simulationId != null) {
+            return simulationCache.get(simulationId);
+        }
+
+        return null;
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {

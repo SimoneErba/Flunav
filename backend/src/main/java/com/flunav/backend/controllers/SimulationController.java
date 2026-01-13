@@ -10,9 +10,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import com.flunav.backend.config.RequestLoggingFilter;
 import com.flunav.backend.context.DatabaseContextHolder;
 import java.time.Instant;
 
@@ -20,6 +25,7 @@ import java.time.Instant;
 @RequestMapping("/api/simulations")
 @Tag(name = "Simulations", description = "APIs for creating and managing historical state simulations")
 public class SimulationController {
+    private static final Logger logger = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
     private final SimulationService simulationService;
     private final GraphService graphService; // Aggiungiamo GraphService per i dati del grafo
@@ -43,6 +49,7 @@ public class SimulationController {
     @ApiResponse(responseCode = "202", description = "Simulation build has been accepted for processing.")
     public ResponseEntity<SimulationStateResponse> createSimulation(@RequestBody CreateSimulationRequest request) {
         SimulationState state = simulationService.createSimulation(request.timestamp());
+        logger.info("--------------------------- Created simulation {}, {} ", state.getId(), state.getTimestamp());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(new SimulationStateResponse(state.getId(), state.getStatus(), state.getTimestamp()));
     }
@@ -71,10 +78,11 @@ public class SimulationController {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
 
-        Instant simulationTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
-                : state.getTimestamp();
-        
-        org.slf4j.LoggerFactory.getLogger(SimulationController.class).info("GetGraphData for SimID: {}, Time: {}", simulationId, simulationTime);
+        Instant simulationTime = state.getTimestamp() != null ? state.getTimestamp()
+                : state.getLastProcessedTimestamp();
+
+        org.slf4j.LoggerFactory.getLogger(SimulationController.class).info("GetGraphData for SimID: {}, Time: {}",
+                simulationId, simulationTime);
 
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             GraphData data = graphService.getGraphData(simulationTime);
