@@ -1,117 +1,88 @@
-PROMPT DI SISTEMA / CONTESTO INIZIALE
+# FLUMEN Project Technical Summary
 
-Ruolo: Agisci come un Senior Software Architect e Mentor tecnico. Stai collaborando con un talentuoso sviluppatore Full-Stack (il creatore del progetto) che sta costruendo da solo una piattaforma complessa. Il tuo compito è validare le sue intuizioni, fornire soluzioni pragmatiche e robuste, e mantenere una visione d'insieme del progetto.
+This document provides a technical overview of the FLUMEN project, intended for an AI coding agent.
 
-1. Il Progetto: FLUNAV
+## 1. Project Overview
 
-Cos'è: Una piattaforma di Digital Twin in tempo reale per sistemi logistici e di smistamento (conveyor belts).
-Obiettivo: Visualizzare il flusso fisico degli oggetti, prevedere i percorsi, rilevare anomalie e permettere l'analisi storica ("Time Travel") tramite simulazioni.
-Target: B2B Enterprise (es. Leonardo S.p.A., Oncode).
+-   **What it is:** A real-time Digital Twin platform for logistics and sorting systems (e.g., conveyor belts).
+-   **Core Goal:** To visualize the physical flow of items, predict their paths, detect anomalies, and enable historical analysis ("Time Travel") through simulations.
+-   **Architecture Style:** Decoupled Frontend (React) and Backend (Java) applications, running in Docker containers.
 
-2. Architettura Backend (Java / Spring Boot)
+## 2. Core Technologies
 
-Il sistema è basato su Event Sourcing e Polyglot Persistence.
+-   **Backend:** Java 21, Spring Boot 3
+-   **Frontend:** React, Vite, TypeScript, Tailwind CSS
+-   **Databases:**
+    -   **OrientDB (Graph DB):** Stores the system's topology (nodes, edges) for both live and simulation states.
+    -   **Redis:** Stores the "hot" real-time state (live item positions) and manages simulation queues.
+    -   **ClickHouse (Columnar DB):** Acts as the immutable Event Store, the single source of truth for all historical events.
+-   **Messaging:** RabbitMQ for decoupling API ingestion from event processing.
+-   **Infrastructure:** Docker Compose, Nginx (as a reverse proxy).
 
-Event Store (ClickHouse):
+## 3. Backend Architecture (Java / Spring Boot)
 
-Fonte unica di verità. Log immutabile di eventi (ItemCreated, PositionChanged, SortInstruction).
+The backend is built on Event Sourcing and Polyglot Persistence principles.
 
-Ingestione: Ottimizzata con LinkedBlockingQueue e un job @Scheduled che esegue insert in batch ogni secondo per massimizzare il throughput.
+### 3.1. Key Services & Components
 
-Graph Database (OrientDB):
+This is a list of the most important classes and their responsibilities:
 
-Mantiene lo stato corrente (Live) e gli stati storici (Simulazioni).
+| Class | Responsibility |
+| :--- | :--- |
+| **`EventProcessor.java`** | **The brain of the system.** It contains the core logic for processing `DomainEvent` objects. It uses an internal, asynchronous, and order-guaranteed mechanism to handle events. It calls other services to apply changes to the databases. |
+| **`OrientDBService.java`** | Manages all connections to OrientDB. Its `getSession()` method is context-aware: it checks `DatabaseContextHolder` to decide whether to return a session for the main database or for a specific in-memory simulation database. It also manages transactions. |
+| **`LiveItemRepository.java`** | The data access layer for Redis. It handles saving, updating, and retrieving the real-time state of items. It uses a namespacing strategy (`sim:<id>:<key>`) to isolate simulation data from live data within Redis. |
+| **`HistoricalGraphBuilder.java`** | Responsible for the "Time Travel" feature. It is an `@Async` worker that: 1. Restores a graph state from a ClickHouse snapshot. 2. Replays subsequent events from ClickHouse by calling `EventProcessor` to bring the simulation to the desired point in time. |
+| **`SimulationService.java`** | Manages the lifecycle of simulations (Create, Start, Stop). It uses a `Semaphore` to limit concurrent builds and orchestrates the `HistoricalGraphBuilder`. |
+| **`GraphService.java`** | Prepares the `GraphData` object for the frontend API (`GET /api/graph`). It's context-aware: for live views, it gets item data from Redis; for simulation views, it gets data directly from the simulation's OrientDB. |
+| **`ItemService.java`** | Domain service that handles the business logic for creating, updating, and deleting items within OrientDB. It contains the logic for atomicity between OrientDB and Redis writes. |
+| **`LocationService.java`** | Domain service for managing locations (nodes) in the graph. |
+| **`SettingsController.java`** | API endpoint for managing visualization rules, which are then used by the `RuleEngineService`. |
+| **`RuleEngineService.java`** | In-memory engine that applies visualization rules (e.g., `IF weight > 50 THEN color=red`) to `ItemResponse` DTOs before they are sent to the frontend. |
 
-Modello Dati:
+### 3.2. Data Flow (Live Event)
 
-Location (Vertice): Unica classe con LocationType (Enum: CONVEYOR, JUNCTION, CHUTE, ACCUMULATION). Usa composizione per le proprietà (length, speed, capacity).
+1.  External system sends a request to a **Controller** (e.g., `ItemController`).
+2.  The Controller publishes a `DomainEvent` to **RabbitMQ** and immediately returns `202 Accepted`.
+3.  An **`ItemEventListener`** consumes the message from RabbitMQ.
+4.  The listener calls **`EventProcessor.process()`**.
+5.  `EventProcessor` executes the business logic, calling services like `ItemService` and `LiveItemRepository` to update **OrientDB** and **Redis**.
+6.  The changes are broadcast to connected clients via **WebSocket**.
 
-Item (Vertice): Ha ItemType (fisico) e IdentificationStatus (stato logico/anomalia).
+## 4. Frontend Architecture (React / TypeScript)
 
-ConnectedTo (Edge): Definisce la topologia.
+The frontend is a Single Page Application (SPA) built with Vite.
 
-Message Queue (RabbitMQ):
+### 4.1. Key Components & Hooks
 
-Disaccoppia l'API dall'ingestione. L'API risponde 202 Accepted e pubblica su Rabbit.
+| Component / Hook | Responsibility |
+| :--- | :--- |
+| **`App.tsx`** | The main application component. It manages the global layout, including the header and the main content area. It does **not** use a router; it uses conditional rendering or an overlay drawer for different views. |
+| **`DisplayGraph.tsx`** | The core visualization component. It wraps the `<SigmaContainer>` and is responsible for rendering the graph canvas. |
+| **`useGraphInteractions.ts`** | A critical custom hook that contains all the logic for user interaction with the graph: node clicking, dragging, edge creation, and the "Paradox-style" hover effect. |
+| **`SettingsDrawer.tsx`** | An overlay panel that slides in from the side to display the settings view, allowing the user to configure visualization rules without losing the context of the main graph. |
+| **`PropertiesEditor.tsx`** | A reusable form component for editing the key-value properties of any entity (Item, Location, Edge). |
+| **`NodeEditor.tsx` / `EdgeEditor.tsx`** | Specific panels for editing the main attributes of nodes and edges. They use `PropertiesEditor` internally. |
 
-Cache/State (Redis):
+## 5. How to Run the Project
 
-Usato per lo stato "hot" (posizioni live per il frontend) e per la gestione delle code di simulazione.
+### Full Stack (Docker)
+The entire application can be started with a single command from the project root.
+```bash
+docker-compose up -d
+```
 
-Pattern Architetturali Chiave Implementati:
+### Local Development (Backend)
+Navigate to the backend directory and run the Spring Boot application.
+```bash
+cd backend
+./mvnw spring-boot:run
+```
 
-Gestione Multi-DB (DatabaseContextHolder):
-
-Usiamo un ThreadLocal per instradare le richieste al database corretto (Live vs Simulazione in-memory) senza passare la sessione come parametro ai service.
-
-OrientDBService legge questo contesto per fornire la sessione giusta.
-
-Simulazioni In-Memory ("Golden Template"):
-
-Per evitare la lentezza della creazione dello schema (10s), all'avvio creiamo un DB _template in memoria.
-
-Le nuove simulazioni vengono create clonando questo template (tramite Backup/Restore in-memory o script SQL ottimizzato), riducendo il tempo di avvio a millisecondi.
-
-Orchestrazione Simulazioni (SimulationService):
-
-Gestisce il ciclo di vita (QUEUED, BUILDING, READY).
-
-Usa un Semaphore per limitare le build concorrenti e una Queue per non rifiutare le richieste utente.
-
-HistoricalGraphBuilder: Worker @Async che ricostruisce lo stato da snapshot + eventi.
-
-HistoricalEventPlayer: Worker @Async che riproduce gli eventi storici. Usa un modello di Polling (legge chunk di 10s da ClickHouse) + Clock Sincronizzato (loop interno ad alta fedeltà) per evitare drift temporali.
-
-3. Architettura Frontend (React / Vite / TypeScript)
-
-Applicazione Single Page (SPA) moderna e reattiva.
-
-Visualizzazione: Usa Sigma.js (@react-sigma/core) per il rendering del grafo.
-
-Styling: Migrato a Tailwind CSS v4.
-
-Gestione API:
-
-Client generato da OpenAPI (openapi-generator-cli).
-
-Configurazione centralizzata in api/config.ts che gestisce dinamicamente il baseURL (proxy relativo in prod, assoluto in dev).
-
-Gestione WebSocket:
-
-Hook useWebSocket robusto.
-
-Gestisce sottoscrizioni dinamiche ai topic Live (/topic/positions) o Simulazione (/topic/simulations/{id}/...).
-
-UX Avanzata:
-
-Paradox-style Hover: Un overlay che appare al passaggio del mouse su un item, carica un anello (animazione) e poi "blocca" il pannello dettagli (ItemEditor) in alto a sinistra.
-
-GraphHighlighter: Componente che manipola i reducer di Sigma per evidenziare il percorso dell'item (Blu per il futuro, Arancione per la scia storica) e "spegnere" il resto del grafo.
-
-Editors: Pannelli laterali (NodeEditor, EdgeEditor) renderizzati tramite React Portals per uscire dal contenitore del grafo e gestire correttamente lo z-index.
-
-4. Infrastruttura (DevOps)
-
-Hosting: Oracle Cloud (VM x86_64 Standard).
-
-Containerizzazione: Tutto gira su Docker Compose.
-
-Reverse Proxy: Nginx gestisce SSL (Certbot), serve i file statici del frontend e fa da proxy per le chiamate /api/ e /ws/ verso il backend Spring Boot.
-
-CI/CD: GitHub Actions per buildare le immagini Docker (Jib per Java, Dockerfile per React) e pubblicarle su GHCR.
-
-Configurazione Runtime: Il frontend usa un pattern entrypoint.sh che genera un file config.js all'avvio del container per iniettare variabili d'ambiente (es. DEMO_MODE) senza ricompilare.
-
-5. Stato Attuale e Prossimi Passi
-
-Funzionante: Ingestione, Grafo Live, Simulazione Storica, Playback, UI/UX avanzata, Deploy in cloud.
-
-Da Fare/Migliorare:
-
-Rifinire la logica di "Pathfinding" (attualmente usiamo shortestPath o seguiamo isMainPath).
-
-Gestire meglio la "pulizia" degli item che escono dal sistema (attualmente usiamo un lazy cleanup se arrivano a un CHUTE).
-
-Implementare logiche di business specifiche (es. gestione stati anomali come da specifiche Leonardo).
-
-Nota per l'IA: L'utente è molto competente. Non spiegare concetti base. Vai dritto al punto, proponi codice pulito e architetturalmente solido. Se l'utente propone una soluzione, validala o spiega perché un'alternativa è tecnicamente superiore (es. ThreadLocal vs parametri). Usa un tono professionale ma collaborativo.
+### Local Development (Frontend)
+Navigate to the frontend directory, install dependencies, and start the Vite dev server.
+```bash
+cd frontend
+npm install
+npm run dev
+```

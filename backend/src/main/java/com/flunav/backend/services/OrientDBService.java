@@ -210,6 +210,14 @@ public class OrientDBService {
                 displayRulesClass.createProperty("rules", OType.EMBEDDEDLIST, OType.EMBEDDED);
             }
 
+            // 5. User (Document)
+            if (session.getClass("User") == null) {
+                OClass userClass = session.createClass("User");
+                userClass.createProperty("username", OType.STRING).setNotNull(true).setMandatory(true);
+                userClass.createProperty("password", OType.STRING).setNotNull(true).setMandatory(true);
+                userClass.createProperty("role", OType.STRING).setNotNull(true).setMandatory(true);
+            }
+
             logger.debug("Schema verified for database: {}", session.getName());
         }
 
@@ -239,6 +247,12 @@ public class OrientDBService {
             OClass conveyorClass = session.getClass("Conveyor");
             if (conveyorClass != null && conveyorClass.getClassIndex("Conveyor_customId_idx") == null) {
                 conveyorClass.createIndex("Conveyor_customId_idx", OClass.INDEX_TYPE.UNIQUE, "customId");
+            }
+
+            // User Index
+            OClass userClass = session.getClass("User");
+            if (userClass != null && userClass.getClassIndex("User_username_idx") == null) {
+                userClass.createIndex("User_username_idx", OClass.INDEX_TYPE.UNIQUE, "username");
             }
 
             logger.info("Asynchronous index creation finished for database: {}", session.getName());
