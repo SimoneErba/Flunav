@@ -1,7 +1,6 @@
 package com.flunav.backend.config;
 
 import com.flunav.backend.domain.Role;
-import com.flunav.backend.services.UserService;
 import com.flunav.backend.utils.JwtUtils;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -22,11 +21,9 @@ import java.util.Collections;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
-    private final UserService userService;
 
-    public JwtAuthenticationFilter(JwtUtils jwtUtils, UserService userService) {
+    public JwtAuthenticationFilter(JwtUtils jwtUtils) {
         this.jwtUtils = jwtUtils;
-        this.userService = userService;
     }
 
     @Override

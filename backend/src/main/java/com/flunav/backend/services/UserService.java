@@ -2,9 +2,8 @@ package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Role;
 import com.flunav.backend.domain.User;
-import com.flunav.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
-import com.orientechnologies.orient.core.record.OVertex;
+import com.orientechnologies.orient.core.record.OElement;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
@@ -56,11 +55,13 @@ public class UserService {
                 throw new IllegalArgumentException("User " + user.getUsername() + " already exists.");
             }
 
-            OVertex userVertex = db.newVertex("User");
-            userVertex.setProperty("username", user.getUsername());
-            userVertex.setProperty("password", passwordEncoder.encode(user.getPassword()));
-            userVertex.setProperty("role", user.getRole().name());
-            userVertex.save();
+            OElement userDoc = db.newInstance("User");
+
+            userDoc.setProperty("username", user.getUsername());
+            userDoc.setProperty("password", passwordEncoder.encode(user.getPassword()));
+            userDoc.setProperty("role", user.getRole().name());
+
+            userDoc.save();
 
             return user;
         } catch (Exception e) {
@@ -74,7 +75,7 @@ public class UserService {
             try (OResultSet rs = db.query(query, username)) {
                 if (rs.hasNext()) {
                     OResult item = rs.next();
-                    return item.getVertex().map(this::vertexToUser);
+                    return item.getElement().map(this::elementToUser);
                 }
             }
         } catch (Exception e) {
@@ -82,7 +83,7 @@ public class UserService {
         }
         return Optional.empty();
     }
-    
+
     public List<User> getAllUsers() {
         List<User> users = new ArrayList<>();
         try (ODatabaseSession db = orientDBService.getSession()) {
@@ -90,18 +91,18 @@ public class UserService {
             try (OResultSet rs = db.query(query)) {
                 while (rs.hasNext()) {
                     OResult item = rs.next();
-                    item.getVertex().ifPresent(v -> users.add(vertexToUser(v)));
+                    item.getElement().ifPresent(v -> users.add(elementToUser(v)));
                 }
             }
         } catch (Exception e) {
-             throw new RuntimeException("Error fetching users", e);
+            throw new RuntimeException("Error fetching users", e);
         }
         return users;
     }
-    
+
     public void deleteUser(String username) {
-         try (ODatabaseSession db = orientDBService.getSession()) {
-            String query = "DELETE VERTEX User WHERE username = ?";
+        try (ODatabaseSession db = orientDBService.getSession()) {
+            String query = "DELETE FROM User WHERE username = ?";
             db.command(query, username);
         } catch (Exception e) {
             throw new RuntimeException("Error deleting user " + username, e);
@@ -115,10 +116,10 @@ public class UserService {
         }
     }
 
-    private User vertexToUser(OVertex vertex) {
+    private User elementToUser(OElement element) {
         return new User(
-                vertex.getProperty("username"),
-                vertex.getProperty("password"),
-                Role.valueOf(vertex.getProperty("role")));
+                element.getProperty("username"),
+                element.getProperty("password"),
+                Role.valueOf(element.getProperty("role")));
     }
 }

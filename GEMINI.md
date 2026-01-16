@@ -75,8 +75,7 @@ docker-compose up -d
 ### Local Development (Backend)
 Navigate to the backend directory and run the Spring Boot application.
 ```bash
-cd backend
-./mvnw spring-boot:run
+/usr/bin/env /home/dimin/.sdkman/candidates/java/21.0.2-tem/bin/java -agentlib:jdwp=transport=dt_socket,server=n,suspend=y,address=localhost:34285 @/tmp/cp_dsobqpp3eb85efhmckyfpv3o2.argfile com.flunav.backend.BackendApplication 22
 ```
 
 ### Local Development (Frontend)

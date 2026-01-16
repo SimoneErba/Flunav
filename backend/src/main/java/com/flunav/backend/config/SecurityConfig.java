@@ -45,7 +45,8 @@ public class SecurityConfig {
                         // Endpoint pubblici (Login, Swagger, WebSocket handshake)
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/ws/**").permitAll() // WebSocket
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Documentazione API
+                        .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll() // Documentazione
+                                                                                                          // API
 
                         // Tutto il resto richiede autenticazione (il ruolo specifico si controlla nel
                         // Controller)
@@ -55,15 +56,6 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
-    }
-
-    /**
-     * Definisce l'algoritmo di hashing per le password.
-     * Questo Bean viene iniettato automaticamente nel tuo UserService.
-     */
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
     }
 
     /**
@@ -78,7 +70,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Sender-ID", "X-Simulation-ID"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
