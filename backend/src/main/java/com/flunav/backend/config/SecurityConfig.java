@@ -2,6 +2,7 @@ package com.flunav.backend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -23,9 +24,14 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    @Value("${app.demo-mode:false}")
+    private boolean demoMode;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
     }
 
     @Bean
@@ -39,18 +45,24 @@ public class SecurityConfig {
 
                 // 3. Gestione Sessione: STATELESS (Niente cookie di sessione, usiamo solo JWT)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                
+                // 3b. Gestione Eccezioni: Return 401 instead of 403 for unauthenticated requests
+                .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
 
                 // 4. Regole di Autorizzazione URL
-                .authorizeHttpRequests(auth -> auth
-                        // Endpoint pubblici (Login, Swagger, WebSocket handshake)
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/ws/**").permitAll() // WebSocket
-                        .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll() // Documentazione
-                                                                                                          // API
-
-                        // Tutto il resto richiede autenticazione (il ruolo specifico si controlla nel
-                        // Controller)
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> {
+                    if (demoMode) {
+                        auth.anyRequest().permitAll();
+                    } else {
+                        auth
+                            // Endpoint pubblici (Login, Swagger, WebSocket handshake)
+                            .requestMatchers("/api/auth/**").permitAll()
+                            .requestMatchers("/ws/**").permitAll() // WebSocket
+                            .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll() // Documentazione API
+                            // Tutto il resto richiede autenticazione
+                            .anyRequest().authenticated();
+                    }
+                })
 
                 // 5. Aggiungi il tuo filtro JWT prima del filtro standard di Spring
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

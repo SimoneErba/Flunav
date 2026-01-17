@@ -22,11 +22,11 @@ export const LoginPage = () => {
       // Chiamata al backend
       const response = await authApi.login({ username, password });
       console.log(response)
-      // Assumendo che il backend ritorni { token: "...", role: "..." }
+      // Assumendo che il backend ritorni { token: "...", refreshToken: "...", role: "..." }
       // Adatta in base al tuo DTO reale
-      const { token, role } = response.data; 
+      const { token, refreshToken, role } = response.data as any; 
       
-      login(token, username, role);
+      login(token, refreshToken, username, role);
       toast.success(`Welcome back, ${username}!`);
       navigate("/"); // Redirect alla home
     } catch (error) {
