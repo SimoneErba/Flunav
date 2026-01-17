@@ -11,7 +11,6 @@ check if on amssive graph items become big. check massive graph reformance
 TODO:
 
 color input is out of the page
-simualtin is not filled with items
 attese, ricircoli
 
 see other simulations (with a name, be able to switch to them)
@@ -24,8 +23,8 @@ chatbot to ask about item history or location events
 puppygraph or ckickgraph for analytics (BI) - 
 
             
-                //if we dont receive a item position update when we expect it (for item reaching their destination for example)
-                // we can reput them on the system on the main path
+if we dont receive a item position update when we expect it (for item reaching their destination for example)
+we can reput them on the system on the main path
 
 
 Domain A: The Production Line (e.g., Automotive, Food Manufacturing)

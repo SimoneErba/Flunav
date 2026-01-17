@@ -1,0 +1,39 @@
+opc:
+  # 1. Global Server Config (Mapped to 'private OpcServerConfig server')
+  server:
+    endpointUrl: "opc.tcp://192.168.1.10:4840"
+    username: "admin"
+    password: "password123"
+
+  # 2. Shared Templates
+  templates:
+    scanner_template:
+      triggerNode: "ns=2;s={ROOT}.Trigger"
+      triggerCondition: "true"
+      eventType: "ITEM_CREATED"
+      payloadMapping:
+        entityId: "ns=2;s={ROOT}.Barcode"
+
+  # 3. Connections List
+  connections:
+    - name: "PLC_Main"
+      # If endpointUrl is missing here, your logic could fallback to opc.server.endpointUrl
+      endpointUrl: "opc.tcp://localhost:4840" 
+      subscriptions:
+        
+        # OPTION A: Using a Template
+        - useTemplate: "scanner_template"
+          variables:
+            ROOT: "Line1_Scanner"
+          staticAttributes:
+            locationId: "Entry_1"
+
+        # OPTION B: Fully Custom
+        - name: "Manual_Override_Sensor"
+          triggerNode: "ns=2;s=Special_Sensor_Bit"
+          triggerCondition: "true"
+          eventType: "ITEM_POSITION_CHANGED"
+          staticAttributes:
+            newLocationId: "Special_Zone"
+          payloadMapping:
+            entityId: "ns=2;s=Tracking_ID_99"

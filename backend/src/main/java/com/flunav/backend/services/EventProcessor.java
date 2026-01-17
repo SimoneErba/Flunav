@@ -462,6 +462,28 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case ConnectionActivatedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setActive(true);
+                    conveyorService.updateConveyor(conveyor);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("active", true)), e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ConnectionDeactivatedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    conveyor.setActive(false);
+                    conveyorService.updateConveyor(conveyor);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), Map.of("active", false)), e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case LocationAddToMainPath e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     conveyor.setMainPath(true);

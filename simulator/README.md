@@ -14,3 +14,6 @@ SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClas
 SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="multi"
 SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="multi"
 
+
+SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="large"
+SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="large"
