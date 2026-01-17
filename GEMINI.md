@@ -85,3 +85,11 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### AI instructions
+
+avoid useless comments related to the promtp like "this was already correct". only add codmmens that exmplain the code. and add it just at the beginning of a method, or in the most compx parts. not on each line
+
+avoid examples to explain concepts
+
+always give full code files dont omit things for brevity
