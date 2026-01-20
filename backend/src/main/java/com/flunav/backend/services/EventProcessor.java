@@ -11,11 +11,14 @@ import com.orientechnologies.orient.core.exception.OConcurrentModificationExcept
 import flunav.context.UserContextHolder;
 import flunav.events.*;
 import flunav.types.LocationType;
+import flunav.types.PositionType;
 import jakarta.annotation.PreDestroy;
 
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -47,6 +50,8 @@ public class EventProcessor {
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
     private final DisplayRulesService displayRulesService;
+    private final AmqpTemplate amqpTemplate;
+    private final String itemEventsRoutingKey;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -67,7 +72,9 @@ public class EventProcessor {
             WebSocketService webSocketService,
             PathfindingService pathfindingService,
             LiveItemRepository liveItemRepository,
-            DisplayRulesService displayRulesService) {
+            DisplayRulesService displayRulesService,
+            AmqpTemplate amqpTemplate,
+            @Value("${rabbitmq.routing-key.item-events}") String itemEventsRoutingKey) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
         this.locationService = locationService;
@@ -76,6 +83,8 @@ public class EventProcessor {
         this.pathfindingService = pathfindingService;
         this.liveItemRepository = liveItemRepository;
         this.displayRulesService = displayRulesService;
+        this.amqpTemplate = amqpTemplate;
+        this.itemEventsRoutingKey = itemEventsRoutingKey;
     }
 
     /**
@@ -227,13 +236,75 @@ public class EventProcessor {
                     var positionType = locationService.getPositionType(e.getLocationId());
 
                     if (location.getType() == LocationType.CHUTE) {
+                        // Get last position from Redis before deleting
+                        var lastState = liveItemRepository.getItemState(e.getEntityId());
+                        String lastPositionId = null;
+                        PositionType lastPositionType = null;
+
+                        if (!lastState.isEmpty()) {
+                            lastPositionId = lastState.get("e");
+                            String lastTypeStr = lastState.get("ty");
+                            if (lastTypeStr != null) {
+                                lastPositionType = PositionType.valueOf(lastTypeStr);
+                            }
+                        }
+
+                        // Fire PathTraversedEvent for exit if connected
+                        if (lastPositionId != null && lastPositionType != null) {
+                            if (pathfindingService.arePositionsConnected(lastPositionId, lastPositionType,
+                                    e.getLocationId(), positionType)) {
+                                List<String> path = pathfindingService.calculateShortestPath(
+                                        lastPositionId, lastPositionType, e.getLocationId());
+
+                                PathTraversedEvent pathEvent = new PathTraversedEvent(
+                                        e.getEntityId(),
+                                        lastPositionId,
+                                        lastPositionType,
+                                        e.getLocationId(),
+                                        positionType,
+                                        path);
+                                publishEvent(pathEvent);
+                            }
+                        }
+
                         liveItemRepository.deleteItem(e.getEntityId());
 
-                        // Tell frontend to remove it visually
                         if (shouldBroadcast) {
                             webSocketService.broadcastItemDeleted(e.getEntityId(), e.getTimestamp());
                         }
                     } else {
+                        // Get previous position from Redis before updating
+                        var previousState = liveItemRepository.getItemState(e.getEntityId());
+                        String previousPositionId = null;
+                        PositionType previousPositionType = null;
+
+                        if (!previousState.isEmpty()) {
+                            previousPositionId = previousState.get("e");
+                            String previousTypeStr = previousState.get("ty");
+                            if (previousTypeStr != null) {
+                                previousPositionType = PositionType.valueOf(previousTypeStr);
+                            }
+                        }
+
+                        // Check if previous and new positions are connected
+                        if (previousPositionId != null && previousPositionType != null) {
+                            if (pathfindingService.arePositionsConnected(previousPositionId, previousPositionType,
+                                    e.getLocationId(), positionType)) {
+                                // Calculate path from previous to new position
+                                List<String> path = pathfindingService.calculateShortestPath(
+                                        previousPositionId, previousPositionType, e.getLocationId());
+
+                                // Fire PathTraversedEvent
+                                PathTraversedEvent pathEvent = new PathTraversedEvent(
+                                        e.getEntityId(),
+                                        previousPositionId,
+                                        previousPositionType,
+                                        e.getLocationId(),
+                                        positionType,
+                                        path);
+                                publishEvent(pathEvent);
+                            }
+                        }
 
                         itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType,
                                 e.getTimestamp(),
@@ -315,6 +386,25 @@ public class EventProcessor {
                 }
 
                 case ItemDeletedEvent e -> {
+                    // Get last position from Redis before deleting
+                    var lastState = liveItemRepository.getItemState(e.getEntityId());
+                    if (!lastState.isEmpty()) {
+                        String lastPositionId = lastState.get("e");
+                        String lastTypeStr = lastState.get("ty");
+                        if (lastPositionId != null && lastTypeStr != null) {
+                            PositionType lastPositionType = PositionType.valueOf(lastTypeStr);
+                            // Item deleted - fire PathTraversedEvent with last position as both from and to
+                            PathTraversedEvent pathEvent = new PathTraversedEvent(
+                                    e.getEntityId(),
+                                    lastPositionId,
+                                    lastPositionType,
+                                    lastPositionId,
+                                    lastPositionType,
+                                    List.of(lastPositionId));
+                            publishEvent(pathEvent);
+                        }
+                    }
+
                     itemService.deleteItem(e.getEntityId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemDeleted(e.getEntityId(), e.getTimestamp());
@@ -517,6 +607,10 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case PathTraversedEvent e -> {
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 default -> {
                     logger.warn("Unknown event type: {}", event.getClass().getSimpleName());
                     yield Map.of("status", "UNKNOWN_EVENT");
@@ -525,9 +619,17 @@ public class EventProcessor {
         });
     }
 
+    private void publishEvent(DomainEvent event) {
+        try {
+            amqpTemplate.convertAndSend(itemEventsRoutingKey, event);
+        } catch (Exception e) {
+            logger.error("Failed to publish event of type {}", event.getEventType(), e);
+        }
+    }
+
     /**
      * Checkpoints items on a conveyor when speed changes.
-     * We save the distance traveled so far and reset the timer to 'now'.
+     * We save distance traveled so far and reset timer to 'now'.
      */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         List<Map<String, Object>> allItems = liveItemRepository.getAllActiveItems();

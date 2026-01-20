@@ -1,6 +1,8 @@
 package com.flunav.backend.controllers;
 
 import flunav.types.DisplayRule;
+
+import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.services.DisplayRulesService;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +23,7 @@ public class DisplayRulesController {
         return displayRulesService.getDisplayRules();
     }
 
+    @BlockInDemo
     @PutMapping
     public void updateDisplayRules(@RequestBody List<DisplayRule> rules) {
         displayRulesService.updateDisplayRules(rules);

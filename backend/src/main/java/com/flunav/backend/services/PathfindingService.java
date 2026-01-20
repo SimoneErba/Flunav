@@ -127,4 +127,41 @@ public class PathfindingService {
         }
         return null;
     }
+
+    /**
+     * Checks if two positions are directly connected in the graph.
+     * Handles LOCATION to LOCATION, LOCATION to CONVEYOR, CONVEYOR to LOCATION connections.
+     */
+    public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2, PositionType type2) {
+        try (ODatabaseSession db = orientDBService.getSession()) {
+            String fromClause, toClause;
+
+            if (type1 == PositionType.CONVEYOR) {
+                fromClause = "$from = (SELECT expand(out) FROM Conveyor WHERE customId = :pos1)";
+            } else {
+                fromClause = "$from = (SELECT FROM Location WHERE customId = :pos1)";
+            }
+
+            if (type2 == PositionType.CONVEYOR) {
+                toClause = "$to = (SELECT expand(in) FROM Conveyor WHERE customId = :pos2)";
+            } else {
+                toClause = "$to = (SELECT FROM Location WHERE customId = :pos2)";
+            }
+
+            String query = "SELECT COUNT(*) as count FROM " +
+                    "LET " + fromClause + ", " + toClause + " " +
+                    "WHERE $from = $to";
+
+            try (OResultSet rs = db.query(query, Map.of("pos1", positionId1, "pos2", positionId2))) {
+                if (rs.hasNext()) {
+                    OResult result = rs.next();
+                    Long count = result.getProperty("count");
+                    return count != null && count > 0;
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error checking connectivity between {} ({}) and {} ({})", positionId1, type1, positionId2, type2, e);
+        }
+        return false;
+    }
 }

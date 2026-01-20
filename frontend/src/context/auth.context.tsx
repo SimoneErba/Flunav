@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import axios from "axios";
+import { axiosInstance } from "../api/axiosInstance"; 
 import { AuthControllerApi, Configuration } from "../api-client";
 import { baseURL } from "../api/config";
 
@@ -76,7 +76,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    const interceptor = axios.interceptors.response.use(
+    const interceptor = axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
@@ -109,7 +109,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 
                 // Aggiorna header richiesta originale
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                return axios(originalRequest);
+                return axiosInstance(originalRequest);
             }
           } catch (refreshError) {
             console.error("Token refresh failed", refreshError);
@@ -121,7 +121,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     return () => {
-      axios.interceptors.response.eject(interceptor);
+      axiosInstance.interceptors.response.eject(interceptor);
     };
   }, [refreshToken]); // Dipende da refreshToken perché lo usa nella closure
 

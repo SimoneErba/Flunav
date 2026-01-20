@@ -4,9 +4,12 @@ import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from ".
 import toast from "react-hot-toast";
 import { RuleRow } from "./RuleRow";
 import { v4 as uuidv4 } from 'uuid'; // Use uuid for reliable keys if available, otherwise simpler generator
+import { ComponentAnalytics } from "./analytics/ComponentAnalytics";
+import { PathAnalytics } from "./analytics/PathAnalytics";
 
 // Extended type for local state with ID
 type ExtendedDisplayRule = DisplayRule & { _localId: string };
+type TabType = 'settings' | 'charts';
 
 // --- ICONS ---
 const IconDockLeft = (props: any) => (
@@ -48,6 +51,7 @@ const SettingsPanel = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+   const [activeTab, setActiveTab] = useState<TabType>('settings');
 
   const { displayRuleApi } = useApi();
 
@@ -219,6 +223,26 @@ const SettingsPanel = () => {
           <strong className="text-base">Display Rules</strong>
 
           <div className="flex items-center gap-3">
+                  <button
+                     onClick={() => setActiveTab('settings')}
+                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'settings'
+                           ? 'bg-blue-600 text-white dark:bg-blue-500'
+                           : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                     }`}
+                  >
+                     Settings
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('charts')}
+                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'charts'
+                           ? 'bg-blue-600 text-white dark:bg-blue-500'
+                           : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                     }`}
+                  >
+                     Charts
+                  </button>
             <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
               <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
               <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
@@ -234,6 +258,7 @@ const SettingsPanel = () => {
           </div>
         </div>
 
+        {activeTab === "settings" ? (
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
           {loading ? (
             <div className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">Loading rules...</div>
@@ -276,6 +301,18 @@ const SettingsPanel = () => {
               </button>
           </div>
         </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900">
+              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                  <PathAnalytics />
+              </div>
+              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Component Analytics</h3>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                  <ComponentAnalytics />
+              </div>
+            </div>
+        )}
       </div>
     </div>
   );

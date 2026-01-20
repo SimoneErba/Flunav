@@ -1,13 +1,18 @@
 CREATE MATERIALIZED VIEW IF NOT EXISTS default.mv_item_journeys
 TO default.item_journeys
-AS SELECT
+AS
+SELECT
     entity_id AS item_id,
+    
+    -- Per SimpleAggregateFunction, passiamo il valore calcolato
     min(timestamp_received) AS first_seen,
     max(timestamp_received) AS last_seen,
-    -- Aggiunge il segmento corrente alla collezione
-    groupArrayArrayState(
-        JSONExtractArrayRaw(data, 'pathSegment')
-    ) AS path_segments
+    
+    -- FIX: 
+    -- 1. Castiamo il JSON in Array(String)
+    -- 2. Usiamo la funzione *State per popolare la colonna AggregateFunction
+    groupArrayArrayState(CAST(data.path, 'Array(String)')) AS path_segments
+
 FROM default.Events
-WHERE event_type = 'ITEM_PATH_SEGMENT'
-GROUP BY item_id;
+WHERE event_type = 'PATH_TRAVERSED'
+GROUP BY entity_id;

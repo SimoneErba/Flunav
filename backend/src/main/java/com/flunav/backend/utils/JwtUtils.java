@@ -3,17 +3,17 @@ package com.flunav.backend.utils;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 
 import com.flunav.backend.domain.Role;
-import com.flunav.backend.domain.User;
 
 import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-@Component
+@Configuration
 public class JwtUtils {
 
     @Value("${jwt.secret}")

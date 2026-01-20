@@ -131,7 +131,7 @@ public class App {
                 double angle = 2 * Math.PI * i / MAIN_LOOP_NODES;
                 double lat = RADIUS * Math.sin(angle);
                 double lon = RADIUS * Math.cos(angle);
-                createLocation(id, lat, lon, LocationType.CONVEYOR);
+                createLocation(id, lat, lon, LocationType.JUNCTION);
                 allLocationIds.add(id);
             }
 

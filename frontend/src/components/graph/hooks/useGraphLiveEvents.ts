@@ -15,7 +15,7 @@ export const useGraphLiveEvents = (
         subscribeToPositionUpdates,
         subscribeToItemCreated,
         subscribeToItemDeleted,
-        subscribeToAllItemUpdates, // This was unused before
+        subscribeToAllItemUpdates,
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
         subscribeToAllLocationUpdates,
@@ -245,7 +245,18 @@ export const useGraphLiveEvents = (
         unsubscribers.push(subscribeToConnectionUpdated((update) => {
             const edge = graph.findEdge((edge, attrs) => attrs.id === update.id);
             if (edge && update.properties) {
-                if (update.properties.speed !== undefined) {
+                if (update.properties.active === false) {
+                    // Edge deactivated - set color to red and stop items
+                    graph.setEdgeAttribute(edge, 'originalColor', '#FF0000');
+                    graph.setEdgeAttribute(edge, 'color', graph.getEdgeAttributes(edge, 'color'));
+                    adjustItemsForSpeedChange(edge, 0);
+                } else if (update.properties.active === true) {
+                    // Edge activated - restore color and speed
+                    const originalColor = graph.getEdgeAttribute(edge, 'originalColor') as string || '#808080';
+                    const originalSpeed = graph.getEdgeAttribute(edge, 'originalSpeed') as number || 1.0;
+                    graph.setEdgeAttribute(edge, 'color', originalColor);
+                    adjustItemsForSpeedChange(edge, originalSpeed);
+                } else if (update.properties.speed !== undefined) {
                     adjustItemsForSpeedChange(edge, Number(update.properties.speed));
                 }
                 Object.keys(update.properties).forEach(key => {

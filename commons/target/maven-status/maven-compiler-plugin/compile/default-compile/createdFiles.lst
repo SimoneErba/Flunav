@@ -16,6 +16,7 @@ flunav/events/ItemCreatedEvent.class
 flunav/events/ConnectionSpeedChangedEvent.class
 flunav/types/OperatorType.class
 flunav/events/ConnectionRemoveFromMainPath.class
+flunav/events/PathTraversedEvent.class
 flunav/events/LocationCreatedEvent.class
 flunav/events/DomainEvent.class
 flunav/events/LocationCapacityChangedEvent.class
@@ -27,6 +28,7 @@ flunav/events/ConnectionPropertiesUpdatedEvent.class
 flunav/events/ConnectionLengthChangedEvent.class
 flunav/events/EntityEvent.class
 flunav/events/LocationActivatedEvent.class
+flunav/events/ConnectionActivatedEvent.class
 flunav/events/LocationDeletedEvent.class
 flunav/types/DataType.class
 flunav/types/PositionType.class

@@ -5,7 +5,7 @@ import toast, { Toaster } from 'react-hot-toast';
 // --- COMPONENTS ---
 import { DisplayGraph } from './components/graph/DisplayGraph';
 import { PlaybackControls } from './components/PlaybackControls';
-import SettingsPanel from './components/SettingsPanel';
+import LiveAnalysisPanel from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { UserManagement } from './components/admin/UserManagement';
 import { AppHeader } from './components/AppHeader';
@@ -43,13 +43,14 @@ const RequireAuth = () => {
 // 2. LIVE WORKSPACE
 // ============================================================================
 function LiveWorkspace() {
-  const { activeSimulation, setActiveSimulation } = useSimulationContext();
-  
-  // --- Simulation State ---
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [isRestoring, setIsRestoring] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [isSelectingDate, setIsSelectingDate] = useState(false);
+   const { activeSimulation, setActiveSimulation } = useSimulationContext();
+
+   // --- Simulation State ---
+   const [selectedDate, setSelectedDate] = useState(new Date());
+   const [isRestoring, setIsRestoring] = useState(false);
+   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+   const [isSelectingDate, setIsSelectingDate] = useState(false);
+   const [showLiveAnalysis, setShowLiveAnalysis] = useState(false);
 
   // --- Hooks ---
   const { graphData, loading: graphLoading, refetchGraphData, error: graphError } = useGraph();
@@ -247,20 +248,20 @@ function LiveWorkspace() {
     </div>
   );
 
-  // 2. left Actions (Exit Sim, Admin Link, Settings Toggle)
-  const leftActions = (
-    <>
-      {activeSimulation && (
-        <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-            Exit Sim
-        </button>
-      )}
+   // 2. left Actions (Exit Sim, Live Analysis Toggle)
+   const leftActions = (
+      <>
+         {activeSimulation && (
+            <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+               Exit Sim
+            </button>
+         )}
       
       <Link to="/admin" className="text-sm font-medium text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors">
         Admin
       </Link>
-    </>
-  );
+      </>
+   );
 
   return (
     <div className="flex flex-col h-screen bg-[#f0f2f5] dark:bg-[#1a1a1a] text-gray-800 dark:text-white transition-colors duration-300">
@@ -284,7 +285,7 @@ function LiveWorkspace() {
         )}
       </main>
       
-      <SettingsPanel />
+       <LiveAnalysisPanel />
     </div>
   );
 }

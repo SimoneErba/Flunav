@@ -95,12 +95,12 @@ export const useWebSocketEvents = () => {
         subscribeToPositionUpdates,
         subscribeToItemCreated,
         subscribeToItemDeleted,
-        subscribeToAllItemUpdates,      // <--- Updated
+        subscribeToAllItemUpdates,
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
-        subscribeToAllLocationUpdates,  // <--- Updated
+        subscribeToAllLocationUpdates,
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
-        subscribeToConnectionUpdated    // <--- Updated
+        subscribeToConnectionUpdated
     };
 };

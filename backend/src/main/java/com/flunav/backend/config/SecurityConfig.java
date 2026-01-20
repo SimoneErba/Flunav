@@ -29,7 +29,8 @@ public class SecurityConfig {
     @Value("${app.demo-mode:false}")
     private boolean demoMode;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+            JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
     }
@@ -45,8 +46,9 @@ public class SecurityConfig {
 
                 // 3. Gestione Sessione: STATELESS (Niente cookie di sessione, usiamo solo JWT)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                
-                // 3b. Gestione Eccezioni: Return 401 instead of 403 for unauthenticated requests
+
+                // 3b. Gestione Eccezioni: Return 401 instead of 403 for unauthenticated
+                // requests
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
 
                 // 4. Regole di Autorizzazione URL
@@ -55,12 +57,14 @@ public class SecurityConfig {
                         auth.anyRequest().permitAll();
                     } else {
                         auth
-                            // Endpoint pubblici (Login, Swagger, WebSocket handshake)
-                            .requestMatchers("/api/auth/**").permitAll()
-                            .requestMatchers("/ws/**").permitAll() // WebSocket
-                            .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll() // Documentazione API
-                            // Tutto il resto richiede autenticazione
-                            .anyRequest().authenticated();
+                                .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                                // Endpoint pubblici (Login, Swagger, WebSocket handshake)
+                                .requestMatchers("/api/auth/**").permitAll()
+                                .requestMatchers("/ws/**").permitAll() // WebSocket
+                                .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll() // Documentazione
+                                                                                                                  // API
+                                // Tutto il resto richiede autenticazione
+                                .anyRequest().authenticated();
                     }
                 })
 

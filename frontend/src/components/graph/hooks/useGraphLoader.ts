@@ -36,11 +36,16 @@ export const useGraphLoader = (
             conveyorLookup.set(conv.id!, conv);
             if (graph.hasNode(conv.sourceId) && graph.hasNode(conv.targetId)) {
                 let size = 3; if (conv.isMainPath) size = 6;
+                const isActive = conv.active ?? true;
+                const color = conv.customColor || '#808080';
+                const speed = conv.speed ?? 1.0;
                 graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
                     id: conv.id, type: 'arrow', size, label: conv.name,
-                    speed: conv.speed, length: conv.length, isMainPath: conv.isMainPath,
-                    color: conv.customColor, // Optional: if undefined, sigma uses default
-                    customColor: conv.customColor
+                    speed, length, isMainPath: conv.isMainPath,
+                    color: isActive ? color : '#FF0000',
+                    customColor: conv.customColor,
+                    originalColor: color,
+                    originalSpeed: speed
                 });
             }
         });

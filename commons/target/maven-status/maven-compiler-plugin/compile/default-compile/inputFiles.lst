@@ -1,4 +1,5 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/context/UserContextHolder.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionActivatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionCreatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionDeactivatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionDeletedEvent.java
@@ -26,6 +27,7 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/LocationDeactivatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/LocationDeletedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/LocationPropertiesUpdatedEvent.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/PathTraversedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/UnknownEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/ConveyorType.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/types/DataType.java
