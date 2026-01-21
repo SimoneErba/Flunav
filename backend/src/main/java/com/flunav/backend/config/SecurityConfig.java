@@ -16,6 +16,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import jakarta.servlet.DispatcherType;
+
 import java.util.List;
 
 @Configuration
@@ -57,6 +59,7 @@ public class SecurityConfig {
                         auth.anyRequest().permitAll();
                     } else {
                         auth
+                                .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                                 // Endpoint pubblici (Login, Swagger, WebSocket handshake)
                                 .requestMatchers("/api/auth/**").permitAll()

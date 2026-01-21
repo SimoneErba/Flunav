@@ -41,7 +41,7 @@ export const useApi = () => {
     const simulationApi = useMemo(() => new SimulationsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const conveyorsApi = useMemo(() => new ConveyorsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
-    const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
 
     return {
