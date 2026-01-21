@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { PropertiesEditor } from "./properties.editor";
-import { confirmToast } from "./graph/utils/toastUtils";
+import { PropertiesEditor } from "../properties.editor";
+import { confirmToast } from "../graph/utils/toastUtils";
+import { SharedButtons } from "./shared.buttons";
 
 export interface NodeEditorData {
   nodeId: string;
@@ -131,37 +132,8 @@ export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProp
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-        <button 
-          onClick={handleDelete} 
-          className="px-3 py-2 rounded bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 transition-colors"
-          title="Delete"
-        >
-          🗑️
-        </button>
-        
-        <button 
-          onClick={onClose} 
-          className="
-            flex-1 px-3 py-2 rounded font-medium transition-colors text-sm
-            bg-gray-100 hover:bg-gray-200 
-            dark:bg-gray-700 dark:hover:bg-gray-600
-            text-gray-800 dark:text-gray-200 
-          "
-        >
-          Cancel
-        </button>
-        
-        <button 
-          onClick={handleSubmit} 
-          className="
-            flex-1 px-3 py-2 rounded font-medium text-white text-sm transition-colors shadow-sm
-            bg-green-600 hover:bg-green-700
-          "
-        >
-          Save
-        </button>
-      </div>
+      <SharedButtons onClose={onClose} onDelete={handleDelete} onSubmit={handleSubmit} />
+      
     </div>
   );
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { PropertiesEditor } from "./properties.editor";
-import { confirmToast } from "./graph/utils/toastUtils";
+import { PropertiesEditor } from "../properties.editor";
+import { confirmToast } from "../graph/utils/toastUtils";
+import { SharedButtons } from "./shared.buttons";
 
 interface ItemEditorProps {
   data: any;
@@ -87,26 +88,7 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-        <button 
-          onClick={handleDelete}
-          className="px-3 py-2 rounded bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 transition-colors"
-        >
-          🗑️
-        </button>
-        <button 
-          onClick={onClose} 
-          className="flex-1 px-4 py-2 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium transition-colors"
-        >
-          Cancel
-        </button>
-        <button 
-          onClick={handleSubmit} 
-          className="flex-1 px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-sm"
-        >
-          Save Changes
-        </button>
-      </div>
+      <SharedButtons onClose={onClose} onDelete={handleDelete} onSubmit={handleSubmit} />
     </div>
   );
 };

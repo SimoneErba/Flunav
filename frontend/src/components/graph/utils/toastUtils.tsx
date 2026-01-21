@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import toast, { ToastOptions } from 'react-hot-toast';
 
 export const toastWarning = (message: string, options?: ToastOptions) => {
@@ -15,49 +16,73 @@ export const toastWarning = (message: string, options?: ToastOptions) => {
 };
 
 export const confirmToast = (message: string, onConfirm: () => void) => {
-  toast((t) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-      
-      <div style={{ fontSize: '14px', fontWeight: 500, color: '#363636' }}>
-        {message}
+  toast((t) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onConfirm();
+        toast.dismiss(t.id);
+      }
+
+      if (e.key === "Escape") {
+        toast.dismiss(t.id);
+      }
+    };
+
+    useEffect(() => {
+      if (t.visible) {
+        window.addEventListener("keydown", handleKeyDown);
+      }
+
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }, [t.visible]);
+
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ fontSize: "14px", fontWeight: 500, color: "#363636" }}>
+          {message}
+        </div>
+
+        <div style={{ width: "1px", height: "20px", background: "#E0E0E0" }} />
+
+        <button
+          onClick={() => toast.dismiss(t.id)}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "#666",
+            cursor: "pointer",
+            padding: "4px 8px",
+            fontSize: "13px",
+          }}
+        >
+          Cancel
+        </button>
+
+        <button
+          autoFocus
+          onClick={() => {
+            onConfirm();
+            toast.dismiss(t.id);
+          }}
+          style={{
+            border: "none",
+            background: "#ff4b4b",
+            color: "white",
+            borderRadius: "4px",
+            cursor: "pointer",
+            padding: "5px 10px",
+            fontSize: "13px",
+            fontWeight: "bold",
+          }}
+        >
+          Delete
+        </button>
       </div>
-
-      <div style={{ width: '1px', height: '20px', background: '#E0E0E0' }} />
-
-      <button
-        onClick={() => toast.dismiss(t.id)}
-        style={{
-          border: 'none',
-          background: 'transparent',
-          color: '#666',
-          cursor: 'pointer',
-          padding: '4px 8px',
-          fontSize: '13px'
-        }}
-      >
-        Cancel
-      </button>
-
-      <button
-        onClick={() => {
-          onConfirm();
-          toast.dismiss(t.id);
-        }}
-        style={{
-          border: 'none',
-          background: '#ff4b4b',
-          color: 'white',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          padding: '5px 10px',
-          fontSize: '13px',
-          fontWeight: 'bold'
-        }}
-      >
-        Delete
-      </button>
-    </div>
-  ), {
+    );
+  }, {
     duration: 5000,
     position: 'top-center',
     style: {

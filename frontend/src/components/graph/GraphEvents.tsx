@@ -1,8 +1,8 @@
 import { useRef } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
 import { GraphData, ItemResponse } from "../../api-client/api";
-import { EdgeEditor } from "./../edge.editor";
-import { NodeEditor } from "./../node.editor";
+import { EdgeEditor } from "../editors/edge.editor";
+import { NodeEditor } from "../editors/node.editor";
 
 // Hooks
 import { useGraphLoader } from "./hooks/useGraphLoader";
@@ -10,7 +10,7 @@ import { useGraphAnimation } from "./hooks/useGraphAnimation";
 import { useGraphLiveEvents } from "./hooks/useGraphLiveEvents";
 import { useGraphInteractions } from "./hooks/useGraphInteractions";
 import { HoverOverlay } from "./HoverOverlay";
-import { ItemEditor } from "../item.editor";
+import { ItemEditor } from "../editors/item.editor";
 import { HoverTarget } from "./DisplayGraph";
 
 interface GraphEventsProps {

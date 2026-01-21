@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRegisterEvents, useSigma } from "@react-sigma/core";
 import { useApi } from "../../../hooks/useApi";
-import { EdgeEditorData } from "../../edge.editor";
-import { NodeEditorData } from "../../node.editor";
+import { EdgeEditorData } from "../../editors/edge.editor";
+import { NodeEditorData } from "../../editors/node.editor";
 import { LocationTypeEnum } from "../../../api-client";
 import toast from "react-hot-toast";
 import { toastWarning } from "../utils/toastUtils";
@@ -387,6 +387,7 @@ export const useGraphInteractions = (
                 
                 const graph = sigma.getGraph();
                 const attrs = graph.getEdgeAttributes(edge);
+
                 setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, isMainPath: attrs.isMainPath, properties: attrs.properties });
             },
             clickNode: ({ node }) => {

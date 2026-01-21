@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback, memo } from "react";
 import { useApi } from "../hooks/useApi";
 import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from "../api-client";
 import toast from "react-hot-toast";
-import { RuleRow } from "./RuleRow";
+import { RuleRow } from "./editors/RuleRow";
 import { v4 as uuidv4 } from 'uuid'; // Use uuid for reliable keys if available, otherwise simpler generator
 import { ComponentAnalytics } from "./analytics/ComponentAnalytics";
 import { PathAnalytics } from "./analytics/PathAnalytics";

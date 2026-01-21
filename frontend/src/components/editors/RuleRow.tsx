@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from '../api-client';
+import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from '../../api-client';
 
 interface RuleRowProps {
   rule: DisplayRule;

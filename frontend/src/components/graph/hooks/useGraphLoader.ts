@@ -39,6 +39,7 @@ export const useGraphLoader = (
                 const isActive = conv.active ?? true;
                 const color = conv.customColor || '#808080';
                 const speed = conv.speed ?? 1.0;
+                const length = conv.length ?? 1.0;
                 graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
                     id: conv.id, type: 'arrow', size, label: conv.name,
                     speed, length, isMainPath: conv.isMainPath,
