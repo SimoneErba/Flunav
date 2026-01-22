@@ -97,7 +97,6 @@ export const useGraphLiveEvents = (
         }, simulationId));
 
         // 2. Item CRUD
-        // 2. Item CRUD
         unsubscribers.push(subscribeToItemCreated((item, timestamp) => {
             if (graph.hasNode(item.id)) return;
 

@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flunav.backend.models.graph.GraphData;
+import com.flunav.backend.models.response.BadActorMetric;
+import com.flunav.backend.models.response.ThroughputMetric;
 
 import flunav.events.DomainEvent;
 import flunav.events.EntityEvent;
@@ -39,7 +41,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 @Service
 public class ClickHouseService {
     private static final Logger logger = LoggerFactory.getLogger(ClickHouseService.class);
-
+    private static final DateTimeFormatter CH_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneOffset.UTC);
     private final Client client;
     private final ObjectMapper objectMapper;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
@@ -304,5 +307,126 @@ public class ClickHouseService {
             logger.error("Failed to execute generic query: {}", finalSql, e);
             throw new RuntimeException("Generic query failed", e);
         }
+    }
+
+    public CompletableFuture<List<ThroughputMetric>> getThroughputHistory(int hours) {
+        // Note: We use FORMAT JSONEachRow to make parsing easy with Jackson
+        String sql = String.format("""
+                    SELECT
+                        minute as ts,
+                        sum(items_entered) as entered,
+                        sum(items_exited) as exited,
+                        sum(movements_count) as segments
+                    FROM default.analytics_time_series
+                    WHERE minute >= now() - INTERVAL %d HOUR
+                    GROUP BY minute
+                    ORDER BY minute ASC
+                    FORMAT JSONEachRow
+                """, hours);
+
+        return CompletableFuture.supplyAsync(() -> {
+            List<ThroughputMetric> metrics = new ArrayList<>();
+            try (QueryResponse response = client.query(sql).get()) {
+                try (InputStream inputStream = response.getInputStream()) {
+                    // Use Jackson to read the stream of JSON objects
+                    MappingIterator<Map<String, Object>> it = objectMapper
+                            .readerFor(Map.class)
+                            .readValues(inputStream);
+
+                    while (it.hasNext()) {
+                        Map<String, Object> row = it.next();
+                        String tsString = (String) row.get("ts");
+
+                        LocalDateTime localDateTime = LocalDateTime.parse(tsString, CH_DATE_FORMATTER);
+                        Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
+
+                        metrics.add(new ThroughputMetric(
+                                ts,
+                                ((Number) row.get("entered")).longValue(),
+                                ((Number) row.get("exited")).longValue(),
+                                ((Number) row.get("segments")).longValue()));
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to fetch throughput history", e);
+                return new ArrayList<>();
+            }
+            return metrics;
+        });
+    }
+
+    public ThroughputMetric getLatestThroughput() {
+        String sql = """
+                    SELECT
+                        minute as ts,
+                        sum(items_entered) as entered,
+                        sum(items_exited) as exited,
+                        sum(movements_count) as segments
+                    FROM default.analytics_time_series
+                    WHERE minute >= toStartOfMinute(now())
+                    GROUP BY minute
+                    FORMAT JSONEachRow
+                """;
+
+        try (QueryResponse response = client.query(sql).get()) {
+            try (InputStream inputStream = response.getInputStream()) {
+                MappingIterator<Map<String, Object>> it = objectMapper
+                        .readerFor(Map.class)
+                        .readValues(inputStream);
+
+                if (it.hasNext()) {
+                    Map<String, Object> row = it.next();
+                    String tsString = (String) row.get("ts");
+
+                    LocalDateTime localDateTime = LocalDateTime.parse(tsString, CH_DATE_FORMATTER);
+                    Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
+                    return new ThroughputMetric(
+                            ts,
+                            ((Number) row.get("entered")).longValue(),
+                            ((Number) row.get("exited")).longValue(),
+                            ((Number) row.get("segments")).longValue());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Failed to fetch latest throughput", e);
+        }
+        return new ThroughputMetric(Instant.now(), 0, 0, 0);
+    }
+
+    public CompletableFuture<List<BadActorMetric>> getTopActiveComponents(int limit) {
+        String sql = String.format("""
+                    SELECT
+                        location_id,
+                        total_items_passed,
+                        formatDateTime(last_activity, '%%Y-%%m-%%dT%%H:%%M:%%S') as last_activity
+                    FROM default.analytics_components
+                    ORDER BY total_items_passed DESC
+                    LIMIT %d
+                    FORMAT JSONEachRow
+                """, limit);
+
+        return CompletableFuture.supplyAsync(() -> {
+            List<BadActorMetric> metrics = new ArrayList<>();
+            try (QueryResponse response = client.query(sql).get()) {
+                try (InputStream inputStream = response.getInputStream()) {
+                    MappingIterator<Map<String, Object>> it = objectMapper
+                            .readerFor(Map.class)
+                            .readValues(inputStream);
+
+                    while (it.hasNext()) {
+                        Map<String, Object> row = it.next();
+                        metrics.add(new BadActorMetric(
+                                (String) row.get("location_id"),
+                                (String) row.get("location_id"),
+                                ((Number) row.get("total_items_passed")).longValue(),
+                                0.0));
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to fetch top components", e);
+                return new ArrayList<>();
+            }
+            return metrics;
+        });
     }
 }

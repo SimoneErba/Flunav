@@ -6,6 +6,7 @@ import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
+import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.models.simulation.SimulationStatus;
 
 import flunav.context.UserContextHolder;
@@ -139,6 +140,10 @@ public class WebSocketService {
     public void broadcastPositionLost(String itemId, Instant timestamp) {
         PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST, null, null);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastLiveAnalytic(ThroughputMetric metric) {
+        sendToTopic(null, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
     }
 
     // --- HELPER ---

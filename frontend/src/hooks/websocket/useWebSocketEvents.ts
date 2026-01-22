@@ -9,7 +9,7 @@ import {
     SimulationStatusUpdate,
     SimulationSpeedUpdate
 } from '../../types/WebsocketTypes';
-import { ItemInput, LocationInput } from '../../api-client/api';
+import { ItemInput, LocationInput, ThroughputMetric } from '../../api-client/api';
 
 export const useWebSocketEvents = () => {
     const { connected, subscribe } = useWebSocketConnection();
@@ -47,7 +47,6 @@ export const useWebSocketEvents = () => {
         });
     }, [subscribe]);
 
-    // RENAMED to match usage
     const subscribeToAllItemUpdates = useCallback((handler: (update: EntityUpdateMessage & { timestamp: number }) => void, simId?: string | null) => {
         return subscribe(buildTopic('items/updates', simId), handler);
     }, [subscribe]);
@@ -65,7 +64,6 @@ export const useWebSocketEvents = () => {
         });
     }, [subscribe]);
 
-    // RENAMED to match usage
     const subscribeToAllLocationUpdates = useCallback((handler: (update: EntityUpdateMessage & { timestamp: number }) => void, simId?: string | null) => {
         return subscribe(buildTopic('locations/updates', simId), handler);
     }, [subscribe]);
@@ -83,9 +81,13 @@ export const useWebSocketEvents = () => {
         });
     }, [subscribe]);
 
-    // RENAMED to match usage (Updated vs Updates)
     const subscribeToConnectionUpdated = useCallback((handler: (update: EntityUpdateMessage & { timestamp: number }) => void, simId?: string | null) => {
         return subscribe(buildTopic('connections/updates', simId), handler);
+    }, [subscribe]);
+
+    // --- 6. ANALYTICS  ---
+    const subscribeToThroughputUpdates = useCallback((handler: (metric: ThroughputMetric) => void, simId?: string | null) => {
+        return subscribe(buildTopic('analytics/throughput', simId), handler);
     }, [subscribe]);
 
     return {
@@ -101,6 +103,7 @@ export const useWebSocketEvents = () => {
         subscribeToAllLocationUpdates,
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
-        subscribeToConnectionUpdated
+        subscribeToConnectionUpdated,
+        subscribeToThroughputUpdates
     };
 };

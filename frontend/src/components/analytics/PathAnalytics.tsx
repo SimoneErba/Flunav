@@ -1,98 +1,225 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    Legend,
-    ResponsiveContainer
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
 } from 'recharts';
-
-interface PathAnalyticsData {
-    timestamp: string;
-    movementsCount: number;
-    itemsEntered: number;
-    itemsExited: number;
-}
+import { useWebSocketEvents } from '../../hooks/websocket/useWebSocketEvents';
+import { useSimulationContext } from '../../context/simulation.context';
+import { useApi } from '../../hooks/useApi';
+import { ThroughputMetric } from '../../api-client/api';
 
 interface PathAnalyticsProps {
-    className?: string;
+  className?: string;
 }
 
+const MINUTE_MS = 60_000;
+
 export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
-    const [data, setData] = useState<PathAnalyticsData[]>([]);
-    const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ThroughputMetric[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        // TODO: Fetch from backend analytics API
-        // Mock data for now
-        const mockData: PathAnalyticsData[] = [
-            { timestamp: '2026-01-18 10:00', movementsCount: 15, itemsEntered: 3, itemsExited: 2 },
-            { timestamp: '2026-01-18 11:00', movementsCount: 22, itemsEntered: 5, itemsExited: 3 },
-            { timestamp: '2026-01-18 12:00', movementsCount: 18, itemsEntered: 4, itemsExited: 4 },
-            { timestamp: '2026-01-18 13:00', movementsCount: 28, itemsEntered: 6, itemsExited: 5 },
-            { timestamp: '2026-01-18 14:00', movementsCount: 35, itemsEntered: 8, itemsExited: 6 },
-            { timestamp: '2026-01-18 15:00', movementsCount: 42, itemsEntered: 10, itemsExited: 7 },
-        ];
-        setData(mockData);
-        setLoading(false);
-    }, []);
+  const { analyticsApi } = useApi();
+  const { subscribeToThroughputUpdates } = useWebSocketEvents();
+  const { activeSimulation } = useSimulationContext();
 
-    if (loading) {
-        return <div className={`p-4 bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}>Loading analytics...</div>;
-    }
+  // ------------------------------------------------------------
+  // Fill missing minutes with zero values
+  // ------------------------------------------------------------
+  const fillTimeGaps = useCallback(
+    (rawData: ThroughputMetric[]): ThroughputMetric[] => {
+      if (rawData.length < 2) return rawData;
 
+      const sorted = [...rawData].sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() -
+          new Date(b.timestamp).getTime()
+      );
+
+      const filled: ThroughputMetric[] = [];
+
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+
+        filled.push(current);
+
+        const currentMs = new Date(current.timestamp).getTime();
+        const nextMs = new Date(next.timestamp).getTime();
+        const diffMinutes = Math.floor((nextMs - currentMs) / MINUTE_MS);
+
+        // Fill idle minutes
+        for (let j = 1; j < diffMinutes; j++) {
+          filled.push({
+            timestamp: new Date(currentMs + j * MINUTE_MS).toISOString(),
+            itemsEntered: 0,
+            itemsExited: 0,
+            segmentsProcessed: 0,
+          });
+        }
+      }
+
+      filled.push(sorted[sorted.length - 1]);
+      return filled;
+    },
+    []
+  );
+
+  // ------------------------------------------------------------
+  // Initial load (history)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchHistory = async () => {
+      try {
+        const response = await analyticsApi.getThroughputHistory(24);
+
+        if (mounted && response.data) {
+          setData(fillTimeGaps(response.data));
+        }
+      } catch (err) {
+        console.error('Failed to load analytics history', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchHistory();
+    return () => {
+      mounted = false;
+    };
+  }, [analyticsApi, fillTimeGaps]);
+
+  // ------------------------------------------------------------
+  // Live updates (WebSocket)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const handleUpdate = (metric: ThroughputMetric) => {
+      setData((prev) => {
+        if (prev.length === 0) return [metric];
+
+        const newData = [...prev];
+        const last = newData[newData.length - 1];
+
+        const lastMinute =
+          Math.floor(new Date(last.timestamp).getTime() / MINUTE_MS);
+        const currentMinute =
+          Math.floor(new Date(metric.timestamp).getTime() / MINUTE_MS);
+
+        // Same minute → replace (aggregated backend)
+        if (lastMinute === currentMinute) {
+          newData[newData.length - 1] = metric;
+          return newData;
+        }
+
+        // Fill gaps if we missed minutes
+        const diffMinutes = currentMinute - lastMinute;
+
+        for (let j = 1; j < diffMinutes; j++) {
+          newData.push({
+            timestamp: new Date(
+              new Date(last.timestamp).getTime() + j * MINUTE_MS
+            ).toISOString(),
+            itemsEntered: 0,
+            itemsExited: 0,
+            segmentsProcessed: 0,
+          });
+        }
+
+        newData.push(metric);
+        return newData;
+      });
+    };
+
+    const unsubscribe = subscribeToThroughputUpdates(handleUpdate);
+    return () => unsubscribe();
+  }, [subscribeToThroughputUpdates, activeSimulation?.id]);
+
+  // ------------------------------------------------------------
+  // UI
+  // ------------------------------------------------------------
+  if (loading) {
     return (
-        <div className={`p-4 bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}>
-            <h2 className="text-xl font-bold mb-4 dark:text-white">Path Analytics</h2>
-            <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={data}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                        dataKey="timestamp"
-                        stroke="#8884d8"
-                        tick={{ fill: 'transparent', stroke: '#8884d8', strokeWidth: 1 }}
-                        tickFormatter={(value) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    />
-                    <YAxis stroke="#8884d8" />
-                    <Tooltip
-                        labelFormatter={(value) => new Date(value).toLocaleString()}
-                        formatter={(value, name, props) => {
-                            if (name === 'movementsCount') return [`Movements: ${value}`];
-                            if (name === 'itemsEntered') return [`Items Entered: ${value}`];
-                            if (name === 'itemsExited') return [`Items Exited: ${value}`];
-                            return [name, value];
-                        }}
-                    />
-                    <Legend />
-                    <Line
-                        type="monotone"
-                        dataKey="movementsCount"
-                        stroke="#3b82f6"
-                        strokeWidth={2}
-                        dot={false}
-                        name="Movements (PATH_TRAVERSED)"
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="itemsEntered"
-                        stroke="#10b981"
-                        strokeWidth={2}
-                        dot={false}
-                        name="Items Entered (ITEM_CREATED)"
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="itemsExited"
-                        stroke="#f43f5e"
-                        strokeWidth={2}
-                        dot={false}
-                        name="Items Exited (ITEM_DELETED)"
-                    />
-                </LineChart>
-            </ResponsiveContainer>
-        </div>
+      <div
+        className={`p-8 flex justify-center items-center bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}
+      >
+        <span className="text-gray-500 animate-pulse">
+          Loading analytics...
+        </span>
+      </div>
     );
+  }
+
+  return (
+    <div
+      className={`p-4 bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}
+    >
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold dark:text-white">
+          System Throughput
+        </h2>
+        <span className="text-xs text-gray-500">
+          Live updates (1 min)
+        </span>
+      </div>
+
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+          <XAxis
+            dataKey="timestamp"
+            fontSize={12}
+            tickFormatter={(v) =>
+              new Date(v).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            }
+            minTickGap={30}
+          />
+          <YAxis fontSize={12} />
+          <Tooltip
+            labelFormatter={(v) => new Date(v).toLocaleString()}
+            formatter={(value, name) => {
+              if (name === 'itemsEntered') return [value, 'Entered'];
+              if (name === 'itemsExited') return [value, 'Exited'];
+              if (name === 'segmentsProcessed') return [value, 'Segments'];
+              return [value, name];
+            }}
+          />
+          <Legend />
+          <Line
+            type="monotone"
+            dataKey="itemsEntered"
+            stroke="#10b981"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="itemsExited"
+            stroke="#f43f5e"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="segmentsProcessed"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
 };

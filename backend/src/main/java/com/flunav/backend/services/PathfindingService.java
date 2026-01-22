@@ -130,9 +130,11 @@ public class PathfindingService {
 
     /**
      * Checks if two positions are directly connected in the graph.
-     * Handles LOCATION to LOCATION, LOCATION to CONVEYOR, CONVEYOR to LOCATION connections.
+     * Handles LOCATION to LOCATION, LOCATION to CONVEYOR, CONVEYOR to LOCATION
+     * connections.
      */
-    public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2, PositionType type2) {
+    public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2,
+            PositionType type2) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             String fromClause, toClause;
 
@@ -148,8 +150,9 @@ public class PathfindingService {
                 toClause = "$to = (SELECT FROM Location WHERE customId = :pos2)";
             }
 
-            String query = "SELECT COUNT(*) as count FROM " +
+            String query = "SELECT COUNT(*) AS count " +
                     "LET " + fromClause + ", " + toClause + " " +
+                    "FROM Location " +
                     "WHERE $from = $to";
 
             try (OResultSet rs = db.query(query, Map.of("pos1", positionId1, "pos2", positionId2))) {
@@ -160,7 +163,8 @@ public class PathfindingService {
                 }
             }
         } catch (Exception e) {
-            logger.error("Error checking connectivity between {} ({}) and {} ({})", positionId1, type1, positionId2, type2, e);
+            logger.error("Error checking connectivity between {} ({}) and {} ({})", positionId1, type1, positionId2,
+                    type2, e);
         }
         return false;
     }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
-import { SimulationStateResponse } from '../api-client'; // Import the type
+import { SimulationStateResponse } from '../api-client';
 
 interface SimulationContextType {
     activeSimulation: SimulationStateResponse | null;

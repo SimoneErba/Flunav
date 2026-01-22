@@ -41,7 +41,6 @@ import com.flunav.backend.context.DatabaseContextHolder;
 public class EventProcessor {
     private static final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
 
-    // --- Servizi Dipendenti (Invariati) ---
     private final ClickHouseService clickHouseService;
     private final ItemService itemService;
     private final LocationService locationService;

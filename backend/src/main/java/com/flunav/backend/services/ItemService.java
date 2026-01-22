@@ -121,7 +121,8 @@ public class ItemService {
         if (!redisState.isEmpty()) {
             // Parse Type
             String typeStr = redisState.get("ty");
-            PositionType type = (typeStr != null) ? PositionType.valueOf(typeStr) : PositionType.LOCATION;
+            PositionType type = (typeStr != null && !typeStr.isEmpty()) ? PositionType.valueOf(typeStr)
+                    : PositionType.LOCATION;
 
             // Parse Time
             Instant time = null;

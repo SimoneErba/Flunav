@@ -9,7 +9,8 @@ import {
     Configuration,
     DisplayRulesControllerApi,
     AuthControllerApi,
-    UserControllerApi
+    UserControllerApi,
+    AnalyticsControllerApi
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
 import { baseURL, CLIENT_ID } from '../api/config';
@@ -43,6 +44,7 @@ export const useApi = () => {
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const analyticsApi = useMemo(() => new AnalyticsControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
 
     return {
         graphApi,
@@ -54,6 +56,7 @@ export const useApi = () => {
         displayRuleApi,
         authApi,
         userApi,
+        analyticsApi,
         clientId: CLIENT_ID,
     };
 };
