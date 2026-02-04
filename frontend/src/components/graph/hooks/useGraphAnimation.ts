@@ -45,6 +45,10 @@ export const useGraphAnimation = (
                     });
 
                     if (edgeKey && edgeAttrs) {
+                        if (edgeAttrs.speed === 0) {
+                            needsRefresh = true;
+                            return;
+                        }
                         const sourceId = graph.source(edgeKey);
                         const targetId = graph.target(edgeKey);
                         const sourceNode = graph.getNodeAttributes(sourceId);

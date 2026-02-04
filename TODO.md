@@ -6,12 +6,16 @@ TEST:
 
 allow items to move in the middle of a coveyour. not just locations. add a param maybe in the event, edge or lcoation. 
 check if on amssive graph items become big. check massive graph reformance
+
+stopping conveyour
 ---
 
 TODO:
 
+item has no destination, but its showing still on the forntend smoething
 color input is out of the page
 attese, ricircoli
+for analytics, count items exite not deleted
 
 see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode

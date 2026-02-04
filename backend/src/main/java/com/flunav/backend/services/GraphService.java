@@ -1,7 +1,5 @@
 package com.flunav.backend.services;
 
-import com.flunav.backend.context.DatabaseContextHolder;
-import com.flunav.backend.context.DatabaseContextHolder.SimulationContext;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
@@ -11,7 +9,6 @@ import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import flunav.types.ConveyorType;
-import flunav.types.DisplayRule;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
@@ -168,13 +165,6 @@ public class GraphService {
     private ItemResponse calculateCurrentState(
             String itemId, String startId, PositionType startType, Instant lastUpdate,
             List<String> path, Topology topo, Instant now, Double accDist) {
-
-        // DEBUG: Trace time calculation for specific item or first item
-        if (itemId.equals("BoxMulti-1")) {
-            logger.info("Calc State for {}: Now={}, Entry={}, Diff={}ms, AccDist={}",
-                    itemId, now, lastUpdate, Duration.between(lastUpdate, now).toMillis(), accDist);
-        }
-
         Duration timeElapsed = Duration.between(lastUpdate, now);
         ConveyorResponse currentEdge = null;
         String lastNodeId = null;
@@ -190,7 +180,7 @@ public class GraphService {
             // Check immediately if we started on a CHUTE
             LocationResponse startNode = topo.nodeMap.get(startId);
             if (startNode != null && startNode.getType() == LocationType.CHUTE) {
-                return null; // Item is already discharged
+                return null;
             }
 
             lastNodeId = startId;
@@ -200,7 +190,7 @@ public class GraphService {
                 return createItemResponse(itemId, null, startId, lastUpdate, 0.0);
             }
         } else {
-            return null; // Invalid start position
+            return null;
         }
 
         // --- 2. TRAVERSE GRAPH ---

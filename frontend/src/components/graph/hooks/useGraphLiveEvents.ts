@@ -246,14 +246,18 @@ export const useGraphLiveEvents = (
             if (edge && update.properties) {
                 if (update.properties.active === false) {
                     // Edge deactivated - set color to red and stop items
-                    graph.setEdgeAttribute(edge, 'originalColor', '#FF0000');
-                    graph.setEdgeAttribute(edge, 'color', graph.getEdgeAttributes(edge, 'color'));
+                    graph.setEdgeAttribute(edge, 'originalColor', graph.getEdgeAttribute(edge, 'color'));
+                    graph.setEdgeAttribute(edge, 'color', '#FF0000');
+                    graph.setEdgeAttribute(edge, 'originalSpeed', graph.getEdgeAttribute(edge, 'speed'));
+                    graph.setEdgeAttribute(edge, 'speed', 0);
+
                     adjustItemsForSpeedChange(edge, 0);
                 } else if (update.properties.active === true) {
                     // Edge activated - restore color and speed
                     const originalColor = graph.getEdgeAttribute(edge, 'originalColor') as string || '#808080';
                     const originalSpeed = graph.getEdgeAttribute(edge, 'originalSpeed') as number || 1.0;
                     graph.setEdgeAttribute(edge, 'color', originalColor);
+                    graph.setEdgeAttribute(edge, 'speed', originalSpeed);
                     adjustItemsForSpeedChange(edge, originalSpeed);
                 } else if (update.properties.speed !== undefined) {
                     adjustItemsForSpeedChange(edge, Number(update.properties.speed));

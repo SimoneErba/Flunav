@@ -168,7 +168,7 @@ public class App {
             for (int i = 0; i < MAIN_LOOP_NODES; i++) {
                 String from = "MainLoop-" + i;
                 String to = "MainLoop-" + ((i + 1) % MAIN_LOOP_NODES);
-                String edgeId = "Conv_" + from + "_" + to;
+                String edgeId = "Conveyor_" + from + "_" + to;
                 createConveyor(from, to, 12.0, 2.0, true); // Main path
                 allConveyorIds.add(edgeId);
             }
@@ -178,7 +178,7 @@ public class App {
                 String from = "Spawn-" + i;
                 int targetIndex = (MAIN_LOOP_NODES / NUM_ENTRANCES) * i;
                 String to = "MainLoop-" + targetIndex;
-                String edgeId = "Conv_" + from + "_" + to;
+                String edgeId = "Conveyor_" + from + "_" + to;
                 createConveyor(from, to, 15.0, 1.5, false);
                 allConveyorIds.add(edgeId);
             }
@@ -188,7 +188,7 @@ public class App {
                 int sourceIndex = (MAIN_LOOP_NODES / NUM_EXITS) * i + 5;
                 String from = "MainLoop-" + sourceIndex;
                 String to = "Chute-" + i;
-                String edgeId = "Conv_" + from + "_" + to;
+                String edgeId = "Conveyor_" + from + "_" + to;
                 createConveyor(from, to, 10.0, 1.5, false);
                 allConveyorIds.add(edgeId);
             }
@@ -196,11 +196,11 @@ public class App {
             // 7. Create "Express Shortcuts" (Cross-paths) to allow multiple pathways
             // Shortcut 1: Across the circle
             createConveyor("MainLoop-10", "MainLoop-60", 250.0, 4.0, false);
-            allConveyorIds.add("Conv_MainLoop-10_MainLoop-60");
+            allConveyorIds.add("Conveyor_MainLoop-10_MainLoop-60");
 
             // Shortcut 2: Another chord
             createConveyor("MainLoop-40", "MainLoop-90", 250.0, 4.0, false);
-            allConveyorIds.add("Conv_MainLoop-40_MainLoop-90");
+            allConveyorIds.add("Conveyor_MainLoop-40_MainLoop-90");
         }
 
         @Override
@@ -268,7 +268,7 @@ public class App {
                 }).start();
 
                 // 2. CHAOS MONKEY: Random Conveyor Breakdown (1% chance)
-                if (random.nextInt(100) < 1 && !allConveyorIds.isEmpty()) {
+                if (random.nextInt(100) < 30 && !allConveyorIds.isEmpty()) {
                     String targetEdge = allConveyorIds.get(random.nextInt(allConveyorIds.size()));
                     if (!brokenConveyors.contains(targetEdge)) {
                         logger.warning("!!! BREAKDOWN SIMULATED on " + targetEdge + " !!!");
@@ -287,19 +287,19 @@ public class App {
                 }
 
                 // 3. MAINTENANCE CREW: Repair broken conveyors (5% chance)
-                if (!brokenConveyors.isEmpty() && random.nextInt(100) < 5) {
-                    String fixedEdge = brokenConveyors.remove(0);
-                    logger.info(">>> REPAIR COMPLETED on " + fixedEdge + " <<<");
+                // if (!brokenConveyors.isEmpty() && random.nextInt(100) < 5) {
+                // String fixedEdge = brokenConveyors.remove(0);
+                // logger.info(">>> REPAIR COMPLETED on " + fixedEdge + " <<<");
 
-                    // Activate
-                    sendEvent(new ConnectionActivatedEvent(fixedEdge), "PUT");
+                // // Activate
+                // sendEvent(new ConnectionActivatedEvent(fixedEdge), "PUT");
 
-                    // Clear Error Property
-                    Map<String, Object> props = new HashMap<>();
-                    props.put("error_message", null);
-                    props.put("status", "OPERATIONAL");
-                    sendEvent(new ConnectionPropertiesUpdatedEvent(fixedEdge, props), "PUT");
-                }
+                // // Clear Error Property
+                // Map<String, Object> props = new HashMap<>();
+                // props.put("error_message", null);
+                // props.put("status", "OPERATIONAL");
+                // sendEvent(new ConnectionPropertiesUpdatedEvent(fixedEdge, props), "PUT");
+                // }
 
                 // 4. LOST ITEM / CHECKPOINT SCAN (1% chance)
                 // Simulates an item that was "lost" (tracking drift) being re-discovered at a
