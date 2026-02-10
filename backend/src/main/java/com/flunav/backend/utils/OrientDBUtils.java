@@ -23,6 +23,7 @@ public class OrientDBUtils {
 	 * @throws IllegalArgumentException if the element is not a valid vertex
 	 */
 	public static OVertex loadAndValidateVertexByCustomId(ODatabaseSession db, String id) {
+		if (db == null) return null;
 		String statement = "SELECT * FROM V WHERE customId = ?";
 		OResultSet rs = db.query(statement, id);
 		if (rs.hasNext()) {
@@ -40,8 +41,10 @@ public class OrientDBUtils {
 	}
 
 	public static boolean checkIfAlreadyExists(ODatabaseSession db, String name) {
+		if (db == null) return false;
 		String statement = "SELECT * FROM V WHERE customId = ?";
-		OResultSet rs = db.query(statement, name);
-		return rs.hasNext();
+		try (OResultSet rs = db.query(statement, name)) {
+			return rs != null && rs.hasNext();
+		}
 	}
 }

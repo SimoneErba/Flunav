@@ -1,5 +1,6 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.repositories.LiveItemRepository;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "stale-item-cleanup.enabled", havingValue = "true", matchIfMissing = true)
 public class StaleItemCleanupService {
     private static final Logger logger = LoggerFactory.getLogger(StaleItemCleanupService.class);
     private final LiveItemRepository liveItemRepository;
@@ -33,21 +35,20 @@ public class StaleItemCleanupService {
         Instant cutoffTime = Instant.now().minus(Duration.ofMinutes(10));
 
         try {
-            List<Map<String, Object>> allActiveItems = liveItemRepository.getAllActiveItems();
+            List<RedisLiveItem> allActiveItems = liveItemRepository.getAllActiveItems();
 
-            for (Map<String, Object> itemData : allActiveItems) {
-                String itemId = (String) itemData.get("id");
-                String positionId = (String) itemData.get("positionId");
-                Long entryTimestamp = (Long) itemData.get("entryTimestamp");
+            for (RedisLiveItem itemData : allActiveItems) {
+                String itemId = itemData.getId();
+                String positionId = itemData.getPositionId();
+                Instant lastUpdate = itemData.getEntryTime();
 
                 processedCount++;
 
-                if (entryTimestamp == null || positionId == null) {
+                if (lastUpdate == null || positionId == null) {
                     continue;
                 }
 
                 // Check if item is stale (no update for 10 minutes)
-                Instant lastUpdate = Instant.ofEpochMilli(entryTimestamp);
                 if (lastUpdate.isAfter(cutoffTime)) {
                     continue;
                 }

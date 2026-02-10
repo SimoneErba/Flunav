@@ -1,4 +1,5 @@
 import { ConveyorResponse } from '../api-client/api';
+import { ItemPositionTypeEnum as PositionTypeEnum } from '../api-client/api';
 
 // --- Enums ---
 export enum CrudOperation {
@@ -8,7 +9,7 @@ export enum CrudOperation {
 
 export enum PositionStatus {
     UPDATED = 'UPDATED',
-    LOST = 'LOST' // <--- Make sure this is handled
+    LOST = 'LOST'
 }
 
 // --- Envelope ---
@@ -20,12 +21,13 @@ export interface SocketEnvelope<T> {
 
 // --- Payloads ---
 
-// Matches Java: PositionUpdate(String itemId, String edgeId, String locationId, PositionStatus status)
+// Matches Java: record PositionUpdate(String itemId, String edgeId, PositionStatus status, PositionType type, Double progress)
 export interface PositionUpdate {
     itemId: string;
     edgeId: string | null;
-    locationId: string | null; // <--- NEW FIELD ADDED IN BACKEND
     status: PositionStatus;
+    type: PositionTypeEnum;
+    progress: number | null;
 }
 
 export interface ConnectionMessage {

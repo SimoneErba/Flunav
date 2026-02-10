@@ -23,9 +23,12 @@ public class ConveyorService {
 
     private static final Logger logger = LoggerFactory.getLogger(ConveyorService.class);
     private final OrientDBService orientDBService;
+    private final com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository;
 
-    public ConveyorService(OrientDBService orientDBService) {
+    public ConveyorService(OrientDBService orientDBService,
+            com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository) {
         this.orientDBService = orientDBService;
+        this.liveConveyorRepository = liveConveyorRepository;
     }
 
     /**
@@ -70,7 +73,7 @@ public class ConveyorService {
      * Used by EventProcessor.
      */
     public Conveyor createConveyor(String connectionId, String sourceId, String targetId, String name,
-            Double length, Double speed, Boolean isMainPath, Boolean isActive) {
+            Double length, Double speed, Double minDistance, Boolean mainPath, Boolean isActive) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
 
@@ -99,8 +102,9 @@ public class ConveyorService {
             // Set Physics & Properties from params (with safety defaults)
             edge.setProperty("length", length != null ? length : 10.0);
             edge.setProperty("speed", speed != null ? speed : 1.0);
+            edge.setProperty("minDistance", minDistance);
             edge.setProperty("active", isActive != null ? isActive : true);
-            edge.setProperty("isMainPath", isMainPath != null ? isMainPath : false);
+            edge.setProperty("mainPath", mainPath != null ? mainPath : false);
 
             // Static default
             edge.setProperty("type", ConveyorType.BELT.name());
@@ -129,7 +133,7 @@ public class ConveyorService {
                         edge.setProperty("speed", conveyor.getSpeed());
                         edge.setProperty("length", conveyor.getLength());
                         edge.setProperty("active", conveyor.isActive());
-                        edge.setProperty("isMainPath", conveyor.isMainPath());
+                        edge.setProperty("mainPath", conveyor.isMainPath());
                         edge.setProperty("properties", conveyor.getProperties());
                         if (conveyor.getCapacity() != null) {
                             edge.setProperty("capacity", conveyor.getCapacity());
@@ -155,7 +159,11 @@ public class ConveyorService {
 
             for (OEdge edge : source.getEdges(ODirection.OUT, "Conveyor")) {
                 if (edge.getTo().equals(target)) {
+                    String conveyorId = edge.getProperty("customId");
                     edge.delete();
+                    if (conveyorId != null) {
+                        liveConveyorRepository.deleteConveyor(conveyorId);
+                    }
                     return;
                 }
             }
@@ -163,6 +171,22 @@ public class ConveyorService {
         } catch (Exception e) {
             throw new RuntimeException("Error deleting conveyor", e);
         }
+    }
+
+    /**
+     * Retrieves all outgoing conveyors from a specific location.
+     */
+    public List<Conveyor> getOutgoingConveyors(String locationId) {
+        List<Conveyor> conveyors = new ArrayList<>();
+        try (ODatabaseSession db = orientDBService.getSession()) {
+            OVertex location = OrientDBUtils.loadAndValidateVertexByCustomId(db, locationId);
+            for (OEdge edge : location.getEdges(ODirection.OUT, "Conveyor")) {
+                conveyors.add(edgeToConveyor(edge));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error fetching outgoing conveyors for " + locationId, e);
+        }
+        return conveyors;
     }
 
     private Conveyor edgeToConveyor(OEdge edge) {
@@ -178,10 +202,11 @@ public class ConveyorService {
                 targetId,
                 edge.getProperty("length"),
                 edge.getProperty("speed"),
+                edge.getProperty("minDistance"),
                 type,
                 edge.getProperty("active") != null ? edge.getProperty("active") : true,
                 edge.getProperty("capacity"),
-                edge.getProperty("isMainPath") != null ? edge.getProperty("isMainPath") : false,
+                edge.getProperty("mainPath") != null ? edge.getProperty("mainPath") : false,
                 edge.getProperty("properties"));
     }
 }

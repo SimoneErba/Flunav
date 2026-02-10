@@ -1,4 +1,5 @@
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/context/UserContextHolder.java
+/home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ChuteEmptyEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionActivatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionCreatedEvent.java
 /home/dimin/Desktop/Flumen/commons/src/main/java/flunav/events/ConnectionDeactivatedEvent.java

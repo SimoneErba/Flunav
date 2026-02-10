@@ -10,7 +10,7 @@ export interface EdgeEditorData {
   targetId: string;
   speed: number;
   length: number;
-  isMainPath?: boolean;
+  mainPath?: boolean;
   properties?: Record<string, any>;
 }
 
@@ -18,7 +18,7 @@ interface EdgeEditorProps {
   data: EdgeEditorData;
   onClose: () => void;
   // Unified submission handler
-  onSubmit: (updatedData: { speed: number; length: number; isMainPath: boolean; properties: Record<string, any> }) => void;
+  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; properties: Record<string, any> }) => void;
   onDelete: (edgeId: string, sourceId: string, targetId: string) => void;
 }
 
@@ -26,14 +26,14 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
   // --- Master State ---
   const [speed, setSpeed] = useState(data.speed);
   const [length, setLength] = useState(data.length);
-  const [isMainPath, setIsMainPath] = useState(data.isMainPath || false);
+  const [mainPath, setmainPath] = useState(data.mainPath || false);
   const [properties, setProperties] = useState(data.properties || {});
 
   // Sync state if selected edge changes
   useEffect(() => {
     setSpeed(data.speed);
     setLength(data.length);
-    setIsMainPath(data.isMainPath || false);
+    setmainPath(data.mainPath || false);
     setProperties(data.properties || {});
   }, [data]);
 
@@ -41,7 +41,7 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
     onSubmit({ 
       speed: Number(speed), 
       length: Number(length), 
-      isMainPath,
+      mainPath,
       properties: properties
     });
     onClose();
@@ -127,12 +127,12 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
           <div className="flex items-center gap-2 py-1">
             <input 
                 type="checkbox" 
-                id="isMainPath"
-                checked={isMainPath} 
-                onChange={e => setIsMainPath(e.target.checked)}
+                id="mainPath"
+                checked={mainPath} 
+                onChange={e => setmainPath(e.target.checked)}
                 className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
             />
-            <label htmlFor="isMainPath" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+            <label htmlFor="mainPath" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
               Is Main Path
             </label>
           </div>

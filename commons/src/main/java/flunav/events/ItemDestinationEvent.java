@@ -10,8 +10,12 @@ public class ItemDestinationEvent extends EntityEvent {
     private final String locationId;
 
     @JsonCreator
-    public ItemDestinationEvent(@JsonProperty("itemId") String itemId, @JsonProperty("locationId") String locationId) {
-        super(itemId, "ITEM_DESTINATION");
+    public ItemDestinationEvent(@JsonProperty("entityId") String itemId, @JsonProperty("locationId") String locationId) {
+        this(itemId, locationId, null);
+    }
+
+    public ItemDestinationEvent(String itemId, String locationId, java.time.Instant timestamp) {
+        super(itemId, "ITEM_DESTINATION", timestamp);
         this.locationId = locationId;
     }
 }

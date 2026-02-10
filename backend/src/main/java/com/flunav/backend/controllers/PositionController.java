@@ -1,5 +1,6 @@
 package com.flunav.backend.controllers;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -35,7 +36,9 @@ public class PositionController {
         var event = new ItemPositionChangedEvent(
                 model.getItemId(),
                 model.getLocationId(),
-                model.getProgress());
+                model.getProgress(),
+                Instant.now(),
+                null);
 
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> {

@@ -62,7 +62,7 @@ public class ItemEventListener {
         try {
             DomainEvent event = objectMapper.readValue(jsonBody, DomainEvent.class);
             logger.info("Worker processing event: {}", event.getEventType());
-            eventProcessor.process(event, true);
+            eventProcessor.process(event, true).join();
         } catch (Exception e) {
             logger.error("Worker failed to process event. Message body: {}", jsonBody, e);
         }

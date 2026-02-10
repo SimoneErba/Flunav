@@ -33,7 +33,7 @@ public class RefreshTokenService {
     @PostConstruct
     public void init() {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            if (db.getClass("RefreshToken") == null) {
+            if (db != null && db.getClass("RefreshToken") == null) {
                 OClass refreshTokenClass = db.createClass("RefreshToken");
                 refreshTokenClass.createProperty("token", OType.STRING);
                 refreshTokenClass.createProperty("username", OType.STRING);

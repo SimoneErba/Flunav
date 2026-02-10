@@ -21,6 +21,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "state-recovery.enabled", havingValue = "true", matchIfMissing = true)
 public class StateRecoveryService {
 
     private static final Logger logger = LoggerFactory.getLogger(StateRecoveryService.class);
@@ -93,7 +94,7 @@ public class StateRecoveryService {
                     String name = namesMap.get(id);
                     var type = locationTypesMap.get(id);
                     // Save with Name (if found)
-                    redisRepo.saveItemState(id, edge, type, timestamp, null, name);
+                    redisRepo.saveItemState(id, edge, type, timestamp, 0.0, name, null, null);
                     count++;
                 }
             }

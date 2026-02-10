@@ -48,7 +48,6 @@ record EntityUpdateMessage(String id, Map<String, Object> properties) {
 @Service
 public class WebSocketService {
     private final SimpMessagingTemplate messagingTemplate;
-    private static final Logger logger = LoggerFactory.getLogger(WebSocketService.class);
 
     public WebSocketService(SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;

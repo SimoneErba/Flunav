@@ -18,11 +18,12 @@ public class ConveyorResponse {
     // Physics
     private Double length;
     private Double speed;
+    private Double minDistance;
 
     // Visuals / Logic
     private ConveyorType type;
     private Boolean active;
-    private Boolean isMainPath;
+    private Boolean mainPath;
     private Integer capacity;
 
     private Map<String, Object> properties;

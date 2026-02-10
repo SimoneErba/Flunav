@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
 import { baseURL } from '../api/config';
+import { axiosInstance } from '../api/axiosInstance';
 
 export const useGraph = () => {
     const { graphApi, clientId } = useApi(); // Default API from context
@@ -33,7 +34,7 @@ export const useGraph = () => {
                         }
                     }
                 });
-                api = new GraphApi(config);
+                api = new GraphApi(config, undefined, axiosInstance);
             }
 
             const response = await api.getGraphData();

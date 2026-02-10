@@ -35,14 +35,14 @@ export const useGraphLoader = (
         initialGraphData?.conveyors?.forEach((conv) => {
             conveyorLookup.set(conv.id!, conv);
             if (graph.hasNode(conv.sourceId) && graph.hasNode(conv.targetId)) {
-                let size = 3; if (conv.isMainPath) size = 6;
+                let size = 3; if (conv.mainPath) size = 6;
                 const isActive = conv.active ?? true;
                 const color = conv.customColor || '#808080';
                 const speed = conv.speed ?? 1.0;
                 const length = conv.length ?? 1.0;
                 graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
                     id: conv.id, type: 'arrow', size, label: conv.name,
-                    speed: isActive ? conv.speed : 0, length, isMainPath: conv.isMainPath,
+                    speed: isActive ? conv.speed : 0, length, mainPath: conv.mainPath,
                     color: isActive ? color : '#FF0000',
                     customColor: conv.customColor,
                     originalColor: color,

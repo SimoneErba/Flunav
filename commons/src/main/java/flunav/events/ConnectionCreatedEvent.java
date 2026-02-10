@@ -15,8 +15,9 @@ public class ConnectionCreatedEvent extends EntityEvent {
     private final String targetId;
     private final Double length;
     private final Double speed;
+    private final Double minDistance;
     private final Long timeToTraverseMs;
-    private final Boolean isMainPath;
+    private final Boolean mainPath;
     private final String connectionId;
     private final String name;
     private final Boolean isActive;
@@ -32,8 +33,9 @@ public class ConnectionCreatedEvent extends EntityEvent {
             @JsonProperty("targetId") String targetId,
             @JsonProperty("length") Double length,
             @JsonProperty("speed") Double speed,
+            @JsonProperty("minDistance") Double minDistance,
             @JsonProperty("timeToTraverseMs") Long timeToTraverseMs,
-            @JsonProperty("isMainPath") Boolean isMainPath,
+            @JsonProperty("mainPath") Boolean mainPath,
             @JsonProperty("name") String name,
             @JsonProperty("isActive") Boolean isActive,
             @JsonProperty("type") ConveyorType type,
@@ -46,11 +48,12 @@ public class ConnectionCreatedEvent extends EntityEvent {
         this.length = (length != null) ? length : 1.0;
         this.speed = (speed != null) ? speed : 1.0;
         this.timeToTraverseMs = (timeToTraverseMs != null) ? timeToTraverseMs : 1000L;
-        this.isMainPath = (isMainPath != null) ? isMainPath : false;
+        this.mainPath = (mainPath != null) ? mainPath : false;
         this.name = (name != null) ? name : "";
         this.isActive = (isActive != null) ? isActive : true;
         this.capacity = capacity;
         this.type = type;
         this.properties = properties;
+        this.minDistance = minDistance;
     }
 }

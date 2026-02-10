@@ -1,34 +1,36 @@
 package com.flunav.backend.models.input;
 
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.Instant;
 import java.util.Map;
 
-import flunav.events.ItemCreatedEvent;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+@Getter
+@Setter
 public class ItemInput {
     private String id;
     private String name;
     private Double speed;
     private Boolean active;
     private String locationId;
+    private flunav.types.PositionType positionType;
     private Double progress;
-    private java.time.Instant timestamp;
-
     private Map<String, Object> properties;
+    private Instant timestamp;
 
-    public ItemInput(ItemCreatedEvent event) {
+    public ItemInput() {
+    }
+
+    public ItemInput(flunav.events.ItemCreatedEvent event) {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.speed = event.getSpeed();
         this.active = event.isActive();
         this.locationId = event.getLocationId();
-        this.properties = event.getProperties();
+        this.positionType = event.getPositionType();
         this.progress = event.getProgress();
+        this.properties = event.getProperties();
         this.timestamp = event.getTimestamp();
     }
 }

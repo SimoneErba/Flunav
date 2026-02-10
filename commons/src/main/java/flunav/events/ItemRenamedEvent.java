@@ -10,8 +10,8 @@ public class ItemRenamedEvent extends EntityEvent {
     private final String newName;
 
     @JsonCreator
-    public ItemRenamedEvent(@JsonProperty("itemId") String itemId, String newName) {
-        super(itemId, "ITEM_ACTIVATED");
+    public ItemRenamedEvent(@JsonProperty("itemId") String itemId, @JsonProperty("newName") String newName) {
+        super(itemId, "ITEM_RENAMED");
         this.newName = newName;
     }
 }

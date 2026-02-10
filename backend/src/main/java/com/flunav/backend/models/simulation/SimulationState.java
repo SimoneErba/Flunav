@@ -1,7 +1,12 @@
 package com.flunav.backend.models.simulation;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.PriorityBlockingQueue;
 
+import flunav.events.DomainEvent;
 import lombok.Data;
 
 @Data
@@ -14,6 +19,9 @@ public class SimulationState {
     private volatile Instant lastProcessedTimestamp;
     private double speedFactor = 1.0;
     private final Object timingLock = new Object();
+    private final java.util.PriorityQueue<DomainEvent> internalEventQueue = new java.util.PriorityQueue<>(
+            Comparator.comparing(DomainEvent::getTimestamp));
+    private final Map<String, DomainEvent> scheduledEventsByItem = new ConcurrentHashMap<>();
 
     public SimulationState(String id, Instant timestamp) {
         this.id = id;

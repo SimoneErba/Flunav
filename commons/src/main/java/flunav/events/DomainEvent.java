@@ -32,6 +32,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = LocationDeactivatedEvent.class, name = "LOCATION_DEACTIVATED"),
         @JsonSubTypes.Type(value = LocationDeletedEvent.class, name = "LOCATION_DELETED"),
         @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
+        @JsonSubTypes.Type(value = ChuteEmptyEvent.class, name = "CHUTE_EMPTY"),
 
         // --- CONNECTION (CONVEYOR) EVENTS ---
         @JsonSubTypes.Type(value = ConnectionActivatedEvent.class, name = "CONNECTION_ACTIVATED"),
@@ -50,8 +51,12 @@ public abstract class DomainEvent {
     private final String senderId;
 
     protected DomainEvent(String eventType) {
+        this(eventType, (Instant) null);
+    }
+
+    protected DomainEvent(String eventType, Instant timestamp) {
         this.eventId = UUID.randomUUID().toString();
-        this.timestamp = Instant.now();
+        this.timestamp = timestamp != null ? timestamp : Instant.now();
         this.eventType = eventType;
         this.senderId = UserContextHolder.getSenderId();
     }
@@ -59,8 +64,12 @@ public abstract class DomainEvent {
     // Constructor for manual senderId injection (useful for tests or internal
     // system events)
     protected DomainEvent(String eventType, String senderId) {
+        this(eventType, senderId, null);
+    }
+
+    protected DomainEvent(String eventType, String senderId, Instant timestamp) {
         this.eventId = UUID.randomUUID().toString();
-        this.timestamp = Instant.now();
+        this.timestamp = timestamp != null ? timestamp : Instant.now();
         this.eventType = eventType;
         this.senderId = senderId;
     }

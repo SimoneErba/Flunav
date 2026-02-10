@@ -7,6 +7,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import com.flunav.backend.services.ClickHouseService;
 import com.flunav.backend.services.OrientDBService;
 
+import org.mockito.Mockito;
+import com.orientechnologies.orient.core.db.ODatabaseSession;
+
 @SpringBootTest(properties = { "springwolf.enabled=false" })
 class BackendApplicationTests {
 
@@ -18,6 +21,7 @@ class BackendApplicationTests {
 
 	@Test
 	void contextLoads() {
+		Mockito.when(orientDBService.getSession()).thenReturn(Mockito.mock(ODatabaseSession.class));
 	}
 
 }

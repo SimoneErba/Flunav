@@ -40,10 +40,12 @@ public class UserService {
     @PostConstruct
     public void initSuperAdmin() {
         try {
-            if (getUserByUsername(superAdminUsername).isEmpty()) {
-                createUser(new User(superAdminUsername, superAdminPassword, Role.SUPERADMIN));
-                logger.info("Superadmin user created.");
-            }
+            orientDBService.withTransaction(db -> {
+                if (getUserByUsername(superAdminUsername).isEmpty()) {
+                    createUser(new User(superAdminUsername, superAdminPassword, Role.SUPERADMIN));
+                    logger.info("Superadmin user created.");
+                }
+            });
         } catch (Exception e) {
             logger.error("Failed to initialize superadmin", e);
         }
@@ -51,6 +53,7 @@ public class UserService {
 
     public User createUser(User user) {
         try (ODatabaseSession db = orientDBService.getSession()) {
+            if (db == null) return user;
             if (checkIfUserExists(db, user.getUsername())) {
                 throw new IllegalArgumentException("User " + user.getUsername() + " already exists.");
             }
@@ -71,6 +74,7 @@ public class UserService {
 
     public Optional<User> getUserByUsername(String username) {
         try (ODatabaseSession db = orientDBService.getSession()) {
+            if (db == null) return Optional.empty();
             String query = "SELECT FROM User WHERE username = ?";
             try (OResultSet rs = db.query(query, username)) {
                 if (rs.hasNext()) {

@@ -20,6 +20,7 @@ import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -123,8 +124,10 @@ public class DisplayRulesService {
 
         // 2. Fetch from DB
         try (ODatabaseSession session = orientDBService.getSession()) {
+            List<DisplayRule> rules = new ArrayList<>();
+            if (session == null) return rules;
             OResultSet rs = session.query("SELECT FROM " + DISPLAY_RULES_CLASS);
-            List<DisplayRule> rules = List.of();
+            if (rs == null) return rules;
             if (rs.hasNext()) {
                 OResult result = rs.next();
                 OElement element = result.getElement().orElse(null);

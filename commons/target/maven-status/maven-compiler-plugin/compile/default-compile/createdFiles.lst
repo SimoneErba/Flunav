@@ -13,6 +13,7 @@ flunav/events/LocationCoordinatesChangedEvent.class
 flunav/events/LocationAddToMainPath.class
 flunav/events/ItemPositionDeletedEvent.class
 flunav/events/ItemCreatedEvent.class
+flunav/events/ChuteEmptyEvent.class
 flunav/events/ConnectionSpeedChangedEvent.class
 flunav/types/OperatorType.class
 flunav/events/ConnectionRemoveFromMainPath.class

@@ -33,11 +33,13 @@ public class ItemController {
 
     private final ItemService itemService;
     private final ControllerHelper eventProcessorHelper;
+    private final com.flunav.backend.services.TimeService timeService;
 
     @Autowired
-    public ItemController(ItemService itemService, ControllerHelper eventProcessorHelper) {
+    public ItemController(ItemService itemService, ControllerHelper eventProcessorHelper, com.flunav.backend.services.TimeService timeService) {
         this.itemService = itemService;
         this.eventProcessorHelper = eventProcessorHelper;
+        this.timeService = timeService;
     }
 
     @GetMapping
@@ -62,8 +64,10 @@ public class ItemController {
                 item.getSpeed(),
                 item.getActive(),
                 item.getLocationId(),
+                item.getPositionType(),
                 item.getProgress(),
-                item.getProperties());
+                item.getProperties(),
+                item.getTimestamp() != null ? item.getTimestamp() : timeService.now());
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(updatedItemProperties -> {
 

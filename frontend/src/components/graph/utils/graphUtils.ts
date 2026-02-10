@@ -14,7 +14,7 @@ export const hashToNumber = (s: string) => {
  * Finds the next logical edge from a node.
  * Priority: 
  * 1. Specific Path (Edge leading to nextNodeId)
- * 2. Main Path (Edge marked isMainPath)
+ * 2. Main Path (Edge marked mainPath)
  * 3. Single Option
  * 4. Null (Stop if ambiguous)
  */
@@ -33,7 +33,7 @@ export const findNextEdge = (
   }
   
   // 2. Main Path Priority
-  const mainPathEdge = outEdges.find(edge => graph.getEdgeAttribute(edge, 'isMainPath'));
+  const mainPathEdge = outEdges.find(edge => graph.getEdgeAttribute(edge, 'mainPath'));
   if (mainPathEdge) return mainPathEdge;
   
   // 3. Ambiguity Check (Stop if multiple choices and no instruction)

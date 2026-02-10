@@ -74,6 +74,12 @@ export interface Conveyor {
     'speed'?: number;
     /**
      * 
+     * @type {number}
+     * @memberof Conveyor
+     */
+    'minDistance'?: number;
+    /**
+     * 
      * @type {string}
      * @memberof Conveyor
      */
@@ -157,6 +163,12 @@ export interface ConveyorResponse {
     'speed'?: number;
     /**
      * 
+     * @type {number}
+     * @memberof ConveyorResponse
+     */
+    'minDistance'?: number;
+    /**
+     * 
      * @type {string}
      * @memberof ConveyorResponse
      */
@@ -172,7 +184,7 @@ export interface ConveyorResponse {
      * @type {boolean}
      * @memberof ConveyorResponse
      */
-    'isMainPath'?: boolean;
+    'mainPath'?: boolean;
     /**
      * 
      * @type {number}
@@ -299,7 +311,7 @@ export interface CreateConveyorInput {
      * @type {boolean}
      * @memberof CreateConveyorInput
      */
-    'isMainPath'?: boolean;
+    'mainPath'?: boolean;
     /**
      * 
      * @type {boolean}
@@ -476,15 +488,15 @@ export interface GraphData {
 /**
  * 
  * @export
- * @interface IsMainPathUpdateRequest
+ * @interface mainPathUpdateRequest
  */
-export interface IsMainPathUpdateRequest {
+export interface mainPathUpdateRequest {
     /**
      * 
      * @type {boolean}
-     * @memberof IsMainPathUpdateRequest
+     * @memberof mainPathUpdateRequest
      */
-    'isMainPath'?: boolean;
+    'mainPath'?: boolean;
 }
 /**
  * 
@@ -599,23 +611,37 @@ export interface ItemInput {
     'locationId'?: string;
     /**
      * 
+     * @type {string}
+     * @memberof ItemInput
+     */
+    'positionType'?: ItemInputPositionTypeEnum;
+    /**
+     * 
      * @type {number}
      * @memberof ItemInput
      */
     'progress'?: number;
     /**
      * 
-     * @type {string}
-     * @memberof ItemInput
-     */
-    'timestamp'?: string;
-    /**
-     * 
      * @type {{ [key: string]: object; }}
      * @memberof ItemInput
      */
     'properties'?: { [key: string]: object; };
+    /**
+     * 
+     * @type {string}
+     * @memberof ItemInput
+     */
+    'timestamp'?: string;
 }
+
+export const ItemInputPositionTypeEnum = {
+    Location: 'LOCATION',
+    Conveyor: 'CONVEYOR'
+} as const;
+
+export type ItemInputPositionTypeEnum = typeof ItemInputPositionTypeEnum[keyof typeof ItemInputPositionTypeEnum];
+
 /**
  * 
  * @export
@@ -845,7 +871,7 @@ export interface LocationInput {
      * @type {boolean}
      * @memberof LocationInput
      */
-    'isMainPath'?: boolean;
+    'mainPath'?: boolean;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -1578,16 +1604,16 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
          * 
          * @summary Update if conveyor is part of the main path
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateConveyorIsMainPath: async (id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        updateConveyormainPath: async (id: string, mainPathUpdateRequest: mainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'id' is not null or undefined
-            assertParamExists('updateConveyorIsMainPath', 'id', id)
-            // verify required parameter 'isMainPathUpdateRequest' is not null or undefined
-            assertParamExists('updateConveyorIsMainPath', 'isMainPathUpdateRequest', isMainPathUpdateRequest)
-            const localVarPath = `/api/conveyors/{id}/isMainPath`
+            assertParamExists('updateConveyormainPath', 'id', id)
+            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyormainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/mainPath`
                 .replace(`{${"id"}}`, encodeURIComponent(String(id)));
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -1607,7 +1633,7 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(isMainPathUpdateRequest, localVarRequestOptions, configuration)
+            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -1774,14 +1800,14 @@ export const ConveyorsApiFp = function(configuration?: Configuration) {
          * 
          * @summary Update if conveyor is part of the main path
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorIsMainPath(id, isMainPathUpdateRequest, options);
+        async updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyormainPath(id, mainPathUpdateRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorIsMainPath']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyormainPath']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -1877,12 +1903,12 @@ export const ConveyorsApiFactory = function (configuration?: Configuration, base
          * 
          * @summary Update if conveyor is part of the main path
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateConveyorIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(axios, basePath));
+        updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -1981,13 +2007,13 @@ export class ConveyorsApi extends BaseAPI {
      * 
      * @summary Update if conveyor is part of the main path
      * @param {string} id 
-     * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+     * @param {mainPathUpdateRequest} mainPathUpdateRequest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof ConveyorsApi
      */
-    public updateConveyorIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig) {
-        return ConveyorsApiFp(this.configuration).updateConveyorIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    public updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -2908,16 +2934,16 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
         /**
          * 
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateLocationIsMainPath: async (id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        updateLocationmainPath: async (id: string, mainPathUpdateRequest: mainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'id' is not null or undefined
-            assertParamExists('updateLocationIsMainPath', 'id', id)
-            // verify required parameter 'isMainPathUpdateRequest' is not null or undefined
-            assertParamExists('updateLocationIsMainPath', 'isMainPathUpdateRequest', isMainPathUpdateRequest)
-            const localVarPath = `/api/locations/{id}/isMainPath`
+            assertParamExists('updateLocationmainPath', 'id', id)
+            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationmainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
+            const localVarPath = `/api/locations/{id}/mainPath`
                 .replace(`{${"id"}}`, encodeURIComponent(String(id)));
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -2937,7 +2963,7 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(isMainPathUpdateRequest, localVarRequestOptions, configuration)
+            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -3160,14 +3186,14 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
         /**
          * 
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationIsMainPath(id, isMainPathUpdateRequest, options);
+        async updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationmainPath(id, mainPathUpdateRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationIsMainPath']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationmainPath']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -3287,12 +3313,12 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
         /**
          * 
          * @param {string} id 
-         * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateLocationIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(axios, basePath));
+        updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -3416,13 +3442,13 @@ export class LocationControllerApi extends BaseAPI {
     /**
      * 
      * @param {string} id 
-     * @param {IsMainPathUpdateRequest} isMainPathUpdateRequest 
+     * @param {mainPathUpdateRequest} mainPathUpdateRequest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof LocationControllerApi
      */
-    public updateLocationIsMainPath(id: string, isMainPathUpdateRequest: IsMainPathUpdateRequest, options?: RawAxiosRequestConfig) {
-        return LocationControllerApiFp(this.configuration).updateLocationIsMainPath(id, isMainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    public updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

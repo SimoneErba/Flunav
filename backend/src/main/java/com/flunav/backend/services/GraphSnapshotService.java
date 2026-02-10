@@ -10,16 +10,19 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Service
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "graph-snapshot.enabled", havingValue = "true", matchIfMissing = true)
 public class GraphSnapshotService {
     private static final Logger logger = LoggerFactory.getLogger(GraphSnapshotService.class);
 
     private final GraphService graphService;
     private final ClickHouseService clickHouseService;
+    private final TimeService timeService;
 
     // Use constructor injection for dependencies
-    public GraphSnapshotService(GraphService graphService, ClickHouseService clickHouseService) {
+    public GraphSnapshotService(GraphService graphService, ClickHouseService clickHouseService, TimeService timeService) {
         this.graphService = graphService;
         this.clickHouseService = clickHouseService;
+        this.timeService = timeService;
     }
 
     /**
@@ -36,7 +39,7 @@ public class GraphSnapshotService {
 
             // Step 2: Create snapshot metadata.
             String snapshotId = UUID.randomUUID().toString();
-            Instant timestamp = Instant.now();
+            Instant timestamp = timeService.now();
 
             // Step 3: Delegate the saving operation to the ClickHouseService.
             // This cleanly separates the responsibility of data retrieval from data

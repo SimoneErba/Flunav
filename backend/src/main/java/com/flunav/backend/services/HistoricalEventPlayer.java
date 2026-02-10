@@ -15,7 +15,6 @@ import com.flunav.backend.models.simulation.SimulationStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
 @Service
@@ -68,6 +67,18 @@ public class HistoricalEventPlayer {
                 logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime,
                         windowEndTime);
                 List<DomainEvent> eventChunk = clickHouseService.getEventsBetween(windowStartTime, windowEndTime);
+
+                // --- Process Internal Events ---
+                while (!state.getInternalEventQueue().isEmpty() &&
+                        !state.getInternalEventQueue().peek().getTimestamp().isAfter(windowEndTime)) {
+                    DomainEvent internalEvent = state.getInternalEventQueue().poll();
+                    if (internalEvent != null) {
+                        eventChunk.add(internalEvent);
+                    }
+                }
+
+                // Sort the combined chunk by timestamp to ensure correct order
+                eventChunk.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
 
                 if (!eventChunk.isEmpty()) {
                     playChunk(simulationId, eventChunk, state);

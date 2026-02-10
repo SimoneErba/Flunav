@@ -49,8 +49,9 @@ public class ConnectionController {
             String name,
             Double length,
             Double speed,
+            Double minDistance,
             Long timeToTraverseMs,
-            Boolean isMainPath,
+            Boolean mainPath,
             Boolean isActive,
             ConveyorType type,
             Integer capacity,
@@ -63,7 +64,7 @@ public class ConnectionController {
     public record LengthUpdateRequest(Double length) {
     }
 
-    public record IsMainPathUpdateRequest(Boolean isMainPath) {
+    public record mainPathUpdateRequest(Boolean mainPath) {
     }
 
     @Autowired
@@ -103,8 +104,9 @@ public class ConnectionController {
                 input.targetId(),
                 input.length(),
                 input.speed(),
+                input.minDistance(),
                 input.timeToTraverseMs(),
-                input.isMainPath(),
+                input.mainPath(),
                 input.name(),
                 input.isActive(),
                 input.type(),
@@ -154,10 +156,10 @@ public class ConnectionController {
             }
 
             // 3. Validate and create Main Path Event
-            if (updates.containsKey("isMainPath")) {
-                Object value = updates.get("isMainPath");
+            if (updates.containsKey("mainPath")) {
+                Object value = updates.get("mainPath");
                 if (!(value instanceof Boolean)) {
-                    logger.warn("Validation failed for conveyor {}: 'isMainPath' must be a boolean.", id);
+                    logger.warn("Validation failed for conveyor {}: 'mainPath' must be a boolean.", id);
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
                 boolean isMain = (Boolean) value;
@@ -229,11 +231,11 @@ public class ConnectionController {
     }
 
     @BlockInDemo
-    @PutMapping("/{id}/isMainPath")
+    @PutMapping("/{id}/mainPath")
     @Operation(summary = "Update if conveyor is part of the main path")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyorIsMainPath(
-            @PathVariable String id, @RequestBody IsMainPathUpdateRequest request) {
-        var event = request.isMainPath()
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyormainPath(
+            @PathVariable String id, @RequestBody mainPathUpdateRequest request) {
+        var event = request.mainPath()
                 ? new LocationAddToMainPath(id)
                 : new ConnectionRemoveFromMainPath(id);
         return eventProcessorHelper.processAndLogEvent(event)

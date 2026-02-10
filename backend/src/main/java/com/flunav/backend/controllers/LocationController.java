@@ -42,7 +42,7 @@ public class LocationController {
     public record CoordinatesUpdateRequest(Double latitude, Double longitude) {
     }
 
-    public record IsMainPathUpdateRequest(Boolean isMainPath) {
+    public record mainPathUpdateRequest(Boolean mainPath) {
     }
 
     public record CapacityUpdateRequest(Integer capacity) {
@@ -136,10 +136,10 @@ public class LocationController {
                 events.add(new LocationCapacityChangedEvent(id, ((Number) value).intValue()));
             }
 
-            if (updates.containsKey("isMainPath")) {
-                Object value = updates.get("isMainPath");
+            if (updates.containsKey("mainPath")) {
+                Object value = updates.get("mainPath");
                 if (!(value instanceof Boolean)) {
-                    logger.warn("Validation failed for location {}: 'isMainPath' must be a boolean, but was {}", id,
+                    logger.warn("Validation failed for location {}: 'mainPath' must be a boolean, but was {}", id,
                             value.getClass().getSimpleName());
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
@@ -243,10 +243,10 @@ public class LocationController {
     }
 
     @BlockInDemo
-    @PutMapping("/{id}/isMainPath")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationIsMainPath(
-            @PathVariable String id, @RequestBody IsMainPathUpdateRequest request) {
-        var event = request.isMainPath() ? new LocationAddToMainPath(id)
+    @PutMapping("/{id}/mainPath")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationmainPath(
+            @PathVariable String id, @RequestBody mainPathUpdateRequest request) {
+        var event = request.mainPath() ? new LocationAddToMainPath(id)
                 : new ConnectionRemoveFromMainPath(id);
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> ResponseEntity.ok(result));

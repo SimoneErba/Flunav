@@ -82,6 +82,7 @@ public class App {
 
             if ("destroy".equalsIgnoreCase(ACTION)) {
                 logger.info(">>> DESTROY MODE ACTIVATED <<<");
+                simulation.setup();
                 simulation.destroy();
                 logger.info(">>> Destruction Complete. Exiting. <<<");
             } else {
@@ -219,12 +220,12 @@ public class App {
                 deleteLocation(id);
 
             logger.info("Cleaning up items...");
-            for (int i = 0; i < 5000; i++) {
-                try {
-                    sendEvent(new ItemDeletedEvent("BoxLarge-" + i), "DELETE");
-                } catch (Exception e) {
-                }
-            }
+            // for (int i = 0; i < 5000; i++) {
+            // try {
+            // sendEvent(new ItemDeletedEvent("BoxLarge-" + i), "DELETE");
+            // } catch (Exception e) {
+            // }
+            // }
         }
 
         @Override
@@ -254,7 +255,8 @@ public class App {
                 }
 
                 // Create
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.5, true, spawnPoint, 0.0, attributes), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.5, true, spawnPoint,
+                        flunav.types.PositionType.LOCATION, 0.0, attributes), "POST");
 
                 // Assign Destination
                 // Small delay to simulate scanning at entry
@@ -313,7 +315,7 @@ public class App {
 
                     // Force position update (Teleport/Correction)
                     // Note: In a real system, this would correct the drift.
-                    sendEvent(new ItemPositionChangedEvent(lostItemId, randomCheckpoint, 0.0), "PUT");
+                    sendEvent(new ItemPositionChangedEvent(lostItemId, randomCheckpoint, 0.0, null), "PUT");
                 }
             }
         }
@@ -378,7 +380,8 @@ public class App {
                 } catch (Exception ignored) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, 0.0, new HashMap<>()), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint,
+                        flunav.types.PositionType.LOCATION, 0.0, new HashMap<>()), "POST");
             }
         }
     }
@@ -470,7 +473,8 @@ public class App {
                 } catch (Exception ignored) {
                 }
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint, 0.0, new HashMap<>()), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint,
+                        flunav.types.PositionType.LOCATION, 0.0, new HashMap<>()), "POST");
             }
         }
     }
@@ -560,7 +564,8 @@ public class App {
                 attributes.put("depth", depth);
                 attributes.put("barcode", barcode);
 
-                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", 0.0, attributes), "POST");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", flunav.types.PositionType.LOCATION,
+                        0.0, attributes), "POST");
 
                 if (destination != null) {
                     Thread.sleep(100);
@@ -656,13 +661,13 @@ public class App {
         sendEvent(new LocationCreatedEvent(id, id, true, lat, lon, type, 0, new HashMap<>()), "POST");
     }
 
-    private static void createConveyor(String from, String to, double length, double speed, boolean isMainPath)
+    private static void createConveyor(String from, String to, double length, double speed, boolean mainPath)
             throws Exception {
         logger.info(
                 () -> String.format("Creating conveyor from %s to %s [Len: %.1f, Spd: %.1f]", from, to, length, speed));
         long timeToTraverse = (long) ((length / speed) * 1000);
         ConnectionCreatedEvent event = new ConnectionCreatedEvent(
-                "Conveyor_" + from + "_" + to, from, to, length, speed, timeToTraverse, isMainPath,
+                "Conveyor_" + from + "_" + to, from, to, length, speed, 0.0, timeToTraverse, mainPath,
                 "Conveyor_" + from + "_" + to, true, ConveyorType.BELT, 0, new HashMap<>());
         sendEvent(event, "POST");
     }

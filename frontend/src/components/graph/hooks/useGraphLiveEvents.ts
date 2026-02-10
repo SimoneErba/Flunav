@@ -74,25 +74,20 @@ export const useGraphLiveEvents = (
 
             const currentItem = activeItemsRef.current.get(update.itemId);
             if (currentItem) {
+                const isConveyor = update.type === 'CONVEYOR';
                 const updatedItem = {
                     ...currentItem,
-                    currentEdgeId: update.edgeId,
-                    locationId: update.edgeId ? null : (update.locationId || null), // Use locationId if provided
+                    currentEdgeId: isConveyor ? update.edgeId : null,
+                    locationId: isConveyor ? null : update.edgeId,
                     entryTimestamp: new Date(update.timestamp).toISOString(),
-                    progress: 0
+                    progress: update.progress || 0
                 };
                 
-                // Logic to determine if it's on a Node or Edge based on graph existence
-                // (Fallback if backend sends edgeId for a node)
-                if (update.edgeId && graph.hasNode(update.edgeId)) {
-                    updatedItem.locationId = update.edgeId;
-                    updatedItem.currentEdgeId = null;
-                } else {
-                    updatedItem.currentEdgeId = update.edgeId;
-                    updatedItem.locationId = null;
-                }
-                
                 activeItemsRef.current.set(update.itemId, updatedItem);
+
+                // Update graph node logical state
+                graph.setNodeAttribute(update.itemId, "currentEdgeId", updatedItem.currentEdgeId);
+                graph.setNodeAttribute(update.itemId, "locationId", updatedItem.locationId);
             }
         }, simulationId));
 
@@ -153,14 +148,16 @@ export const useGraphLiveEvents = (
                 isActive: item.active,
                 customColor: item.customColor
             });
+
+            const isConveyor = item.positionType === 'CONVEYOR' || (item.locationId && graph.hasEdge(item.locationId));
             
             // Update Logic State
             activeItemsRef.current.set(item.id!, {
                 id: item.id, 
                 name: item.name, 
                 active: item.active,
-                locationId: item.locationId, 
-                currentEdgeId: undefined, // Logic will resolve this on next update/frame
+                locationId: isConveyor ? null : item.locationId, 
+                currentEdgeId: isConveyor ? item.locationId : undefined,
                 entryTimestamp: new Date(timestamp).toISOString(), 
                 progress: item.progress || 0,
                 customColor: item.customColor
@@ -229,11 +226,11 @@ export const useGraphLiveEvents = (
             if (graph.hasNode(from) && graph.hasNode(to) && !graph.hasEdge(from, to)) {
                 const speed = data?.speed ?? 1.0;
                 const length = data?.length ?? 10.0;
-                const isMainPath = data?.isMainPath ?? false;
+                const mainPath = data?.mainPath ?? false;
                 const label = data?.name ?? "";
                 const id = data?.id;
                 const customColor = data?.customColor;
-                graph.addEdge(from, to, { id, type: 'arrow', size: isMainPath ? 6 : 3, label, speed, length, isMainPath, color: customColor, customColor });
+                graph.addEdge(from, to, { id, type: 'arrow', size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor });
             }
         }, simulationId));
 

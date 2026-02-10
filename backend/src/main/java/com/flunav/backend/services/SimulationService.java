@@ -5,7 +5,6 @@ import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.graphql.GraphQlProperties.Websocket;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,108 +17,117 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import com.flunav.backend.repositories.LiveItemRepository;
+
+import flunav.types.PositionType;
 
 @Service
 public class SimulationService {
 
     private static final Logger logger = LoggerFactory.getLogger(SimulationService.class);
 
-    // --- Dependencies ---
     private final OrientDBService orientDBService;
     private final HistoricalEventPlayer historicalEventPlayer;
     private final HistoricalGraphBuilder historicalGraphBuilder;
     private final WebSocketService webSocketService;
     private final LiveItemRepository liveItemRepository;
+    private final TopologyProvider topologyProvider;
 
-    // --- State Management ---
+    @org.springframework.beans.factory.annotation.Autowired
+    @Lazy
+    private EventProcessor eventProcessor;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private TimeService timeService;
+
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
     private final Map<String, Future<?>> activePlaybacks = new ConcurrentHashMap<>();
-
-    // --- Concurrency Control ---
-    private final Semaphore buildPermits = new Semaphore(2); // Example: Allow 2 concurrent builds
+    private final Semaphore buildPermits = new Semaphore(2);
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
     public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
             WebSocketService webSocketService,
-            @Lazy HistoricalGraphBuilder historicalGraphBuilder, LiveItemRepository liveItemRepository) {
+            @Lazy HistoricalGraphBuilder historicalGraphBuilder,
+            LiveItemRepository liveItemRepository,
+            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
         this.webSocketService = webSocketService;
         this.liveItemRepository = liveItemRepository;
+        this.topologyProvider = topologyProvider;
     }
 
-    /**
-     * Creates a new simulation or queues it if the system is busy.
-     */
     public SimulationState createSimulation(Instant timestamp) {
         String simulationId = "sim_" + UUID.randomUUID().toString().replace("-", "");
+        return createSimulation(simulationId, timestamp);
+    }
+
+    public SimulationState createSimulation(String simulationId, Instant timestamp) {
         SimulationState state = new SimulationState(simulationId, timestamp);
         simulationCache.put(simulationId, state);
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
-
         return state;
     }
 
-    /**
-     * Starts the live tailing event playback for a built simulation.
-     */
+    public SimulationState getOrCreateSimulation(String simulationId, Instant timestamp) {
+        if (simulationCache.containsKey(simulationId)) {
+            return simulationCache.get(simulationId);
+        }
+        return createSimulation(simulationId, timestamp);
+    }
+
     public void startPlayback(String simulationId, double speedFactor) {
         SimulationState state = getSimulationState(simulationId);
         if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
                 && state.getStatus() != SimulationStatus.PAUSED) {
-            throw new IllegalStateException(
-                    "Simulation is not ready for playback. Current status: " + state.getStatus());
+            throw new IllegalStateException("Simulation not ready for playback. Current status: " + state.getStatus());
         }
-
         Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
                 : state.getTimestamp();
         state.setStatus(SimulationStatus.PLAYING);
-        logger.info("Starting live tailing playback for simulation {} from {}", simulationId, simulationStartTime);
-
         var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
         activePlaybacks.put(simulationId, playbackFuture);
     }
 
-    /**
-     * Cancels an active playback task for a given simulation.
-     */
     public void cancelPlayback(String simulationId) {
         Future<?> playbackFuture = activePlaybacks.get(simulationId);
         SimulationState state = simulationCache.get(simulationId);
         if (playbackFuture != null && !playbackFuture.isDone()) {
-            logger.warn("Attempting to cancel playback for simulation {}", simulationId);
-
-            if (state != null) {
+            if (state != null)
                 state.setStatus(SimulationStatus.STOPPED);
-            }
-
-            boolean cancelled = playbackFuture.cancel(true);
-            if (cancelled) {
-                if (playbackFuture.isCancelled()) {
-                    logger.info("Successfully sent cancellation signal to playback task for {}", simulationId);
-                    activePlaybacks.remove(simulationId);
-                } else {
-                    logger.warn("Playback task for {} was not cancelled", simulationId);
-                    activePlaybacks.remove(simulationId);
-                }
-            } else {
-                logger.error("Failed to cancel playback task for {}", simulationId);
-            }
+            playbackFuture.cancel(true);
+            activePlaybacks.remove(simulationId);
         }
     }
 
-    /**
-     * Completely destroys a simulation, its in-memory DB, and cancels any active
-     * playback.
-     */
+    public void pauseSimulation(String simulationId) {
+        SimulationState state = simulationCache.get(simulationId);
+        Future<?> playbackTask = activePlaybacks.get(simulationId);
+        if (state == null || playbackTask == null) {
+            throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
+        }
+        if (state.getStatus() != SimulationStatus.PLAYING) {
+            throw new IllegalStateException(
+                    "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
+        }
+        state.setStatus(SimulationStatus.PAUSED);
+        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
+                state.getLastProcessedTimestamp());
+        playbackTask.cancel(true);
+        activePlaybacks.remove(simulationId);
+    }
+
+    public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
+        SimulationState state = getSimulationState(simulationId);
+        state.setSpeedFactor(newSpeedFactor);
+    }
+
     public void destroySimulation(String simulationId) {
         cancelPlayback(simulationId);
         SimulationState state = simulationCache.remove(simulationId);
@@ -135,133 +143,129 @@ public class SimulationService {
 
     public SimulationState getSimulationState(String simulationId) {
         SimulationState state = simulationCache.get(simulationId);
-        if (state == null) {
+        if (state == null)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulation not found: " + simulationId);
-        }
         state.setLastHeartbeatTimestamp(Instant.now());
         return state;
     }
 
-    /**
-     * Updates the status of a simulation. Called by the HistoricalGraphBuilder.
-     */
     public void updateSimulationStatus(String simulationId, SimulationStatus status, Instant timestamp) {
         SimulationState state = simulationCache.get(simulationId);
         if (state != null) {
             state.setStatus(status);
             this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), timestamp);
-            logger.info("Updated status for simulation {} to {}", simulationId, status);
-        } else {
-            logger.warn("Could not update status for non-existent simulation: {}", simulationId);
         }
     }
 
-    /**
-     * Checks the waiting queue and starts a new build job if a permit is available.
-     * This is called after a build job completes.
-     */
     public void processWaitingQueue() {
-        if (!waitingQueue.isEmpty()) {
-            if (buildPermits.tryAcquire()) {
-                SimulationRequest request = waitingQueue.poll();
-                if (request != null) {
-                    logger.info("Build permit acquired for queued simulation {}. Starting build.",
-                            request.simulationId());
-                    updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, Instant.now());
-                    orientDBService.createInMemoryDatabase(request.simulationId());
-                    historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
-                } else {
-                    buildPermits.release();
-                }
+        if (!waitingQueue.isEmpty() && buildPermits.tryAcquire()) {
+            SimulationRequest request = waitingQueue.poll();
+            if (request != null) {
+                updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, Instant.now());
+                orientDBService.createInMemoryDatabase(request.simulationId());
+                historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
             } else {
-                logger.info("Processing queue requested, but no build permits are available.");
+                buildPermits.release();
             }
         }
     }
 
-    /**
-     * Periodically runs to clean up simulations that have been abandoned (no
-     * heartbeat).
-     */
-    @Scheduled(fixedRate = 300_000) // Run every 5 minutes
+    @Scheduled(fixedRate = 300_000)
     public void cleanupAbandonedSimulations() {
         logger.info("Running cleanup job for abandoned simulations...");
+        if ("true".equals(System.getProperty("disable-sim-cleanup")))
+            return;
         Instant now = Instant.now();
-        int abandonedCount = 0;
-
-        // Use an iterator to safely remove items from the cache while iterating
         for (Iterator<Map.Entry<String, SimulationState>> it = simulationCache.entrySet().iterator(); it.hasNext();) {
             Map.Entry<String, SimulationState> entry = it.next();
-            SimulationState state = entry.getValue();
-
-            if (Duration.between(state.getLastHeartbeatTimestamp(), now).toMinutes() > 2) {
-                logger.warn("Removing abandoned simulation {} (ID: {}).", entry.getKey());
-                destroySimulation(entry.getKey()); // Use destroy to also cancel playback
-                abandonedCount++;
+            if (Duration.between(entry.getValue().getLastHeartbeatTimestamp(), now).toMinutes() > 2) {
+                destroySimulation(entry.getKey());
             }
         }
-        if (abandonedCount > 0) {
-            logger.info("Cleanup complete. Removed {} abandoned simulations.", abandonedCount);
-        }
-
-        Iterator<Map.Entry<String, Future<?>>> iterator = activePlaybacks.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, Future<?>> entry = iterator.next();
-            if (entry.getValue().isDone()) {
-                iterator.remove();
-                logger.debug("Removed completed task for simulation: {}", entry.getKey());
-            }
-        }
-    }
-
-    public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
-        SimulationState state = getSimulationState(simulationId);
-        state.setSpeedFactor(newSpeedFactor);
-        logger.info("Updated playback speed for simulation {} to {}x and notified player.", simulationId,
-                newSpeedFactor);
-        // TODO: notify others
-    }
-
-    // TODO: add time to the state to be used when resuming?
-    public void pauseSimulation(String simulationId) {
-        // 1. Find the state and the running task.
-        SimulationState state = simulationCache.get(simulationId);
-        Future<?> playbackTask = activePlaybacks.get(simulationId);
-
-        // 2. Validate the current state. Is it possible to pause?
-        if (state == null || playbackTask == null) {
-            throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
-        }
-        if (state.getStatus() != SimulationStatus.PLAYING) {
-            throw new IllegalStateException(
-                    "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
-        }
-
-        logger.info("Pausing simulation {}", simulationId);
-
-        // 3. Set the state to PAUSED. This MUST be done BEFORE interrupting the thread.
-        state.setStatus(SimulationStatus.PAUSED);
-        state.setLastProcessedTimestamp(state.getLastProcessedTimestamp());
-        // 4. Broadcast the update to all connected clients.
-        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
-                state.getLastProcessedTimestamp());
-
-        // 5. CRITICAL: Interrupt the actual background thread.
-        // The 'true' parameter sends an interrupt signal, which will be caught
-        // by the InterruptedException block in the playEvents method.
-        playbackTask.cancel(true);
-
-        // 6. Clean up the task from the active list.
-        activePlaybacks.remove(simulationId);
     }
 
     public SimulationState getCurrentSimulation() {
-        var simulationId = DatabaseContextHolder.getSimulationId();
-        if (simulationId != null) {
-            return simulationCache.get(simulationId);
+        var id = DatabaseContextHolder.getSimulationId();
+        var state = id != null ? simulationCache.get(id) : null;
+        if (id != null) {
+            logger.debug("getCurrentSimulation for id {}: found state? {}", id, (state != null));
+        }
+        return state;
+    }
+
+    public String getCurrentSimulationId() {
+        return DatabaseContextHolder.getSimulationId();
+    }
+
+    public void addInternalEvent(flunav.events.DomainEvent event) {
+        SimulationState state = getCurrentSimulation();
+        if (state != null && event instanceof flunav.events.EntityEvent ee) {
+            // Remove existing event for this entity if it's the same type (or just remove
+            // any scheduled for same entity to be safe)
+            state.getInternalEventQueue().removeIf(
+                    e -> e instanceof flunav.events.EntityEvent e2 && e2.getEntityId().equals(ee.getEntityId()));
+            state.getInternalEventQueue().add(event);
+            state.getScheduledEventsByItem().put(ee.getEntityId(), event);
+        }
+    }
+
+    public void cancelInternalEvent(String itemId) {
+        SimulationState state = getCurrentSimulation();
+        if (state != null) {
+            state.getInternalEventQueue()
+                    .removeIf(e -> e instanceof flunav.events.EntityEvent ee && ee.getEntityId().equals(itemId));
+            state.getScheduledEventsByItem().remove(itemId);
+        }
+    }
+
+    public void processEventsUntil(String simulationId, Instant targetTime) {
+        SimulationState state = simulationCache.get(simulationId);
+        if (state == null)
+            return;
+
+        while (true) {
+            var event = state.getInternalEventQueue().peek();
+            if (event == null || event.getTimestamp().isAfter(targetTime)) {
+                break;
+            }
+
+            state.getInternalEventQueue().poll();
+
+            checkpointAllItems(simulationId, event.getTimestamp());
+            timeService.useFixedClock(event.getTimestamp());
+
+            if (event instanceof flunav.events.EntityEvent ee) {
+                state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
+            }
+
+            try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+                eventProcessor.processEventWithoutBroadcast(event);
+            }
         }
 
-        return null;
+        checkpointAllItems(simulationId, targetTime);
+    }
+
+    private void checkpointAllItems(String simulationId, Instant now) {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            var items = liveItemRepository.getAllActiveItems();
+            for (var itemData : items) {
+                PositionType type = itemData.getType();
+                Instant lastTs = itemData.getEntryTime();
+                Double accDist = itemData.getAccumulatedDistance();
+
+                if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
+                    var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
+                    if (conveyor != null) {
+                        long elapsed = now.toEpochMilli() - lastTs.toEpochMilli();
+                        if (elapsed > 0) {
+                            double moved = (elapsed / 1000.0) * conveyor.getSpeed();
+                            liveItemRepository.checkpointPhysics(itemData.getId(), now, accDist + moved);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {

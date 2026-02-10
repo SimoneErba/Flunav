@@ -20,6 +20,8 @@ public class AnalyticsNotificationService {
     public void pushLiveAnalytics() {
         ThroughputMetric latestMetric = clickHouseService.getLatestThroughput();
 
-        webSocketService.broadcastLiveAnalytic(latestMetric);
+        if (latestMetric != null) {
+            webSocketService.broadcastLiveAnalytic(latestMetric);
+        }
     }
 }

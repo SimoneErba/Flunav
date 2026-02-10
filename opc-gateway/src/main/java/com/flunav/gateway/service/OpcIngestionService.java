@@ -96,12 +96,10 @@ public class OpcIngestionService {
                     // Check health
                     try {
                         // Fast check: read the ServerStatus node (i=2259)
-                        wrapper.client.getSession().get().read(
+                        wrapper.client.readValues(
                                 0.0,
                                 TimestampsToReturn.Both,
-                                Collections.singletonList(new ReadValueId(
-                                        new NodeId(0, 2259), // Server_ServerStatus_State
-                                        AttributeId.Value.uid(), null, QualifiedName.NULL_VALUE)))
+                                Collections.singletonList(new NodeId(0, 2259))) // Server_ServerStatus_State
                                 .get();
 
                         wrapper.isConnected = true;

@@ -81,7 +81,7 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
                     }
                 }
 
-                // 2. Walk the graph following 'isMainPath'
+                // 2. Walk the graph following 'mainPath'
                 if (currentNode && graph.hasNode(currentNode)) {
                     pathNodeSet.add(currentNode);
                     
@@ -96,8 +96,8 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
 
                         // Find the outgoing edge marked as main path
                         for (const edge of outEdges) {
-                            const isMain = graph.getEdgeAttribute(edge, 'isMainPath');
-                            console.log(`   -> Edge ${edge}: isMainPath =`, isMain);
+                            const isMain = graph.getEdgeAttribute(edge, 'mainPath');
+                            console.log(`   -> Edge ${edge}: mainPath =`, isMain);
                             
                             if (isMain === true || isMain === "true") { // Check for string "true" just in case
                                 mainEdge = edge;

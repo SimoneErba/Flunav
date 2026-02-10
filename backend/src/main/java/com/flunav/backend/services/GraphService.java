@@ -1,5 +1,6 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
@@ -14,6 +15,7 @@ import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import com.flunav.backend.context.DatabaseContextHolder;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -29,17 +31,26 @@ public class GraphService {
     private final PathfindingService pathfindingService;
     private final DisplayRulesService displayRulesService;
     private final SimulationService simulationService;
+    private final TimeService timeService;
+    private final org.modelmapper.ModelMapper modelMapper;
+    private final TopologyProvider topologyProvider;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
             PathfindingService pathfindingService,
             DisplayRulesService displayRulesService,
-            SimulationService simulationService) {
+            SimulationService simulationService,
+            TimeService timeService,
+            org.modelmapper.ModelMapper modelMapper,
+            TopologyProvider topologyProvider) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.pathfindingService = pathfindingService;
         this.displayRulesService = displayRulesService;
         this.simulationService = simulationService;
+        this.timeService = timeService;
+        this.modelMapper = modelMapper;
+        this.topologyProvider = topologyProvider;
     }
 
     public GraphData getGraphData() {
@@ -47,63 +58,81 @@ public class GraphService {
         if (currentSimualtion != null) {
             return getGraphData(currentSimualtion.getTimestamp());
         }
-        return getGraphData(Instant.now());
+        return getGraphData(timeService.now());
     }
 
     public GraphData getGraphData(Instant now) {
-        Topology topology = fetchTopology();
-        List<ItemResponse> activeItems = calculateAllItemStates(topology, now);
-        var customDisplayRules = this.displayRulesService.getDisplayRules();
+        return getGraphData(now, true, DatabaseContextHolder.getSimulationId(), false);
+    }
 
-        for (var item : activeItems) {
-            item.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(), customDisplayRules));
+    public GraphData getGraphData(Instant now, boolean shouldCleanup) {
+        return getGraphData(now, shouldCleanup, DatabaseContextHolder.getSimulationId(), false);
+    }
+
+    public GraphData getGraphData(Instant now, boolean shouldCleanup, String simulationId) {
+        return getGraphData(now, shouldCleanup, simulationId, false);
+    }
+
+    public GraphData getGraphData(Instant now, boolean shouldCleanup, String simulationId, boolean includeFinished) {
+        try (var ctx = (simulationId != null) ? DatabaseContextHolder.enterSimulationContext(simulationId) : null) {
+            Topology topology = fetchTopology();
+            List<ItemResponse> activeItems = calculateAllItemStates(topology, now, shouldCleanup, simulationId,
+                    includeFinished);
+            var customDisplayRules = this.displayRulesService.getDisplayRules();
+
+            for (var item : activeItems) {
+                item.setCustomColor(
+                        this.displayRulesService.applyDisplayRules(item.getProperties(), customDisplayRules));
+            }
+
+            for (var loc : topology.nodeMap.values()) {
+                loc.setCustomColor(this.displayRulesService.applyDisplayRules(loc.getProperties(), customDisplayRules));
+            }
+
+            for (var conv : topology.conveyorMap.values()) {
+                conv.setCustomColor(
+                        this.displayRulesService.applyDisplayRules(conv.getProperties(), customDisplayRules));
+            }
+
+            return new GraphData(
+                    new ArrayList<>(topology.nodeMap.values()),
+                    new ArrayList<>(topology.conveyorMap.values()),
+                    activeItems,
+                    now);
         }
-
-        for (var loc : topology.nodeMap.values()) {
-            loc.setCustomColor(this.displayRulesService.applyDisplayRules(loc.getProperties(), customDisplayRules));
-        }
-
-        for (var conv : topology.conveyorMap.values()) {
-            conv.setCustomColor(this.displayRulesService.applyDisplayRules(conv.getProperties(), customDisplayRules));
-        }
-
-        return new GraphData(
-                new ArrayList<>(topology.nodeMap.values()),
-                new ArrayList<>(topology.conveyorMap.values()),
-                activeItems,
-                now);
     }
 
     public List<ItemResponse> getAllItemStates() {
-        return calculateAllItemStates(fetchTopology(), Instant.now());
+        return calculateAllItemStates(fetchTopology(), timeService.now(), true, DatabaseContextHolder.getSimulationId(),
+                false);
     }
 
-    private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now) {
+    private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now, boolean shouldCleanup,
+            String simulationId, boolean includeFinished) {
         // Fetch properties from OrientDB
         Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
 
-        List<Map<String, Object>> liveRawItems = redisRepository.getAllActiveItems();
+        List<RedisLiveItem> liveRawItems = redisRepository.getAllActiveItems();
 
         List<ItemResponse> activeItems = new ArrayList<>();
         List<String> itemsToRemove = new ArrayList<>();
 
-        for (Map<String, Object> rawItem : liveRawItems) {
-            String id = (String) rawItem.get("id");
+        for (RedisLiveItem rawItem : liveRawItems) {
+            String id = rawItem.getId();
             try {
-                String positionId = (String) rawItem.get("positionId");
-                PositionType type = (PositionType) rawItem.get("positionType");
+                String positionId = rawItem.getPositionId();
+                PositionType type = rawItem.getType();
                 if (type == null)
                     type = PositionType.LOCATION;
 
-                Long tsLong = (Long) rawItem.get("entryTimestamp");
-                String destId = (String) rawItem.get("destinationId");
-                Double accDist = (Double) rawItem.getOrDefault("accumulatedDistance", 0.0);
+                Instant entryTime = rawItem.getEntryTime();
+                String destId = rawItem.getDestinationId();
+                Double accDist = rawItem.getAccumulatedDistance();
 
-                if (positionId == null || tsLong == null)
+                if (positionId == null || entryTime == null)
                     continue;
 
-                Instant entryTime = Instant.ofEpochMilli(tsLong);
-                List<String> path = (List<String>) rawItem.get("path");
+                List<String> path = rawItem.getPath();
 
                 // --- PATHFINDING (If missing) ---
                 if ((path == null || path.isEmpty()) && destId != null) {
@@ -119,25 +148,38 @@ public class GraphService {
                     }
                 }
 
-                // Calculate state. Returns NULL if the item has reached a CHUTE.
                 ItemResponse simulatedItem = calculateCurrentState(
                         id, positionId, type, entryTime, path, topology, now, accDist);
 
                 if (simulatedItem != null) {
-                    simulatedItem.setName((String) rawItem.get("name"));
+                    simulatedItem.setName(rawItem.getName());
                     simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
                     simulatedItem.setDestinationId(destId);
+                    simulatedItem.setPath(path);
                     activeItems.add(simulatedItem);
                 } else {
-                    itemsToRemove.add(id);
+                    if (includeFinished) {
+                        ItemResponse finished = new ItemResponse();
+                        finished.setId(id);
+                        finished.setName(rawItem.getName());
+                        finished.setActive(false);
+                        finished.setProgress(1.0);
+                        finished.setCurrentEdgeId(positionId);
+                        finished.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
+                        activeItems.add(finished);
+                    }
+                    if (shouldCleanup && simulationId == null) {
+                        itemsToRemove.add(id);
+                    }
                 }
             } catch (Exception e) {
-                logger.warn("Failed to process live item state for item", e);
-                itemsToRemove.add(id);
+                logger.warn("Failed to process live item state for item {}", id, e);
+                if (shouldCleanup && simulationId == null)
+                    itemsToRemove.add(id);
             }
         }
 
-        if (!itemsToRemove.isEmpty()) {
+        if (shouldCleanup && !itemsToRemove.isEmpty() && simulationId == null) {
             logger.info("Lazy Cleanup: Removing {} finished items from Redis", itemsToRemove.size());
             redisRepository.deleteItems(itemsToRemove);
         }
@@ -147,8 +189,12 @@ public class GraphService {
     private Map<String, Map<String, Object>> fetchItemProperties() {
         Map<String, Map<String, Object>> propertiesMap = new HashMap<>();
         try (ODatabaseSession session = orientDBService.getSession()) {
+            if (session == null)
+                return propertiesMap;
             String query = "SELECT customId, properties FROM Item";
             try (OResultSet rs = session.query(query)) {
+                if (rs == null)
+                    return propertiesMap;
                 while (rs.hasNext()) {
                     OResult res = rs.next();
                     String id = res.getProperty("customId");
@@ -158,6 +204,8 @@ public class GraphService {
                     }
                 }
             }
+        } catch (Exception e) {
+            logger.warn("Could not fetch item properties from OrientDB");
         }
         return propertiesMap;
     }
@@ -166,6 +214,9 @@ public class GraphService {
             String itemId, String startId, PositionType startType, Instant lastUpdate,
             List<String> path, Topology topo, Instant now, Double accDist) {
         Duration timeElapsed = Duration.between(lastUpdate, now);
+        if (timeElapsed.isNegative())
+            timeElapsed = Duration.ZERO;
+
         ConveyorResponse currentEdge = null;
         String lastNodeId = null;
 
@@ -177,12 +228,6 @@ public class GraphService {
             lastNodeId = currentEdge.getTargetId();
         } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
             // CASE B: Started on a Node
-            // Check immediately if we started on a CHUTE
-            LocationResponse startNode = topo.nodeMap.get(startId);
-            if (startNode != null && startNode.getType() == LocationType.CHUTE) {
-                return null;
-            }
-
             lastNodeId = startId;
             currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
 
@@ -221,25 +266,8 @@ public class GraphService {
             // We have arrived at the target node
             String arrivalNodeId = currentEdge.getTargetId();
 
-            // --- CRITICAL CHANGE: CHUTE CHECK ---
-            LocationResponse arrivalNode = topo.nodeMap.get(arrivalNodeId);
-            if (arrivalNode != null && arrivalNode.getType() == LocationType.CHUTE) {
-                // The item has arrived at a discharge point.
-                // We return null so it is NOT added to the active list.
-                // The frontend will simply not receive this item.
-                return null;
-            }
-            // ------------------------------------
-
             lastNodeId = arrivalNodeId;
             currentEdge = findNextEdge(arrivalNodeId, topo.outgoingEdgesMap, path);
-        }
-
-        // 3. End of Line (Not a chute, but no more edges)
-        // Check one last time if the final standing position is a chute
-        LocationResponse endNode = topo.nodeMap.get(lastNodeId);
-        if (endNode != null && endNode.getType() == LocationType.CHUTE) {
-            return null;
         }
 
         return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
@@ -272,7 +300,7 @@ public class GraphService {
 
         // 2. Main Path Priority
         Optional<ConveyorResponse> main = edges.stream()
-                .filter(e -> Boolean.TRUE.equals(e.getIsMainPath()))
+                .filter(e -> Boolean.TRUE.equals(e.getMainPath()))
                 .findFirst();
         if (main.isPresent())
             return main.get();
@@ -286,24 +314,17 @@ public class GraphService {
         Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
         Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
 
-        try (ODatabaseSession session = orientDBService.getSession()) {
-            String nodeQuery = "SELECT customId, name, latitude, longitude, type, active, capacity, properties FROM Location";
-            try (OResultSet rs = session.query(nodeQuery)) {
-                while (rs.hasNext()) {
-                    LocationResponse loc = mapToLocation(rs.next());
-                    nodeMap.put(loc.getId(), loc);
-                }
-            }
-
-            String edgeQuery = "SELECT customId, name, length, speed, type, active, isMainPath, capacity, out.customId as src, in.customId as tgt FROM Conveyor";
-            try (OResultSet rs = session.query(edgeQuery)) {
-                while (rs.hasNext()) {
-                    ConveyorResponse conv = mapToConveyor(rs.next());
-                    conveyorMap.put(conv.getId(), conv);
-                    outgoingEdgesMap.computeIfAbsent(conv.getSourceId(), k -> new ArrayList<>()).add(conv);
-                }
-            }
+        for (var loc : topologyProvider.getAllLocations()) {
+            var resp = modelMapper.map(loc, LocationResponse.class);
+            nodeMap.put(resp.getId(), resp);
         }
+
+        for (var conv : topologyProvider.getAllConveyors()) {
+            var resp = modelMapper.map(conv, ConveyorResponse.class);
+            conveyorMap.put(resp.getId(), resp);
+            outgoingEdgesMap.computeIfAbsent(resp.getSourceId(), k -> new ArrayList<>()).add(resp);
+        }
+
         return new Topology(nodeMap, conveyorMap, outgoingEdgesMap);
     }
 
@@ -311,7 +332,7 @@ public class GraphService {
         ItemResponse item = new ItemResponse();
         item.setId(id);
         item.setCurrentEdgeId(edgeId);
-        item.setLocationId(locId);
+        item.setLocationId(edgeId == null ? locId : null);
         item.setEntryTimestamp(entry);
         item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
         item.setActive(true);
@@ -322,36 +343,5 @@ public class GraphService {
             Map<String, LocationResponse> nodeMap,
             Map<String, ConveyorResponse> conveyorMap,
             Map<String, List<ConveyorResponse>> outgoingEdgesMap) {
-    }
-
-    private LocationResponse mapToLocation(OResult res) {
-        LocationResponse loc = new LocationResponse();
-        loc.setId(res.getProperty("customId"));
-        loc.setName(res.getProperty("name"));
-        loc.setLatitude(res.getProperty("latitude"));
-        loc.setLongitude(res.getProperty("longitude"));
-        loc.setActive(res.getProperty("active"));
-        loc.setCapacity(res.getProperty("capacity"));
-        loc.setProperties(res.getProperty("properties"));
-        String typeStr = res.getProperty("type");
-        loc.setType(typeStr != null ? LocationType.valueOf(typeStr) : LocationType.GENERIC);
-        return loc;
-    }
-
-    private ConveyorResponse mapToConveyor(OResult res) {
-        ConveyorResponse conv = new ConveyorResponse();
-        conv.setId(res.getProperty("customId"));
-        conv.setName(res.getProperty("name"));
-        conv.setSourceId(res.getProperty("src"));
-        conv.setTargetId(res.getProperty("tgt"));
-        conv.setLength(res.getProperty("length"));
-        conv.setSpeed(res.getProperty("speed"));
-        conv.setActive(res.getProperty("active"));
-        conv.setIsMainPath(res.getProperty("isMainPath"));
-        conv.setCapacity(res.getProperty("capacity"));
-        conv.setProperties(res.getProperty("properties"));
-        String typeStr = res.getProperty("type");
-        conv.setType(typeStr != null ? ConveyorType.valueOf(typeStr) : ConveyorType.BELT);
-        return conv;
     }
 }

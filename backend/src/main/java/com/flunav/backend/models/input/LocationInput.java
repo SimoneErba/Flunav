@@ -21,7 +21,7 @@ public class LocationInput {
     private LocationType type;
     private Integer capacity;
     private Boolean active;
-    private Boolean isMainPath;
+    private Boolean mainPath;
     private Map<String, Object> properties;
 
     public LocationInput(LocationCreatedEvent event) {

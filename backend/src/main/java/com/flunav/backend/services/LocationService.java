@@ -28,12 +28,15 @@ public class LocationService {
 
     private final OrientDBService orientDBService;
     private final UpdateService updateService;
+    private final TopologyProvider topologyProvider;
     private static final Logger logger = LoggerFactory.getLogger(LocationService.class);
 
     @Autowired
-    public LocationService(OrientDBService orientDBService, UpdateService updateService) {
+    public LocationService(OrientDBService orientDBService, UpdateService updateService,
+            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
+        this.topologyProvider = topologyProvider;
     }
 
     public List<Location> getAllLocations() {
@@ -173,7 +176,7 @@ public class LocationService {
 
     private Location vertexToLocation(OVertex vertex) {
         if (vertex == null) {
-            throw new IllegalArgumentException("Attempted to convert a null vertex to location.");
+            return null;
         }
 
         Integer capacity = vertex.getProperty("capacity");

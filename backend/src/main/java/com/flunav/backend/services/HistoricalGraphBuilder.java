@@ -149,7 +149,7 @@ public class HistoricalGraphBuilder {
                             conveyorEdge.setProperty("speed", convData.getSpeed());
                             conveyorEdge.setProperty("active", convData.getActive());
                             conveyorEdge.setProperty("type", convData.getType());
-                            conveyorEdge.setProperty("isMainPath", convData.getIsMainPath());
+                            conveyorEdge.setProperty("mainPath", convData.getMainPath());
 
                             conveyorEdge.save();
                         }
@@ -172,6 +172,7 @@ public class HistoricalGraphBuilder {
                         itemVertex.setProperty("currentEdgeId", itemData.getCurrentEdgeId());
                         itemVertex.setProperty("destinationId", itemData.getDestinationId());
                         itemVertex.setProperty("locationId", itemData.getLocationId());
+                        itemVertex.setProperty("path", itemData.getPath());
 
                         if (itemData.getEntryTimestamp() != null) {
                             itemVertex.setProperty("entryTimestamp", itemData.getEntryTimestamp());
@@ -216,9 +217,10 @@ public class HistoricalGraphBuilder {
                     positionId,
                     type,
                     itemData.getEntryTimestamp(),
+                    0.0, // Default offset for snapshot restore
+                    itemData.getName(),
                     itemData.getDestinationId(),
-                    itemData.getName()
-            );
+                    itemData.getPath());
         }
     }
 
