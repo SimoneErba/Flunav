@@ -117,18 +117,27 @@ public class LiveItemRepository {
     }
 
     public void deleteItem(String itemId, String simulationId) {
-        // We need to check where it was to remove from conveyor set (if you use that
-        // logic)
-        // Since we have the helper now, we can use it here too
+        // 1. Get state to find where the item is
         RedisLiveItem item = getItemState(itemId, simulationId);
 
-        if (item != null && item.getPositionId() != null && item.getType() == PositionType.CONVEYOR) {
-            String convItemsKey = (simulationId != null)
-                    ? "sim:" + simulationId + ":conv:" + item.getPositionId() + ":items"
-                    : "conv:" + item.getPositionId() + ":items";
-            redis.opsForSet().remove(convItemsKey, itemId);
+        if (item != null && item.getPositionId() != null) {
+            if (item.getType() == PositionType.CONVEYOR) {
+                // Remove from Conveyor Set
+                String convItemsKey = (simulationId != null)
+                        ? "sim:" + simulationId + ":conv:" + item.getPositionId() + ":items"
+                        : "conv:" + item.getPositionId() + ":items";
+                redis.opsForZSet().remove(convItemsKey, itemId);
+            } else {
+                // Remove from Location ZSet (New Logic)
+                // Assumes any type other than CONVEYOR is a Node (Location, Chute, etc.)
+                String locItemsKey = (simulationId != null)
+                        ? "sim:" + simulationId + ":loc:" + item.getPositionId() + ":items"
+                        : "loc:" + item.getPositionId() + ":items";
+                redis.opsForZSet().remove(locItemsKey, itemId);
+            }
         }
 
+        // 2. Delete the Item Hash and remove from Global Index
         String itemKey = (simulationId != null) ? "sim:" + simulationId + ":item:" + itemId : "item:" + itemId;
         String setKey = (simulationId != null) ? "sim:" + simulationId + ":active_items" : "active_items";
 

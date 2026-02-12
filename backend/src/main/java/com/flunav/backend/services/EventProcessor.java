@@ -8,6 +8,7 @@ import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
+import com.flunav.backend.repositories.LiveLocationRepository; // 1. IMPORT
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
 import flunav.events.*;
@@ -46,6 +47,7 @@ public class EventProcessor {
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
     private final LiveConveyorRepository liveConveyorRepository;
+    private final LiveLocationRepository liveLocationRepository; // 2. INJECT
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final DisplayRulesService displayRulesService;
@@ -69,6 +71,7 @@ public class EventProcessor {
             PathfindingService pathfindingService,
             LiveItemRepository liveItemRepository,
             LiveConveyorRepository liveConveyorRepository,
+            LiveLocationRepository liveLocationRepository, // 3. INJECT
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             DisplayRulesService displayRulesService,
@@ -85,6 +88,7 @@ public class EventProcessor {
         this.pathfindingService = pathfindingService;
         this.liveItemRepository = liveItemRepository;
         this.liveConveyorRepository = liveConveyorRepository;
+        this.liveLocationRepository = liveLocationRepository; // 4. INJECT
         this.simulationService = simulationService;
         this.locationService = locationService;
         this.liveSystemScheduler = liveSystemScheduler;
@@ -216,9 +220,15 @@ public class EventProcessor {
                     if (item.getLocationId() != null) {
                         var positionType = topologyProvider.getPositionType(item.getLocationId());
                         if (positionType == PositionType.CONVEYOR) {
-                            liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId());
+                            liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(), e.getTimestamp());
                             handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(), e.getTimestamp(),
                                     e.getProgress(), null);
+                        } else {
+                            var location = topologyProvider.getLocationById(item.getLocationId());
+                            // Only store items in locations that act as buffers (e.g., Chutes)
+                            if (location != null && location.getType() == LocationType.CHUTE) {
+                                liveLocationRepository.addItemToLocation(item.getLocationId(), e.getEntityId());
+                            }
                         }
                     }
 
@@ -240,16 +250,22 @@ public class EventProcessor {
                     String previousPosId = lastState.getPositionId();
                     var lastPositionType = lastState.getType();
 
-                    // Teleport detection: if the event says it came from somewhere else than where
-                    // we last saw it
                     boolean isTeleport = previousPosId != null && e.getPreviousLocationId() != null
                             && !previousPosId.equals(e.getPreviousLocationId());
 
-                    if (previousPosId != null && PositionType.CONVEYOR.equals(lastPositionType)) {
-                        liveConveyorRepository.removeItemFromConveyor(previousPosId, e.getEntityId());
+                    // --- REMOVE FROM PREVIOUS POSITION ---
+                    if (previousPosId != null) {
+                        if (PositionType.CONVEYOR.equals(lastPositionType)) {
+                            liveConveyorRepository.removeItemFromConveyor(previousPosId, e.getEntityId());
+                        } else {
+                            var previousLocation = topologyProvider.getLocationById(previousPosId);
+                            // Only remove if it was a buffer location
+                            if (previousLocation != null && previousLocation.getType() == LocationType.CHUTE) {
+                                liveLocationRepository.removeItemFromLocation(previousPosId, e.getEntityId());
+                            }
+                        }
                     }
 
-                    // Only calculate shortest path for analytics if it teleported (jumped)
                     if (isTeleport && previousPosId != null && lastPositionType != null) {
                         if (pathfindingService.arePositionsConnected(previousPosId, lastPositionType, e.getLocationId(),
                                 positionType)) {
@@ -262,11 +278,17 @@ public class EventProcessor {
 
                     itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
                             e.getProgress(), null);
-
+                    
+                    // --- ADD TO NEW POSITION ---
                     if (positionType == PositionType.CONVEYOR) {
-                        liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId());
+                        liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId(), e.getTimestamp());
                         handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(), e.getTimestamp(), e.getProgress(),
                                 previousPosId);
+                    } else {
+                         // Only add if it's a buffer location
+                         if (location != null && location.getType() == LocationType.CHUTE) {
+                            liveLocationRepository.addItemToLocation(e.getLocationId(), e.getEntityId());
+                        }
                     }
 
                     if (shouldBroadcast) {
@@ -279,9 +301,7 @@ public class EventProcessor {
 
                 case ItemPositionDeletedEvent e -> {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
-                    if (lastState.getPositionId() != null && PositionType.CONVEYOR.name().equals(lastState.getType())) {
-                        liveConveyorRepository.removeItemFromConveyor(lastState.getPositionId(), e.getEntityId());
-                    }
+                    // This logic is now handled by liveItemRepository.deleteItem(), which is more robust
                     cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
                     if (shouldBroadcast)
@@ -486,14 +506,16 @@ public class EventProcessor {
                 }
 
                 case ChuteEmptyEvent e -> {
-                    // Correctly clear chute occupancy and delete items in that chute
-                    Set<String> items = liveConveyorRepository.getItemsOnConveyor(e.getEntityId());
+                    // Correctly clear items from the chute location in Redis
+                    Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
                     for (String item : items) {
                         liveItemRepository.deleteItem(item);
                         if (shouldBroadcast)
                             webSocketService.broadcastItemDeleted(item, e.getTimestamp());
                     }
-                    liveConveyorRepository.clearChuteOccupancy(e.getEntityId());
+                    // Delete the Redis key for the location itself
+                    liveLocationRepository.deleteLocation(e.getEntityId());
+
                     if (manageLogic) {
                         wakeUpPrecedingConveyors(e.getEntityId());
                     }
@@ -606,7 +628,7 @@ public class EventProcessor {
 
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         String simId = DatabaseContextHolder.getSimulationId();
-        var allItems = liveConveyorRepository.getItemsOnConveyor(edgeId);
+        var allItems = liveConveyorRepository.getItemsOrderedByDistance(edgeId); // Using ordered set now
         Instant nowInstant = timestamp;
 
         for (var itemId : allItems) {
@@ -689,7 +711,7 @@ public class EventProcessor {
             var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
             if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
                 Integer capacity = targetLocation.getCapacity();
-                Integer currentOccupancy = liveConveyorRepository.getChuteOccupancy(targetLocation.getId());
+                Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId());
                 if (capacity != null && currentOccupancy >= capacity) {
                     double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
                     double stopAt = length - effectiveMinDist;
@@ -701,7 +723,7 @@ public class EventProcessor {
                 } else {
                     scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd,
                             conveyorId));
-                    liveConveyorRepository.incrementChuteOccupancy(targetLocation.getId());
+                    // The occupancy is now handled by the ItemPositionChangedEvent itself. No manual increment needed.
                 }
             }
         }
@@ -716,7 +738,7 @@ public class EventProcessor {
         var targetLocation = topologyProvider.getLocationById(nextConv.getTargetLocationId());
         if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
             Integer capacity = targetLocation.getCapacity();
-            Integer currentOccupancy = liveConveyorRepository.getChuteOccupancy(targetLocation.getId());
+            Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId()); // Using accurate count
             return (capacity != null && currentOccupancy >= capacity);
         }
         return false;
@@ -733,7 +755,7 @@ public class EventProcessor {
     private void recalculateConveyorAccumulation(String conveyorId) {
         if (!manageLogic)
             return;
-        Set<String> items = liveConveyorRepository.getItemsOnConveyor(conveyorId);
+        Set<String> items = liveConveyorRepository.getItemsOrderedByDistance(conveyorId); // Using ordered set
         Instant now = timeService.now();
         Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
         if (conveyor == null)

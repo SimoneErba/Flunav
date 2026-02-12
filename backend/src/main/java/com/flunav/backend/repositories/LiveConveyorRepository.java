@@ -1,14 +1,12 @@
 package com.flunav.backend.repositories;
 
 import com.flunav.backend.context.DatabaseContextHolder;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
-import java.util.*;
+import java.time.Instant;
+import java.util.Set;
 
 @Repository
 public class LiveConveyorRepository {
@@ -20,21 +18,42 @@ public class LiveConveyorRepository {
         this.redis = redis;
     }
 
-    public void addItemToConveyor(String conveyorId, String itemId) {
+    /**
+     * Adds item to conveyor preserving order.
+     * @param timestamp The time the item entered the conveyor (used for sorting).
+     */
+    public void addItemToConveyor(String conveyorId, String itemId, Instant timestamp) {
         String key = getNamespacedKey(conveyorId + ":items");
-        redis.opsForSet().add(key, itemId);
+        // Score = Timestamp. Lower score = Entered earlier = Further ahead on belt.
+        redis.opsForZSet().add(key, itemId, timestamp.toEpochMilli());
         redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
 
     public void removeItemFromConveyor(String conveyorId, String itemId) {
         String key = getNamespacedKey(conveyorId + ":items");
-        redis.opsForSet().remove(key, itemId);
+        redis.opsForZSet().remove(key, itemId);
     }
 
-    public Set<String> getItemsOnConveyor(String conveyorId) {
+    /**
+     * Returns items ordered from Furthest (End of belt) to Closest (Start of belt).
+     * Essential for calculating collisions/accumulation from the front backwards.
+     */
+    public Set<String> getItemsOrderedByDistance(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":items");
-        return redis.opsForSet().members(key);
+        // Range 0 to -1 returns all items sorted by score (Oldest/Furthest first)
+        return redis.opsForZSet().range(key, 0, -1);
     }
+
+    /**
+     * Returns the item at the very front of the conveyor (closest to exit).
+     */
+    public String getHeadItem(String conveyorId) {
+        String key = getNamespacedKey(conveyorId + ":items");
+        Set<String> items = redis.opsForZSet().range(key, 0, 0);
+        return (items != null && !items.isEmpty()) ? items.iterator().next() : null;
+    }
+
+    // --- TAIL & CHUTE LOGIC (Unchanged) ---
 
     public void updateTailPosition(String conveyorId, double tailMeters) {
         String key = getNamespacedKey(conveyorId + ":tail");
@@ -68,13 +87,17 @@ public class LiveConveyorRepository {
         return val != null ? Integer.parseInt(val) : 0;
     }
 
+    // --- CLEANUP ---
+
     public void deleteConveyor(String conveyorId) {
         String itemsKey = getNamespacedKey(conveyorId + ":items");
         String tailKey = getNamespacedKey(conveyorId + ":tail");
-        redis.delete(List.of(itemsKey, tailKey));
+        redis.delete(itemsKey);
+        redis.delete(tailKey);
     }
 
     public void cleanupSimulationData(String simulationId) {
+        if (simulationId == null) return;
         String pattern = "sim:" + simulationId + ":conv:*";
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {

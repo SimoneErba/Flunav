@@ -236,6 +236,7 @@ public class ItemService {
         } catch (OConcurrentModificationException | java.util.NoSuchElementException oce) {
             throw oce;
         } catch (Exception e) {
+            logger.info(e.toString());
             throw new RuntimeException("Error during full update of item " + item.getId(), e);
         }
     }
