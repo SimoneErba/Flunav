@@ -1,22 +1,29 @@
 package com.flunav.backend.test;
 
+import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.GraphService;
+import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.TimeService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ItemResponse;
-import com.flunav.backend.domain.Location;
 import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.context.DatabaseContextHolder; // Import Context Holder
+
+import flunav.events.ConnectionCreatedEvent;
 import flunav.events.DomainEvent;
+import flunav.events.LocationCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.ConveyorType;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate; // Import Redis Template
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Optional;
+import java.util.Objects;
 
 /**
  * Helper component for writing deterministic simulation tests.
@@ -34,10 +41,16 @@ public class SimulationTestHarness {
     private TimeService timeService;
 
     @Autowired
-    private MockTopologyProvider mockTopologyProvider;
+    private SimulationService simulationService;
 
     @Autowired
-    private SimulationService simulationService;
+    private ConveyorService conveyorService;
+
+    @Autowired
+    private OrientDBService orientDBService;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate; // Injected for cleanup
 
     private Instant currentTurnTime;
 
@@ -45,9 +58,9 @@ public class SimulationTestHarness {
      * Stubs a location for the simulation.
      */
     public void stubLocation(String id, String name, LocationType type) {
-        try (var ctx = com.flunav.backend.context.DatabaseContextHolder.enterSimulationContext("test-sim")) {
-            Location loc = new Location(id, name, type, true, new HashMap<>(), 0.0, 0.0, 100);
-            mockTopologyProvider.stubLocation(loc);
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            var loc = new LocationCreatedEvent(id, name, true, 0.0, 0.0, type, 100, new HashMap<>());
+            applyEvent(loc);
         }
     }
 
@@ -55,14 +68,15 @@ public class SimulationTestHarness {
      * Stubs a conveyor for the simulation.
      */
     public void stubConveyor(String id, String sourceId, String targetId, double length, double speed) {
-        try (var ctx = com.flunav.backend.context.DatabaseContextHolder.enterSimulationContext("test-sim")) {
-            Conveyor conv = new Conveyor(id, sourceId, targetId, length, speed, 1.0, ConveyorType.BELT, true, 100, false, new HashMap<>());
-            mockTopologyProvider.stubConveyor(conv);
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            var conv = new ConnectionCreatedEvent(id, sourceId, targetId, length, speed, 0.0, null, true, id, true,
+                    ConveyorType.BELT, 100, new HashMap<>());
+            applyEvent(conv);
         }
     }
 
     public Conveyor getConveyor(String id) {
-        return mockTopologyProvider.getConveyorById(id);
+        return conveyorService.getConveyorById(id);
     }
 
     /**
@@ -71,6 +85,10 @@ public class SimulationTestHarness {
     public void startAt(Instant startTime) {
         this.currentTurnTime = startTime;
         System.setProperty("simulation.id", "test-sim");
+
+        // Ensure database and connection pool exist
+        orientDBService.createInMemoryDatabase("test-sim");
+
         timeService.useFixedClock(startTime);
         simulationService.getOrCreateSimulation("test-sim", startTime);
     }
@@ -79,7 +97,7 @@ public class SimulationTestHarness {
      * Applies an event at the current simulation time.
      */
     public void applyEvent(DomainEvent event) {
-        try (var ctx = com.flunav.backend.context.DatabaseContextHolder.enterSimulationContext("test-sim")) {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             eventProcessor.processEvent(event, false);
         }
     }
@@ -92,7 +110,7 @@ public class SimulationTestHarness {
             throw new IllegalArgumentException("Cannot move simulation backwards in time");
         }
         // Process internal events that happen between now and target
-        try (var ctx = com.flunav.backend.context.DatabaseContextHolder.enterSimulationContext("test-sim")) {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             simulationService.processEventsUntil("test-sim", targetTime);
         }
         this.currentTurnTime = targetTime;
@@ -127,9 +145,45 @@ public class SimulationTestHarness {
                 .findFirst();
     }
 
+    /**
+     * Full Reset: Cleans OrientDB, Redis, TimeService, and ThreadLocals.
+     * Call this in @AfterEach.
+     */
     public void reset() {
+        // 1. Reset Time
         timeService.reset();
-        mockTopologyProvider.clear();
-        simulationService.destroySimulation("test-sim");
+
+        // 2. Clear Context (Safety)
+        DatabaseContextHolder.clearSimulation();
+
+        // 3. Destroy Simulation Logic
+        try {
+            simulationService.destroySimulation("test-sim");
+        } catch (Exception e) {
+            // Ignore if it doesn't exist
+        }
+
+        // 4. Drop OrientDB Database & Close Pool
+        try {
+            orientDBService.dropDatabase("test-sim");
+        } catch (Exception e) {
+            // Ignore if DB doesn't exist
+        }
+
+        // 5. Clean Redis (Flush ALL data)
+        try {
+            Objects.requireNonNull(redisTemplate.getConnectionFactory())
+                    .getConnection()
+                    .serverCommands()
+                    .flushAll();
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to flush Redis during test reset: " + e.getMessage());
+        }
+
+        // 6. Cleanup System Properties
+        System.clearProperty("simulation.id");
+
+        // 7. Final Context Cleanup
+        DatabaseContextHolder.clearSimulation();
     }
 }

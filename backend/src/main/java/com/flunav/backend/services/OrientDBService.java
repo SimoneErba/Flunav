@@ -21,13 +21,15 @@ import org.springframework.stereotype.Service;
 import java.lang.reflect.Proxy;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap; // CHANGED
 
 @Service
 public class OrientDBService {
     private static final Logger logger = LoggerFactory.getLogger(OrientDBService.class);
 
     private OrientDB orientDB;
-    private ODatabasePool mainPool;
+    // CHANGED: From a single pool to a map of pools
+    private final ConcurrentMap<String, ODatabasePool> databasePools = new ConcurrentHashMap<>();
 
     @Value("${orientdb.url}")
     private String dbUrl;
@@ -49,18 +51,22 @@ public class OrientDBService {
         if (!orientDB.exists(mainDbName)) {
             orientDB.create(mainDbName, ODatabaseType.PLOCAL);
         }
-        mainPool = new ODatabasePool(orientDB, mainDbName, username, password);
-        ensureSchemaExists();
+        // CHANGED: Create and store the main pool in the map
+        databasePools.put(mainDbName, new ODatabasePool(orientDB, mainDbName, username, password));
+        ensureSchemaExists(mainDbName);
 
         logger.info("OrientDB connection pool for main DB '{}' initialized.", mainDbName);
     }
 
     @PreDestroy
     public void close() {
-        if (mainPool != null)
-            mainPool.close();
+        // CHANGED: Close all active pools
+        if (databasePools != null) {
+            databasePools.values().forEach(ODatabasePool::close);
+            databasePools.clear();
+        }
         if (orientDB != null) {
-            activeSimulations.forEach(this::dropDatabase);
+            activeSimulations.forEach(this::dropDatabase); // This will also close pools
             orientDB.close();
         }
         logger.info("OrientDB service has been shut down.");
@@ -69,9 +75,9 @@ public class OrientDBService {
     public ODatabaseSession getSession() {
         ODatabaseSession activeSession = transactionalSession.get();
 
+        // Transactional proxy logic remains the same
         if (activeSession != null && !activeSession.isClosed()) {
             logger.trace("Wrapping existing transactional session in a Proxy.");
-
             return (ODatabaseSession) Proxy.newProxyInstance(
                     OrientDBService.class.getClassLoader(),
                     new Class<?>[] { ODatabaseSession.class },
@@ -84,28 +90,33 @@ public class OrientDBService {
                     });
         }
 
+        // --- REFACTORED LOGIC ---
         String simulationId = DatabaseContextHolder.getSimulationId();
-        if (simulationId != null) {
-            if (!activeSimulations.contains(simulationId)) {
-                throw new IllegalStateException(
-                        "Attempted to get session for non-existent or inactive simulation: " + simulationId);
-            }
-            logger.trace("Opening new session for simulation DB: {}", simulationId);
-            return orientDB.open(simulationId, username, password);
-        } else {
-            logger.trace("Acquiring new session for main DB from pool.");
-            return mainPool.acquire();
+        String dbName = (simulationId != null) ? simulationId : mainDbName;
+
+        ODatabasePool pool = databasePools.get(dbName);
+        if (pool == null) {
+            // This is a safeguard. In normal operation, the pool should always exist if the
+            // DB exists.
+            throw new IllegalStateException(
+                    "No database pool found for '" + dbName + "'. Was the database created correctly?");
         }
+
+        logger.trace("Acquiring new session for DB '{}' from its pool.", dbName);
+        return pool.acquire();
     }
 
     public ODatabaseSession getSession(String dbName) {
-        if (dbName != null) {
-            return orientDB.open(dbName, username, password);
-        } else {
-            return mainPool.acquire();
+        // CHANGED: Use the pool map for direct access as well
+        String targetDb = (dbName != null) ? dbName : mainDbName;
+        ODatabasePool pool = databasePools.get(targetDb);
+        if (pool == null) {
+            throw new IllegalStateException("No database pool found for '" + targetDb + "'.");
         }
+        return pool.acquire();
     }
 
+    // withTransaction and withSession remain unchanged as they rely on getSession()
     public void withTransaction(TransactionalCallback callback) {
         try (ODatabaseSession session = getSession()) {
             transactionalSession.set(session);
@@ -133,6 +144,7 @@ public class OrientDBService {
     }
 
     public void withSession(SessionCallback callback) {
+
         try (ODatabaseSession session = getSession()) {
             callback.execute(session);
         } catch (Exception e) {
@@ -157,24 +169,33 @@ public class OrientDBService {
                 orientDB.drop(dbName);
             }
             orientDB.create(dbName, ODatabaseType.MEMORY);
+
+            // NEW: Create and store a new pool for the simulation database
+            ODatabasePool newPool = new ODatabasePool(orientDB, dbName, username, password);
+            databasePools.put(dbName, newPool);
+
             activeSimulations.add(dbName);
-            logger.info("Successfully created new in-memory simulation database: {}", dbName);
+            logger.info("Successfully created new in-memory simulation database and its pool: {}", dbName);
             try (var context = DatabaseContextHolder.enterSimulationContext(dbName)) {
-                ensureSchemaExists();
+                ensureSchemaExists(dbName);
             }
 
         } catch (Exception e) {
             logger.error("Failed to create in-memory simulation DB '{}'", dbName, e);
-            activeSimulations.remove(dbName);
-
-            if (orientDB.exists(dbName)) {
-                orientDB.drop(dbName);
-            }
+            // Cleanup in case of failure
+            dropDatabase(dbName); // This will handle pool closure and removal
             throw new RuntimeException("Simulation DB creation failed.", e);
         }
     }
 
     public void dropDatabase(String dbName) {
+        // NEW: Close and remove the pool associated with the database
+        ODatabasePool pool = databasePools.remove(dbName);
+        if (pool != null) {
+            pool.close();
+            logger.info("Closed and removed pool for database: {}", dbName);
+        }
+
         if (orientDB.exists(dbName)) {
             orientDB.drop(dbName);
             activeSimulations.remove(dbName);
@@ -182,8 +203,9 @@ public class OrientDBService {
         }
     }
 
-    private void ensureSchemaExists() {
-        try (ODatabaseSession session = getSession()) {
+    // ensureSchemaExists and createIndexes remain unchanged
+    private void ensureSchemaExists(String dbName) {
+        try (ODatabaseSession session = getSession(dbName)) {
             // 1. Location (Node/Waypoint)
             if (session.getClass("Location") == null) {
                 OClass locationClass = session.createVertexClass("Location");
@@ -221,7 +243,7 @@ public class OrientDBService {
             logger.debug("Schema verified for database: {}", session.getName());
         }
 
-        createIndexes(DatabaseContextHolder.getSimulationId());
+        createIndexes(dbName);
     }
 
     @Async

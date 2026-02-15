@@ -212,6 +212,7 @@ public class EventProcessor {
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
+            logger.debug("Processing {}", event.getEventType());
             return switch (event) {
                 case ItemCreatedEvent e -> {
                     var item = new ItemInput(e);
@@ -220,7 +221,8 @@ public class EventProcessor {
                     if (item.getLocationId() != null) {
                         var positionType = topologyProvider.getPositionType(item.getLocationId());
                         if (positionType == PositionType.CONVEYOR) {
-                            liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(), e.getTimestamp());
+                            liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
+                                    e.getTimestamp());
                             handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(), e.getTimestamp(),
                                     e.getProgress(), null);
                         } else {
@@ -242,9 +244,7 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
-                    var location = topologyProvider.getLocationById(e.getLocationId());
                     var positionType = topologyProvider.getPositionType(e.getLocationId());
-                    String simId = DatabaseContextHolder.getSimulationId();
 
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = lastState.getPositionId();
@@ -278,15 +278,15 @@ public class EventProcessor {
 
                     itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
                             e.getProgress(), null);
-                    
+
                     // --- ADD TO NEW POSITION ---
                     if (positionType == PositionType.CONVEYOR) {
                         liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId(), e.getTimestamp());
                         handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(), e.getTimestamp(), e.getProgress(),
                                 previousPosId);
                     } else {
-                         // Only add if it's a buffer location
-                         if (location != null && location.getType() == LocationType.CHUTE) {
+                        // Only add if it's a buffer location
+                        if (location != null && location.getType() == LocationType.CHUTE) {
                             liveLocationRepository.addItemToLocation(e.getLocationId(), e.getEntityId());
                         }
                     }
@@ -301,7 +301,8 @@ public class EventProcessor {
 
                 case ItemPositionDeletedEvent e -> {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
-                    // This logic is now handled by liveItemRepository.deleteItem(), which is more robust
+                    // This logic is now handled by liveItemRepository.deleteItem(), which is more
+                    // robust
                     cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
                     if (shouldBroadcast)
@@ -509,6 +510,7 @@ public class EventProcessor {
                     // Correctly clear items from the chute location in Redis
                     Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
                     for (String item : items) {
+                        logger.debug("Item on conveyor:" + item);
                         liveItemRepository.deleteItem(item);
                         if (shouldBroadcast)
                             webSocketService.broadcastItemDeleted(item, e.getTimestamp());
@@ -723,7 +725,8 @@ public class EventProcessor {
                 } else {
                     scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd,
                             conveyorId));
-                    // The occupancy is now handled by the ItemPositionChangedEvent itself. No manual increment needed.
+                    // The occupancy is now handled by the ItemPositionChangedEvent itself. No
+                    // manual increment needed.
                 }
             }
         }

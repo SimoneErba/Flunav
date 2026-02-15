@@ -1,19 +1,17 @@
 package com.flunav.backend;
 
 import com.flunav.backend.test.SimulationTestHarness;
-import com.flunav.backend.services.OrientDBService;
-import com.flunav.backend.services.ClickHouseService;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.mockito.Mockito;
-import com.orientechnologies.orient.core.db.ODatabaseSession;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -25,31 +23,16 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
         "rabbitmq.routing-key.item-events=test-key"
 })
-class ConveyorMovementTest {
+class ConveyorMovementTest extends BaseIntegrationTest {
 
     @Autowired
     private SimulationTestHarness sim;
 
     @MockBean
-    private OrientDBService orientDBService;
-
-    @MockBean
-    private ClickHouseService clickHouseService;
-
-    @MockBean
     private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
-
-    @MockBean
-    private com.flunav.backend.services.PathfindingService pathfindingService;
-
-    @MockBean
-    private com.flunav.backend.services.ConveyorService conveyorService;
 
     @BeforeEach
     void setup() {
-        Mockito.when(orientDBService.getSession()).thenReturn(Mockito.mock(ODatabaseSession.class));
-        Mockito.when(pathfindingService.arePositionsConnected(Mockito.anyString(), Mockito.any(), Mockito.anyString(),
-                Mockito.any())).thenReturn(true);
         sim.reset();
     }
 
@@ -126,5 +109,12 @@ class ConveyorMovementTest {
         sim.advanceSeconds(3);
         item = sim.getItem(itemId).orElseThrow();
         assertEquals(0.5, item.getProgress(), 0.05, "Item should have resumed and reached 50%");
+    }
+
+    @AfterEach
+    void autoReset() {
+        if (sim != null) {
+            sim.reset();
+        }
     }
 }

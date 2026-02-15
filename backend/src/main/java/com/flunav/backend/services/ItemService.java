@@ -128,59 +128,52 @@ public class ItemService {
         return item;
     }
 
-    public Item createItem(ItemInput itemInput) {
-        try (ODatabaseSession db = orientDBService.getSession()) {
+    public void createItem(ItemInput itemInput) {
+        try {
+            orientDBService.withTransaction(db -> {
 
-            if (db != null && OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
-                throw new IllegalArgumentException("Item with ID " + itemInput.getId() + " already exists.");
-            }
-
-            // 1. Create Master Record in OrientDB
-            OVertex itemVertex = null;
-            if (db != null) {
-                itemVertex = db.newVertex("Item");
-                if (itemVertex != null) {
-                    itemVertex.setProperty("customId", itemInput.getId());
-                    itemVertex.setProperty("name", itemInput.getName());
-                    itemVertex.setProperty("active", itemInput.getActive());
-                    itemVertex.setProperty("properties", itemInput.getProperties());
-
-                    itemVertex.save();
+                if (db != null && OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
+                    throw new IllegalArgumentException("Item with ID " + itemInput.getId() + " already exists.");
                 }
-            }
 
-            // TODO: allow for insertion in edge
-            Instant entryTime = itemInput.getTimestamp() != null ? itemInput.getTimestamp() : timeService.now();
-            PositionType posType = itemInput.getPositionType() != null ? itemInput.getPositionType()
-                    : PositionType.LOCATION;
-            double initialDistance = 0.0;
-            if (itemInput.getProgress() != null && posType == PositionType.CONVEYOR) {
-                var conveyor = topologyProvider.getConveyorById(itemInput.getLocationId());
-                if (conveyor != null) {
-                    initialDistance = conveyor.getLength() * (itemInput.getProgress() / 100.0);
+                // 1. Create Master Record in OrientDB
+                OVertex itemVertex = null;
+                if (db != null) {
+                    itemVertex = db.newVertex("Item");
+                    if (itemVertex != null) {
+                        itemVertex.setProperty("customId", itemInput.getId());
+                        itemVertex.setProperty("name", itemInput.getName());
+                        itemVertex.setProperty("active", itemInput.getActive());
+                        itemVertex.setProperty("properties", itemInput.getProperties());
+
+                        itemVertex.save();
+                    }
                 }
-            }
 
-            redisRepository.saveItemState(
-                    itemInput.getId(),
-                    itemInput.getLocationId(),
-                    posType,
-                    entryTime,
-                    initialDistance,
-                    itemInput.getName(),
-                    null,
-                    null);
+                // TODO: allow for insertion in edge
+                Instant entryTime = itemInput.getTimestamp() != null ? itemInput.getTimestamp() : timeService.now();
+                PositionType posType = itemInput.getPositionType() != null ? itemInput.getPositionType()
+                        : PositionType.LOCATION;
+                double initialDistance = 0.0;
+                if (itemInput.getProgress() != null && posType == PositionType.CONVEYOR) {
+                    var conveyor = topologyProvider.getConveyorById(itemInput.getLocationId());
+                    if (conveyor != null) {
+                        initialDistance = conveyor.getLength() * (itemInput.getProgress() / 100.0);
+                    }
+                }
 
-            // Return the merged object
-            Item createdItem = vertexToItem(itemVertex);
-            if (createdItem == null) {
-                createdItem = new Item(itemInput.getId(), itemInput.getName(), itemInput.getActive(),
-                        itemInput.getProperties());
-            }
-            createdItem.updatePosition(itemInput.getLocationId(), posType, entryTime, initialDistance);
-            return createdItem;
-
+                redisRepository.saveItemState(
+                        itemInput.getId(),
+                        itemInput.getLocationId(),
+                        posType,
+                        entryTime,
+                        initialDistance,
+                        itemInput.getName(),
+                        null,
+                        null);
+            });
         } catch (Exception e) {
+            // It's good practice to re-throw with context
             throw new RuntimeException("Error creating item " + itemInput.getId(), e);
         }
     }

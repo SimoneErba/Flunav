@@ -18,7 +18,8 @@ public final class DatabaseContextHolder {
     }
 
     /**
-     * An AutoCloseable resource that manages the lifecycle of the simulation context.
+     * An AutoCloseable resource that manages the lifecycle of the simulation
+     * context.
      * Supports nested contexts by restoring the previous one.
      */
     public static class SimulationContext implements AutoCloseable {
@@ -48,8 +49,9 @@ public final class DatabaseContextHolder {
 
     public static String getSimulationId() {
         String sysProp = System.getProperty("simulation.id");
-        if (sysProp != null) return sysProp;
-        
+        if (sysProp != null)
+            return sysProp;
+
         return simulationIdContext.get();
     }
 

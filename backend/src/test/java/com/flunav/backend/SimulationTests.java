@@ -8,6 +8,8 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import flunav.events.ItemCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -31,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "graph-snapshot.enabled=false",
         "simulation.manage-logic=true"
 })
-class SimulationTests {
+class SimulationTests extends BaseIntegrationTest {
 
     @Autowired
     private SimulationTestHarness sim;
@@ -40,31 +42,17 @@ class SimulationTests {
     private LiveItemRepository liveItemRepository;
 
     @MockBean
-    private OrientDBService orientDBService;
-
-    @MockBean
-    private ClickHouseService clickHouseService;
-
-    @MockBean
     private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
 
-    @MockBean
+    @Autowired
     private com.flunav.backend.services.PathfindingService pathfindingService;
 
     @BeforeEach
     void setup() {
         System.setProperty("disable-sim-cleanup", "true");
         System.setProperty("simulation.id", "test-sim");
-        Mockito.when(orientDBService.getSession()).thenReturn(Mockito.mock(ODatabaseSession.class));
         liveItemRepository.deleteAllItems();
         sim.reset();
-
-        // Setup default behavior for pathfinding
-        Mockito.when(pathfindingService.calculateShortestPath(Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenReturn(List.of());
-        Mockito.when(
-                pathfindingService.arePositionsConnected(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenReturn(true);
     }
 
     @org.junit.jupiter.api.AfterEach
@@ -130,6 +118,7 @@ class SimulationTests {
 
         // Now empty the chute
         sim.applyEvent(new flunav.events.ChuteEmptyEvent("chute", sim.getCurrentTime()));
+        sim.advanceSeconds(5);
 
         // Item should now be gone
         assertTrue(sim.getItem("item-1").isEmpty(), "Item should be removed after ChuteEmptyEvent");
@@ -157,5 +146,12 @@ class SimulationTests {
         var item = sim.getItem("item-1").orElseThrow();
         assertEquals("conv2", item.getCurrentEdgeId(), "Item should have transferred to conv2");
         assertEquals(0.5, item.getProgress(), 0.01, "Item should be halfway through conv2");
+    }
+
+    @AfterEach
+    void autoReset() {
+        if (sim != null) {
+            sim.reset();
+        }
     }
 }
