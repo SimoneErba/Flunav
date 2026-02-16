@@ -245,7 +245,7 @@ public class EventProcessor {
 
                 case ItemPositionChangedEvent e -> {
                     var positionType = topologyProvider.getPositionType(e.getLocationId());
-
+                    var location = locationService.getLocationById(e.getEntityId());
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = lastState.getPositionId();
                     var lastPositionType = lastState.getType();
