@@ -67,9 +67,11 @@ public class SimulationTestHarness {
     /**
      * Stubs a conveyor for the simulation.
      */
-    public void stubConveyor(String id, String sourceId, String targetId, double length, double speed) {
+    public void stubConveyor(String id, String sourceId, String targetId, double length, double speed,
+            Boolean isMainPath) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
-            var conv = new ConnectionCreatedEvent(id, sourceId, targetId, length, speed, 0.0, null, true, id, true,
+            var conv = new ConnectionCreatedEvent(id, sourceId, targetId, length, speed, 0.0, null, isMainPath, id,
+                    true,
                     ConveyorType.BELT, 100, new HashMap<>());
             applyEvent(conv);
         }

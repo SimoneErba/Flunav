@@ -27,17 +27,17 @@ public final class DatabaseContextHolder {
 
         private SimulationContext(String simulationId) {
             this.previousSimulationId = simulationIdContext.get();
-            logger.debug("Entering simulation context: {} (previous: {})", simulationId, previousSimulationId);
+            logger.trace("Entering simulation context: {} (previous: {})", simulationId, previousSimulationId);
             simulationIdContext.set(simulationId);
         }
 
         @Override
         public void close() {
             if (previousSimulationId == null) {
-                logger.debug("Exiting simulation context, clearing thread-local.");
+                logger.trace("Exiting simulation context, clearing thread-local.");
                 simulationIdContext.remove();
             } else {
-                logger.debug("Exiting simulation context, restoring previous: {}", previousSimulationId);
+                logger.trace("Exiting simulation context, restoring previous: {}", previousSimulationId);
                 simulationIdContext.set(previousSimulationId);
             }
         }

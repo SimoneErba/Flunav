@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.domain.Location;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
@@ -245,7 +246,11 @@ public class EventProcessor {
 
                 case ItemPositionChangedEvent e -> {
                     var positionType = topologyProvider.getPositionType(e.getLocationId());
-                    var location = locationService.getLocationById(e.getEntityId());
+                    Location location = null;
+                    if (positionType == PositionType.LOCATION) {
+                        location = locationService.getLocationById(e.getLocationId());
+                    }
+
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = lastState.getPositionId();
                     var lastPositionType = lastState.getType();
@@ -510,7 +515,6 @@ public class EventProcessor {
                     // Correctly clear items from the chute location in Redis
                     Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
                     for (String item : items) {
-                        logger.debug("Item on conveyor:" + item);
                         liveItemRepository.deleteItem(item);
                         if (shouldBroadcast)
                             webSocketService.broadcastItemDeleted(item, e.getTimestamp());
@@ -660,11 +664,11 @@ public class EventProcessor {
         double length = conveyor.getLength();
         Double minDistance = conveyor.getMinDistance();
 
+        // 1. Handle Stopped Conveyor
         if (speed <= 0) {
             cancelScheduledEvent(itemId);
             Double currentTail = liveConveyorRepository.getTailPosition(conveyorId);
             double itemDistance = length * (progress / 100.0);
-
             if (currentTail == null || itemDistance < currentTail) {
                 liveConveyorRepository.updateTailPosition(conveyorId, itemDistance);
             }
@@ -679,15 +683,35 @@ public class EventProcessor {
 
         if (nextConveyorId != null) {
             Conveyor nextConv = topologyProvider.getConveyorById(nextConveyorId);
+
+            // --- RECIRCULATION FIX START ---
+            // If the intended path is blocked, try to find an alternative "Main Path" to
+            // keep moving
             if (isNextSegmentBlocked(nextConv)) {
+                String alternativeId = findRecirculationPath(conveyor.getTargetLocationId(), nextConveyorId);
+                if (alternativeId != null) {
+                    // Update target to the alternative (recirculation) path
+                    nextConveyorId = alternativeId;
+                    nextConv = topologyProvider.getConveyorById(nextConveyorId);
+                }
+            }
+            // --- RECIRCULATION FIX END ---
+
+            if (isNextSegmentBlocked(nextConv)) {
+                // Both primary path AND recirculation path are blocked (or no recirculation
+                // exists).
+                // NOW we stop the item.
                 double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
                 Double nextTail = liveConveyorRepository.getTailPosition(nextConveyorId);
                 if (nextTail == null)
                     nextTail = 0.0;
+
                 double stopAt = length - (nextTail + effectiveMinDist);
                 if (stopAt < 0)
                     stopAt = 0;
+
                 double distanceToStop = stopAt - (length * (progress / 100.0));
+
                 if (distanceToStop > 0) {
                     long timeToStop = (long) ((distanceToStop / speed) * 1000);
                     scheduleEvent(new ItemPositionChangedEvent(itemId, conveyorId, (stopAt / length) * 100,
@@ -696,8 +720,8 @@ public class EventProcessor {
                 } else {
                     cancelScheduledEvent(itemId);
                     double actualPos = length * (progress / 100.0);
+                    // Force position logic...
                     if (actualPos > stopAt) {
-                        // Force position back to stopAt because it's jammed
                         itemService.updateItemPosition(itemId, conveyorId, PositionType.CONVEYOR, timestamp,
                                 (stopAt / length) * 100, null);
                         liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
@@ -706,10 +730,13 @@ public class EventProcessor {
                     }
                 }
             } else {
+                // Path is clear (either original or recirculation), move!
                 scheduleEvent(new ItemPositionChangedEvent(itemId, nextConveyorId, 0.0, arrivalAtEnd, conveyorId));
                 liveConveyorRepository.updateTailPosition(conveyorId, length);
             }
         } else {
+            // Logic for item reaching a Location/Chute (keeps item stopped if Chute is
+            // full)
             var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
             if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
                 Integer capacity = targetLocation.getCapacity();
@@ -725,8 +752,6 @@ public class EventProcessor {
                 } else {
                     scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd,
                             conveyorId));
-                    // The occupancy is now handled by the ItemPositionChangedEvent itself. No
-                    // manual increment needed.
                 }
             }
         }
@@ -817,5 +842,17 @@ public class EventProcessor {
         }
         return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
                 .orElse(outgoing.get(0).getId());
+    }
+
+    private String findRecirculationPath(String currentLocationId, String blockedConveyorId) {
+        // Find outgoing conveyors from the current location
+        return topologyProvider.getOutgoingConveyors(currentLocationId).stream()
+                .filter(Conveyor::isActive)
+                .filter(c -> c.isMainPath()) // Look for one marked as "Main Path" / Loop
+                .filter(c -> !c.getId().equals(blockedConveyorId)) // Don't pick the one that is blocked
+                .filter(c -> !isNextSegmentBlocked(c)) // Ensure the recirculation path itself isn't blocked
+                .map(Conveyor::getId)
+                .findFirst()
+                .orElse(null);
     }
 }

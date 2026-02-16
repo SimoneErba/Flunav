@@ -71,10 +71,9 @@ class AccumulationTests extends BaseIntegrationTest {
 
                 sim.stubLocation("end", "End", LocationType.GENERIC);
 
-                sim.stubConveyor("conv1", "start", "junction", 10.0, 1.0);
-                sim.stubConveyor("conv_chute", "junction", "chute", 10.0, 1.0);
-                sim.stubConveyor("conv_main", "junction", "end", 10.0, 1.0);
-                sim.getConveyor("conv_main").setMainPath(true);
+                sim.stubConveyor("conv1", "start", "junction", 10.0, 1.0, false);
+                sim.stubConveyor("conv_chute", "junction", "chute", 10.0, 1.0, false);
+                sim.stubConveyor("conv_main", "junction", "end", 10.0, 1.0, true);
 
                 // Make chute full by adding many items
                 for (int i = 0; i < 101; i++) {
@@ -111,7 +110,7 @@ class AccumulationTests extends BaseIntegrationTest {
 
                 sim.stubLocation("end", "End", LocationType.GENERIC);
 
-                sim.stubConveyor("conv1", "start", "end", 10.0, 0.0); // STOPPED
+                sim.stubConveyor("conv1", "start", "end", 10.0, 0.0, false); // STOPPED
 
                 // Item enters conv1 at 50% progress (e.g. from a teleport or late event)
 

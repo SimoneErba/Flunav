@@ -8,6 +8,9 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 @Repository
@@ -31,7 +34,7 @@ public class LiveLocationRepository {
         String key = getNamespacedKey(locationId);
         // Score = Current Time (allows us to pop the "oldest" item later)
         double score = Instant.now().toEpochMilli();
-        
+
         redis.opsForZSet().add(key, itemId, score);
         redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
@@ -86,7 +89,8 @@ public class LiveLocationRepository {
     }
 
     public void cleanupSimulationData(String simulationId) {
-        if (simulationId == null) return;
+        if (simulationId == null)
+            return;
         String pattern = "sim:" + simulationId + ":loc:*";
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {
@@ -103,5 +107,36 @@ public class LiveLocationRepository {
             return "sim:" + simId + ":loc:" + locationId + ":items";
         }
         return "loc:" + locationId + ":items";
+    }
+
+    public void printAllData() {
+        // Construct pattern
+        String simId = DatabaseContextHolder.getSimulationId();
+        String pattern = (simId != null) ? "sim:" + simId + ":loc:*:items" : "loc:*:items";
+
+        Set<String> keys = redis.keys(pattern);
+
+        logger.debug("\n======== REDIS DUMP: LIVE LOCATIONS ========");
+        if (keys == null || keys.isEmpty()) {
+            logger.debug("(No items at locations)");
+        } else {
+            List<String> sortedKeys = new ArrayList<>(keys);
+            Collections.sort(sortedKeys);
+
+            for (String key : sortedKeys) {
+                Set<org.springframework.data.redis.core.ZSetOperations.TypedTuple<String>> items = redis.opsForZSet()
+                        .rangeWithScores(key, 0, -1);
+
+                logger.debug("KEY: {}", key);
+                if (items != null && !items.isEmpty()) {
+                    for (var item : items) {
+                        logger.debug("   └─ Item: {} (Arrival: {})", item.getValue(), item.getScore());
+                    }
+                } else {
+                    logger.debug("   └─ (Empty)");
+                }
+            }
+        }
+        logger.debug("============================================");
     }
 }

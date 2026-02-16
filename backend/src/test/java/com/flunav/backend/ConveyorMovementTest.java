@@ -49,7 +49,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         // Setup Topology: Start -> (Conveyor 10m, 1m/s) -> End
         sim.stubLocation(startLocId, "Start Node", LocationType.JUNCTION);
         sim.stubLocation(endLocId, "End Node", LocationType.JUNCTION);
-        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0);
+        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item at the start of the conveyor
         sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, conveyorId, PositionType.CONVEYOR, 0.0,
@@ -81,7 +81,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         // it stays)
         sim.stubLocation(startLocId, "Start Node", LocationType.JUNCTION);
         sim.stubLocation(endLocId, "End Node", LocationType.JUNCTION);
-        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0);
+        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item
         sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, conveyorId, PositionType.CONVEYOR, 0.0,

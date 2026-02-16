@@ -227,4 +227,24 @@ public class LiveItemRepository {
             redis.delete(keys);
         }
     }
+
+    public void printAllData() {
+        String setKey = getNamespacedKey("active_items");
+        Set<String> activeIds = redis.opsForSet().members(setKey);
+
+        System.out.println("\n========== REDIS DUMP: LIVE ITEMS ==========");
+        if (activeIds == null || activeIds.isEmpty()) {
+            System.out.println("(No active items found)");
+        } else {
+            List<String> sortedIds = new ArrayList<>(activeIds);
+            Collections.sort(sortedIds);
+
+            for (String itemId : sortedIds) {
+                String itemKey = getNamespacedKey("item:" + itemId);
+                Map<Object, Object> data = redis.opsForHash().entries(itemKey);
+                logger.debug(" -> Item ID: {} | Data: {}", itemId, data);
+            }
+        }
+        logger.debug("============================================");
+    }
 }

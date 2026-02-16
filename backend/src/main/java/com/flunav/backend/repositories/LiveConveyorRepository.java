@@ -1,16 +1,22 @@
 package com.flunav.backend.repositories;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 @Repository
 public class LiveConveyorRepository {
     private static final long DEFAULT_TTL_HOURS = 1;
+    private static final Logger logger = LoggerFactory.getLogger(LiveConveyorRepository.class);
 
     private final StringRedisTemplate redis;
 
@@ -20,6 +26,7 @@ public class LiveConveyorRepository {
 
     /**
      * Adds item to conveyor preserving order.
+     * 
      * @param timestamp The time the item entered the conveyor (used for sorting).
      */
     public void addItemToConveyor(String conveyorId, String itemId, Instant timestamp) {
@@ -97,7 +104,8 @@ public class LiveConveyorRepository {
     }
 
     public void cleanupSimulationData(String simulationId) {
-        if (simulationId == null) return;
+        if (simulationId == null)
+            return;
         String pattern = "sim:" + simulationId + ":conv:*";
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {
@@ -111,5 +119,42 @@ public class LiveConveyorRepository {
             return "sim:" + simId + ":conv:" + baseKey;
         }
         return "conv:" + baseKey;
+    }
+
+    public void printAllData() {
+        // Construct the search pattern based on whether we are in a simulation or not
+        String simId = DatabaseContextHolder.getSimulationId();
+        String pattern = (simId != null) ? "sim:" + simId + ":conv:*:items" : "conv:*:items";
+
+        Set<String> keys = redis.keys(pattern);
+
+        logger.debug("\n======== REDIS DUMP: LIVE CONVEYORS ========");
+        if (keys == null || keys.isEmpty()) {
+            logger.debug("(No active conveyors found)");
+        } else {
+            List<String> sortedKeys = new ArrayList<>(keys);
+            Collections.sort(sortedKeys);
+
+            for (String key : sortedKeys) {
+                // Get all items with their scores (timestamps)
+                Set<org.springframework.data.redis.core.ZSetOperations.TypedTuple<String>> items = redis.opsForZSet()
+                        .rangeWithScores(key, 0, -1);
+
+                // Get tail info if available
+                String tailKey = key.replace(":items", ":tail");
+                String tailVal = redis.opsForValue().get(tailKey);
+
+                logger.debug("KEY: {} [Tail: {}", key, (tailVal != null ? tailVal : "N/A"));
+
+                if (items != null && !items.isEmpty()) {
+                    for (var item : items) {
+                        logger.debug("   └─ Item: {} (Entry Time: {})", item.getValue(), item.getScore());
+                    }
+                } else {
+                    logger.debug("   └─ (Empty)");
+                }
+            }
+        }
+        logger.debug("============================================");
     }
 }
