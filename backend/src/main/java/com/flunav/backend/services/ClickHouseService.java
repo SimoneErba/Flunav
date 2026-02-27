@@ -6,6 +6,7 @@ import com.clickhouse.data.ClickHouseFormat;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.flunav.backend.models.analytics.MetricEvent;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.ThroughputMetric;
@@ -428,5 +429,92 @@ public class ClickHouseService {
             }
             return metrics;
         });
+    }
+
+    private final BlockingQueue<MetricEvent> metricQueue = new LinkedBlockingQueue<>();
+
+    public void saveMetricAsync(MetricEvent metric) {
+        metricQueue.offer(metric);
+        // If queue gets too big, force flush immediately
+        if (metricQueue.size() >= BATCH_SIZE) {
+            flushMetrics();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000) // Flush every 1 second
+    public synchronized void flushMetrics() {
+        if (metricQueue.isEmpty())
+            return;
+
+        List<MetricEvent> batch = new ArrayList<>();
+        metricQueue.drainTo(batch, BATCH_SIZE);
+
+        // Convert to Maps for your existing JSON insert logic
+        List<Map<String, Object>> rows = batch.stream().map(m -> {
+            Map<String, Object> row = new HashMap<>();
+            row.put("timestamp", CLICKHOUSE_FORMATTER.format(m.timestamp()));
+            row.put("simulation_id", m.simulationId());
+            row.put("component_id", m.componentId());
+            row.put("component_type", m.componentType());
+            row.put("metric_type", m.metricType());
+            row.put("value", m.value());
+            return row;
+        }).toList();
+
+        saveMetricSnapshots(rows); // Reuse existing bulk insert method
+    }
+
+    /**
+     * Batch inserts metrics into the ComponentMetrics table.
+     * Uses JSONEachRow format for type safety and efficiency.
+     * 
+     * @param metrics A list of maps, where each map represents a row (keys:
+     *                timestamp, simulation_id, etc.)
+     */
+    public void saveMetricSnapshots(List<Map<String, Object>> metrics) {
+        if (metrics == null || metrics.isEmpty()) {
+            return;
+        }
+
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+
+            for (Map<String, Object> row : metrics) {
+                // Ensure timestamp is formatted correctly if passed as Instant/Date object
+                if (row.get("timestamp") instanceof Instant instant) {
+                    row.put("timestamp", CLICKHOUSE_FORMATTER.format(instant));
+                }
+
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append("\n");
+            }
+
+            // Perform a SINGLE insert for the whole batch
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("ComponentMetrics", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+
+            logger.debug("Flushed {} metric snapshots to ClickHouse", metrics.size());
+
+        } catch (Exception e) {
+            logger.error("Error flushing metrics batch to ClickHouse.", e);
+            throw new RuntimeException("Failed to save metrics", e);
+        }
+    }
+
+    /**
+     * Executes a raw SQL statement (INSERT, UPDATE, ALTER, etc.) without returning
+     * results.
+     * 
+     * @param sql The SQL string to execute.
+     */
+    public void execute(String sql) {
+        logger.debug("Executing raw SQL: {}", sql);
+        try {
+            // .get() waits for the future to complete, ensuring the query ran
+            client.query(sql).get().close();
+        } catch (Exception e) {
+            logger.error("Failed to execute SQL: {}", sql, e);
+            throw new RuntimeException("Raw SQL execution failed", e);
+        }
     }
 }

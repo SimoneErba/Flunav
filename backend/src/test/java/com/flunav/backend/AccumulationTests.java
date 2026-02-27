@@ -1,28 +1,20 @@
 package com.flunav.backend;
 
 import com.flunav.backend.context.DatabaseContextHolder;
-import com.flunav.backend.domain.Conveyor;
-import com.flunav.backend.repositories.LiveConveyorRepository;
-import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.test.SimulationTestHarness;
-import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.ItemCreatedEvent;
-import flunav.events.ItemDestinationEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import com.orientechnologies.orient.core.db.ODatabaseSession;
 
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 

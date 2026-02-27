@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import org.springframework.lang.NonNull;
 
 @Repository
 public class LiveConveyorRepository {
@@ -29,7 +30,7 @@ public class LiveConveyorRepository {
      * 
      * @param timestamp The time the item entered the conveyor (used for sorting).
      */
-    public void addItemToConveyor(String conveyorId, String itemId, Instant timestamp) {
+    public void addItemToConveyor(String conveyorId, @NonNull String itemId, Instant timestamp) {
         String key = getNamespacedKey(conveyorId + ":items");
         // Score = Timestamp. Lower score = Entered earlier = Further ahead on belt.
         redis.opsForZSet().add(key, itemId, timestamp.toEpochMilli());
