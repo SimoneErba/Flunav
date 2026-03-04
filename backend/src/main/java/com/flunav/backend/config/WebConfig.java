@@ -15,12 +15,15 @@ public class WebConfig implements WebMvcConfigurer {
     @Bean
     public ModelMapper modelMapper() {
         ModelMapper modelMapper = new ModelMapper();
-        
-        modelMapper.typeMap(com.flunav.backend.domain.Conveyor.class, com.flunav.backend.models.response.ConveyorResponse.class).addMappings(mapper -> {
-            mapper.map(com.flunav.backend.domain.Conveyor::getSourceLocationId, com.flunav.backend.models.response.ConveyorResponse::setSourceId);
-            mapper.map(com.flunav.backend.domain.Conveyor::getTargetLocationId, com.flunav.backend.models.response.ConveyorResponse::setTargetId);
-        });
-        
+
+        modelMapper.typeMap(com.flunav.backend.domain.Conveyor.class,
+                com.flunav.backend.models.response.ConveyorResponse.class).addMappings(mapper -> {
+                    mapper.map(com.flunav.backend.domain.Conveyor::getSourceLocationId,
+                            com.flunav.backend.models.response.ConveyorResponse::setSourceId);
+                    mapper.map(com.flunav.backend.domain.Conveyor::getTargetLocationId,
+                            com.flunav.backend.models.response.ConveyorResponse::setTargetId);
+                });
+
         return modelMapper;
     }
 
@@ -37,7 +40,7 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     @Override
-    public void addCorsMappings(CorsRegistry registry) {
+    public void addCorsMappings(@NonNull CorsRegistry registry) {
         registry.addMapping("/**")
                 .allowedOrigins("*")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

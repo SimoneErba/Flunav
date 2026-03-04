@@ -270,7 +270,7 @@ public class App {
                 }).start();
 
                 // 2. CHAOS MONKEY: Random Conveyor Breakdown (1% chance)
-                if (random.nextInt(100) < 30 && !allConveyorIds.isEmpty()) {
+                if (random.nextInt(100) < 0 && !allConveyorIds.isEmpty()) {
                     String targetEdge = allConveyorIds.get(random.nextInt(allConveyorIds.size()));
                     if (!brokenConveyors.contains(targetEdge)) {
                         logger.warning("!!! BREAKDOWN SIMULATED on " + targetEdge + " !!!");

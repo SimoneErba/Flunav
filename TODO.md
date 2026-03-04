@@ -12,7 +12,8 @@ stopping conveyour
 
 TODO:
 
-item has no destination, but its showing still on the forntend smoething
+items are not disappearing on exit (sometimes)
+add edit of location type
 color input is out of the page
 attese, ricircoli
 for analytics, count items exite not deleted

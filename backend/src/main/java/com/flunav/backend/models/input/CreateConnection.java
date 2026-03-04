@@ -1,6 +1,5 @@
 package com.flunav.backend.models.input;
 
-import flunav.types.PositionType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
