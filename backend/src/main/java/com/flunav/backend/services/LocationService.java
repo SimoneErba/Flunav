@@ -182,7 +182,13 @@ public class LocationService {
         Integer capacity = vertex.getProperty("capacity");
 
         String typeStr = vertex.getProperty("type");
-        LocationType type = (typeStr != null) ? LocationType.valueOf(typeStr) : LocationType.GENERIC;
+
+        LocationType type;
+        try {
+            type = typeStr != null ? LocationType.valueOf(typeStr) : LocationType.GENERIC;
+        } catch (IllegalArgumentException e) {
+            type = LocationType.GENERIC;
+        }
 
         return new Location(
                 vertex.getProperty("customId"),

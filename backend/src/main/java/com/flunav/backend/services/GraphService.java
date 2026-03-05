@@ -9,8 +9,6 @@ import com.flunav.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
-import flunav.types.ConveyorType;
-import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -99,6 +99,7 @@ services:
     ports:
       # 🔒 SECURED: AMQP (5672) removed. Only internal containers can connect.
       # UI (15672) locked to localhost for SSH Tunneling.
+      - "127.0.0.1:5672:5672"
       - "127.0.0.1:${RABBITMQ_UI_PORT}:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
@@ -122,6 +123,9 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    ports:
+    # expose only to localhost so Java apps on host can connect
+    - "127.0.0.1:6379:6379"
     networks:
       - app-network
 
