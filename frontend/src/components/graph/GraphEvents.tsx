@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
 import { GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "../editors/edge.editor";
@@ -45,6 +45,11 @@ export const GraphEvents = ({
   // 4. Handle Physics (Animation Loop)
   useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);
 
+
+  const handleNodeClose = useCallback(() => setSelectedNodeData(null), []);
+  const handleEdgeClose = useCallback(() => { setSelectedEdgeData(null); setHoverTarget(null); setIsDetailsOpen(false); }, []);
+  const handleItemClose = useCallback(() => { setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false); }, []);
+
   return (
     <>
       {/* SVG Line for Edge Creation */}
@@ -80,14 +85,14 @@ export const GraphEvents = ({
             onSubmit={handleItemSubmit}
             onDelete={handleItemDelete}
             data={selectedItemData} 
-            onClose={() => {setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false)}} 
+            onClose={handleItemClose} 
         />
       )}
       {selectedEdgeData && (
         <EdgeEditor 
             data={selectedEdgeData} 
             onSubmit={handleEdgeSubmit} 
-            onClose={() => {setSelectedEdgeData(null); setHoverTarget(null); setIsDetailsOpen(false)}} 
+            onClose={handleEdgeClose} 
             onDelete={(id, src, tgt) => handleEdgeDelete(id, src, tgt)} 
         />
       )}
@@ -95,7 +100,7 @@ export const GraphEvents = ({
         <NodeEditor 
             data={selectedNodeData} 
             onSubmit={handleNodeSubmit} 
-            onClose={() => setSelectedNodeData(null)} 
+            onClose={handleNodeClose} 
             onDelete={handleNodeDelete} 
         />
       )}

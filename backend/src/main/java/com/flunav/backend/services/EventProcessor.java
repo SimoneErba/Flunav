@@ -516,11 +516,10 @@ public class EventProcessor {
                     Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
                     for (String item : items) {
                         liveItemRepository.deleteItem(item);
-                        if (shouldBroadcast)
-                            webSocketService.broadcastItemDeleted(item, e.getTimestamp());
+
                     }
-                    // Delete the Redis key for the location itself
-                    liveLocationRepository.deleteLocation(e.getEntityId());
+                    if (shouldBroadcast)
+                        webSocketService.broadcastChuteEmptied(e.getEntityId(), e.getTimestamp());
 
                     if (manageLogic) {
                         wakeUpPrecedingConveyors(e.getEntityId());

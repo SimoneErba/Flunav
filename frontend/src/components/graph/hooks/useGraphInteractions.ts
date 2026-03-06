@@ -404,7 +404,7 @@ export const useGraphInteractions = (
                     // It's a location: Open editor
                     const { isReadOnly } = stateRef.current;
                     if (isReadOnly) { notifyReadOnly(); return; }
-                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity, properties: attrs.properties });
+                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity, properties: attrs.properties, locationType: attrs.locationType, itemsInChute: attrs.itemsInChute });
                 }
             }
         });

@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 enum CrudOperation {
-    CREATED, DELETED
+    CREATED, DELETED, EMPTIED
 }
 
 enum PositionStatus {
@@ -101,6 +101,10 @@ public class WebSocketService {
     public void broadcastLocationPropertiesUpdated(UpdateModel updateModel, Instant timestamp) {
         EntityUpdateMessage payload = new EntityUpdateMessage(updateModel.getId(), updateModel.getProperties());
         sendToTopic(null, "locations/updates", payload, timestamp.toEpochMilli());
+    }
+
+    public void broadcastChuteEmptied(String chuteId, Instant timestamp) {
+        sendToTopic(null, "locations/emptied", Map.of("chuteId", chuteId), timestamp.toEpochMilli());
     }
 
     // --- CONNECTION EVENTS ---

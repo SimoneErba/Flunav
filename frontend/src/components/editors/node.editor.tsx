@@ -3,54 +3,54 @@ import { createPortal } from "react-dom";
 import { PropertiesEditor } from "../properties.editor";
 import { confirmToast } from "../graph/utils/toastUtils";
 import { SharedButtons } from "./shared.buttons";
+import { ItemResponse } from "../../../api-client/api";
+
+const LOCATION_TYPES = [
+  { value: "JUNCTION", label: "Junction" },
+  { value: "CHUTE", label: "Chute" },
+  { value: "ACCUMULATION", label: "Accumulation" },
+  { value: "ROAD", label: "Road" },
+  { value: "GENERIC", label: "Generic" },
+];
 
 export interface NodeEditorData {
   nodeId: string;
   name: string;
   capacity?: number;
+  locationType?: string;
   properties?: Record<string, any>;
+  itemsInChute?: ItemResponse[];
 }
 
 interface NodeEditorProps {
   data: NodeEditorData;
   onClose: () => void;
-  // Unified submission handler
-  onSubmit: (updatedData: { name: string; capacity: number; properties: Record<string, any> }) => void;
+  onSubmit: (updatedData: { name: string; capacity: number; locationType: string; properties: Record<string, any> }) => void;
   onDelete: (nodeId: string) => void;
 }
 
-export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
-  // --- Master State ---
+export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
   const [name, setName] = useState(data.name || "");
   const [capacity, setCapacity] = useState(data.capacity || 0);
+  const [locationType, setLocationType] = useState(data.locationType || "GENERIC");
   const [properties, setProperties] = useState(data.properties || {});
 
-  // Sync state if the selected node changes while panel is open
   useEffect(() => {
     setName(data.name || "");
     setCapacity(data.capacity || 0);
+    setLocationType(data.locationType || "GENERIC");
     setProperties(data.properties || {});
   }, [data]);
 
   const handleSubmit = () => {
     if (name.trim()) {
-      onSubmit({ 
-        name: name.trim(), 
-        capacity: Number(capacity),
-        properties: properties 
-      });
+      onSubmit({ name: name.trim(), capacity: Number(capacity), locationType, properties });
       onClose();
     }
   };
 
   const handleDelete = () => {
-    confirmToast(
-        `Delete location "${data.name}"?`,
-        () => {
-            onDelete(data.nodeId);
-            onClose();
-        }
-    );
+    confirmToast(`Delete location "${data.name}"?`, () => { onDelete(data.nodeId); onClose(); });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -58,7 +58,20 @@ export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProp
     else if (e.key === 'Escape') onClose();
   };
 
-  // Render via Portal to break out of the graph container z-index context
+  const isChute = locationType === "CHUTE";
+  console.log("Location type:", locationType, "isChute:", isChute);
+  const itemsInChute = data.itemsInChute ?? [];
+
+  const inputClass = `
+    w-full p-2 rounded border text-sm
+    bg-gray-50 dark:bg-gray-900 
+    border-gray-300 dark:border-gray-600 
+    text-gray-900 dark:text-white
+    focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
+  `;
+
+  const labelClass = "block mb-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide";
+
   const content = (
     <div className="
       fixed top-24 left-5 z-[1000] w-72 p-4 
@@ -73,69 +86,96 @@ export const NodeEditor = ({ data, onClose, onSubmit, onDelete }: NodeEditorProp
       <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-2">
         <h4 className="text-lg font-semibold m-0">Edit Location</h4>
         <span className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate max-w-[100px]" title={data.nodeId}>
-            {data.nodeId}
+          {data.nodeId}
         </span>
       </div>
-      
-      {/* Inputs Container */}
+
+      {/* Inputs */}
       <div className="flex flex-col gap-3">
-          {/* Name */}
-          <div>
-            <label className="block mb-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              Name
-            </label>
-            <input 
-                type="text" 
-                value={name} 
-                onChange={e => setName(e.target.value)}
-                onKeyDown={handleKeyPress}
-                autoFocus
-                className="
-                  w-full p-2 rounded border text-sm
-                  bg-gray-50 dark:bg-gray-900 
-                  border-gray-300 dark:border-gray-600 
-                  text-gray-900 dark:text-white
-                  focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
-                "
-            />
-          </div>
+        {/* Name */}
+        <div>
+          <label className={labelClass}>Name</label>
+          <input
+            type="text" value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={handleKeyPress}
+            autoFocus className={inputClass}
+          />
+        </div>
 
-          {/* Capacity */}
-          <div>
-            <label className="block mb-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              Capacity
-            </label>
-            <input 
-                type="number" 
-                value={capacity} 
-                min="0"
-                onChange={e => setCapacity(parseFloat(e.target.value))}
-                onKeyDown={handleKeyPress}
-                className="
-                  w-full p-2 rounded border text-sm
-                  bg-gray-50 dark:bg-gray-900 
-                  border-gray-300 dark:border-gray-600 
-                  text-gray-900 dark:text-white
-                  focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
-                  dark:[color-scheme:dark]
-                "
-            />
-          </div>
+        {/* Location Type */}
+        <div>
+          <label className={labelClass}>Type</label>
+          <select
+            value={locationType}
+            onChange={e => setLocationType(e.target.value)}
+            className={`${inputClass} cursor-pointer`}
+          >
+            {LOCATION_TYPES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Capacity */}
+        <div>
+          <label className={labelClass}>Capacity</label>
+          <input
+            type="number" value={capacity} min="0"
+            onChange={e => setCapacity(parseFloat(e.target.value))}
+            onKeyDown={handleKeyPress}
+            className={`${inputClass} dark:[color-scheme:dark]`}
+          />
+        </div>
       </div>
 
-      {/* Unified Properties Editor */}
+      {/* Properties */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
-        <PropertiesEditor 
-          properties={properties} 
-          onChange={setProperties} 
-        />
+        <PropertiesEditor properties={properties} onChange={setProperties} />
       </div>
+
+      {/* Items in Chute — only shown when type is CHUTE */}
+      {isChute && (
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-2 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <label className={labelClass}>Items in Chute</label>
+            <span className="text-xs font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+              {itemsInChute.length}{data.capacity ? `/${data.capacity}` : ""}
+            </span>
+          </div>
+
+          {itemsInChute.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500 italic">No items currently in chute.</p>
+          ) : (
+            <ul className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1">
+              {itemsInChute.map((item) => (
+                <li
+                  key={item.id}
+                  className="
+                    flex items-center justify-between
+                    px-2 py-1.5 rounded
+                    bg-gray-50 dark:bg-gray-900
+                    border border-gray-200 dark:border-gray-700
+                    text-xs
+                  "
+                >
+                  <span className="font-medium truncate max-w-[140px]" title={item.name}>
+                    {item.name ?? item.id}
+                  </span>
+                  <span className="font-mono text-gray-400 dark:text-gray-500 truncate max-w-[80px]" title={item.id}>
+                    {item.id}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Actions */}
       <SharedButtons onClose={onClose} onDelete={handleDelete} onSubmit={handleSubmit} />
-      
     </div>
   );
 
   return createPortal(content, document.body);
-};
+});

@@ -21,7 +21,8 @@ export const useGraphLiveEvents = (
         subscribeToAllLocationUpdates,
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
-        subscribeToConnectionUpdated
+        subscribeToConnectionUpdated,
+        subscribeToChuteEmptied
     } = useWebSocketEvents();
 
     // Ref to access current simTime inside callbacks without re-subscribing
@@ -237,6 +238,25 @@ export const useGraphLiveEvents = (
         unsubscribers.push(subscribeToConnectionDeleted((conn) => {
             if (graph.hasEdge(conn.from, conn.to)) graph.dropEdge(conn.from, conn.to);
         }, simulationId));
+
+        unsubscribers.push(subscribeToChuteEmptied((chuteId: string) => {
+            if (graph.hasNode(chuteId)) {
+                const capacity = graph.getNodeAttribute(chuteId, "capacity");
+                const baseName = graph.getNodeAttribute(chuteId, "label")?.split(" (")[0];
+
+                graph.setNodeAttribute(chuteId, "itemsInChute", []);
+                graph.setNodeAttribute(chuteId, "label", capacity ? `${baseName} (0/${capacity})` : `${baseName} (0)`);
+
+                // Visual flash
+                const originalColor = graph.getNodeAttribute(chuteId, "customColor") || "#69b3a2";
+                graph.setNodeAttribute(chuteId, "color", "#FFFF00");
+                setTimeout(() => {
+                    if (graph.hasNode(chuteId)) {
+                        graph.setNodeAttribute(chuteId, "color", originalColor);
+                    }
+                }, 500);
+            }
+        }));
 
         unsubscribers.push(subscribeToConnectionUpdated((update) => {
             const edge = graph.findEdge((edge, attrs) => attrs.id === update.id);

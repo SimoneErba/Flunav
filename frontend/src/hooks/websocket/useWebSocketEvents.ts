@@ -68,6 +68,12 @@ export const useWebSocketEvents = () => {
         return subscribe(buildTopic('locations/updates', simId), handler);
     }, [subscribe]);
 
+    const subscribeToChuteEmptied = useCallback((handler: (chuteId: string, timestamp: number) => void, simId?: string | null) => {
+        return subscribe(buildTopic('locations/emptied', simId), (msg: { chuteId: string, timestamp: number }) => {
+            handler(msg.chuteId, msg.timestamp);
+        });
+    }, [subscribe]);
+
     // 5. Connections
     const subscribeToConnectionCreated = useCallback((handler: (message: ConnectionMessage & { timestamp: number }) => void, simId?: string | null) => {
         return subscribe(buildTopic('connections', simId), (msg: ConnectionMessage & { timestamp: number }) => {
@@ -104,6 +110,7 @@ export const useWebSocketEvents = () => {
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
         subscribeToConnectionUpdated,
-        subscribeToThroughputUpdates
+        subscribeToThroughputUpdates,
+        subscribeToChuteEmptied
     };
 };
