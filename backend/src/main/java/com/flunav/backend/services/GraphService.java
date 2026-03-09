@@ -32,6 +32,7 @@ public class GraphService {
     private final TimeService timeService;
     private final org.modelmapper.ModelMapper modelMapper;
     private final TopologyProvider topologyProvider;
+    private final StopwatchService stopwatchService;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
@@ -40,7 +41,8 @@ public class GraphService {
             SimulationService simulationService,
             TimeService timeService,
             org.modelmapper.ModelMapper modelMapper,
-            TopologyProvider topologyProvider) {
+            TopologyProvider topologyProvider,
+            StopwatchService stopwatchService) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.pathfindingService = pathfindingService;
@@ -49,6 +51,7 @@ public class GraphService {
         this.timeService = timeService;
         this.modelMapper = modelMapper;
         this.topologyProvider = topologyProvider;
+        this.stopwatchService = stopwatchService;
     }
 
     public GraphData getGraphData() {
@@ -72,10 +75,16 @@ public class GraphService {
     }
 
     public GraphData getGraphData(Instant now, boolean shouldCleanup, String simulationId, boolean includeFinished) {
+        String timer = stopwatchService.start();
         try (var ctx = (simulationId != null) ? DatabaseContextHolder.enterSimulationContext(simulationId) : null) {
             Topology topology = fetchTopology();
+            stopwatchService.stop(timer, "Fetch tipology");
+            String timer2 = stopwatchService.start();
+
             List<ItemResponse> activeItems = calculateAllItemStates(topology, now, shouldCleanup, simulationId,
                     includeFinished);
+            stopwatchService.stop(timer2, "All items state");
+
             var customDisplayRules = this.displayRulesService.getDisplayRules();
 
             for (var item : activeItems) {

@@ -249,10 +249,10 @@ public class App {
                 attributes.put("priority", random.nextBoolean() ? "HIGH" : "NORMAL");
 
                 // Clean up old instance if exists
-                try {
-                    sendEvent(new ItemDeletedEvent(itemId), "DELETE");
-                } catch (Exception e) {
-                }
+                // try {
+                // sendEvent(new ItemDeletedEvent(itemId), "DELETE");
+                // } catch (Exception e) {
+                // }
 
                 // Create
                 sendEvent(new ItemCreatedEvent(itemId, itemId, 1.5, true, spawnPoint,

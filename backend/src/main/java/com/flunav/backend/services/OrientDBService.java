@@ -86,6 +86,7 @@ public class OrientDBService {
                             logger.trace("Ignored close() call on transactional proxy.");
                             return null;
                         }
+                        activeSession.activateOnCurrentThread();
                         return method.invoke(activeSession, args);
                     });
         }
@@ -103,7 +104,9 @@ public class OrientDBService {
         }
 
         logger.trace("Acquiring new session for DB '{}' from its pool.", dbName);
-        return pool.acquire();
+        var session = pool.acquire();
+        session.activateOnCurrentThread();
+        return session;
     }
 
     public ODatabaseSession getSession(String dbName) {
@@ -123,12 +126,14 @@ public class OrientDBService {
             try {
                 session.begin();
                 callback.execute(session);
+                session.activateOnCurrentThread();
                 session.commit();
                 logger.debug("Transaction committed successfully.");
             } catch (Exception e) {
                 logger.error("Error during transactional callback. Initiating rollback.", e);
                 if (!session.isClosed() && session.getTransaction().isActive()) {
                     try {
+                        session.activateOnCurrentThread();
                         session.rollback();
                         logger.info("Transaction rolled back successfully.");
                     } catch (Exception rollbackEx) {
@@ -144,12 +149,23 @@ public class OrientDBService {
     }
 
     public void withSession(SessionCallback callback) {
+        ODatabaseSession session = getSession();
 
-        try (ODatabaseSession session = getSession()) {
+        try {
+            session.activateOnCurrentThread();
             callback.execute(session);
         } catch (Exception e) {
             logger.error("Error executing session callback on context-aware DB", e);
             throw new RuntimeException("Session callback failed", e);
+        } finally {
+            if (session != null) {
+                try {
+                    session.activateOnCurrentThread();
+                    session.close();
+                } catch (Exception closeEx) {
+                    logger.warn("Ignored error while closing the OrientDB session: {}", closeEx.getMessage());
+                }
+            }
         }
     }
 
@@ -246,11 +262,8 @@ public class OrientDBService {
         createIndexes(dbName);
     }
 
-    @Async
-    public void createIndexes(String simulationId) {
-        OrientDB localOrientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
-        try (ODatabaseSession session = localOrientDB.open(simulationId != null ? simulationId : mainDbName, username,
-                password)) {
+    public void createIndexes(String dbName) {
+        try (ODatabaseSession session = getSession(dbName)) {
             logger.info("Starting asynchronous index creation for database: {}", session.getName());
 
             // Location Index
@@ -278,8 +291,6 @@ public class OrientDBService {
             }
 
             logger.info("Asynchronous index creation finished for database: {}", session.getName());
-        } finally {
-            localOrientDB.close();
         }
     }
 }

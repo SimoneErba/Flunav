@@ -25,6 +25,7 @@ import { AuthProvider, useAuth } from './context/auth.context';
 
 // --- STYLES ---
 import './index.css';
+import { GraphImportExport } from './components/graph/GraphImportExport';
 
 // ============================================================================
 // 1. AUTH GUARD
@@ -256,6 +257,9 @@ function LiveWorkspace() {
                Exit Sim
             </button>
          )}
+
+      <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
+
       
       <Link to="/admin" className="text-sm font-medium text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors">
         Admin

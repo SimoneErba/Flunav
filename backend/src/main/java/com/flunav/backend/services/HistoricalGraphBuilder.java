@@ -13,6 +13,7 @@ import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import flunav.events.DomainEvent;
+import flunav.events.EntityEvent;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,21 +68,19 @@ public class HistoricalGraphBuilder {
             List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(eventsAfterTimestamp, restorePoint);
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
-            orientDBService.withTransaction(session -> {
-                try {
-                    session.begin();
-                    for (DomainEvent event : eventsToReplay) {
-                        try {
-                            eventProcessor.processEventWithoutBroadcast(event);
-                        } catch (Exception e) {
-                            logger.warn("Error while processing event {}: {}", event.getEventType(), e);
+            orientDBService.withSession(session -> {
+                for (DomainEvent event : eventsToReplay) {
+                    try {
+                        eventProcessor.processEventWithoutBroadcast(event);
+
+                        logger.debug("DONE processing event {}", event.getEventType());
+                        if (event instanceof EntityEvent) {
+                            logger.debug("for entity {}", ((EntityEvent) event).getEntityId());
                         }
+                    } catch (Exception e) {
+                        logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
+                                event.getEventType(), e.getMessage());
                     }
-                    session.commit();
-                } catch (Exception e) {
-                    session.rollback();
-                    logger.error("Transaction failed, rolling back changes", e);
-                    throw e;
                 }
             });
 
@@ -98,7 +97,7 @@ public class HistoricalGraphBuilder {
         }
     }
 
-    private void restoreFromSnapshotData(GraphData graphData) {
+    public void restoreFromSnapshotData(GraphData graphData) {
         orientDBService.withSession(session -> {
             logger.warn("Executing snapshot restore on context DB: {}", session.getName());
             try {

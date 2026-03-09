@@ -2,6 +2,7 @@ package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Location;
+import com.flunav.backend.exception.DuplicateItemException;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
@@ -214,34 +215,43 @@ public class EventProcessor {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
             logger.debug("Processing {}", event.getEventType());
+            if (event instanceof EntityEvent) {
+                logger.debug("for entity {}", ((EntityEvent) event).getEntityId());
+            }
             return switch (event) {
                 case ItemCreatedEvent e -> {
-                    var item = new ItemInput(e);
-                    itemService.createItem(item);
+                    try {
+                        var item = new ItemInput(e);
+                        itemService.createItem(item);
 
-                    if (item.getLocationId() != null) {
-                        var positionType = topologyProvider.getPositionType(item.getLocationId());
-                        if (positionType == PositionType.CONVEYOR) {
-                            liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
-                                    e.getTimestamp());
-                            handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(), e.getTimestamp(),
-                                    e.getProgress(), null);
-                        } else {
-                            var location = topologyProvider.getLocationById(item.getLocationId());
-                            // Only store items in locations that act as buffers (e.g., Chutes)
-                            if (location != null && location.getType() == LocationType.CHUTE) {
-                                liveLocationRepository.addItemToLocation(item.getLocationId(), e.getEntityId());
+                        if (item.getLocationId() != null) {
+                            var positionType = topologyProvider.getPositionType(item.getLocationId());
+                            if (positionType == PositionType.CONVEYOR) {
+                                liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
+                                        e.getTimestamp());
+                                handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(), e.getTimestamp(),
+                                        e.getProgress(), null);
+                            } else {
+                                var location = topologyProvider.getLocationById(item.getLocationId());
+                                // Only store items in locations that act as buffers (e.g., Chutes)
+                                if (location != null && location.getType() == LocationType.CHUTE) {
+                                    liveLocationRepository.addItemToLocation(item.getLocationId(), e.getEntityId());
+                                }
                             }
                         }
-                    }
 
-                    if (shouldBroadcast) {
-                        ItemResponse response = modelMapper.map(item, ItemResponse.class);
-                        response.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(),
-                                this.displayRulesService.getDisplayRules()));
-                        webSocketService.broadcastItemCreated(response, e.getTimestamp());
+                        if (shouldBroadcast) {
+                            ItemResponse response = modelMapper.map(item, ItemResponse.class);
+                            response.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(),
+                                    this.displayRulesService.getDisplayRules()));
+                            webSocketService.broadcastItemCreated(response, e.getTimestamp());
+                        }
+                        yield Map.of("status", "CREATED", "itemId", e.getEntityId());
+                    } catch (DuplicateItemException die) {
+                        logger.warn("Received a duplicate ItemCreatedEvent for existing item '{}'. Ignoring event.",
+                                e.getEntityId());
+                        yield Map.of("status", "IGNORED_DUPLICATE", "itemId", e.getEntityId());
                     }
-                    yield Map.of("status", "CREATED", "itemId", e.getEntityId());
                 }
 
                 case ItemPositionChangedEvent e -> {

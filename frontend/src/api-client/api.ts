@@ -98,16 +98,16 @@ export interface Conveyor {
     'capacity'?: number;
     /**
      * 
-     * @type {{ [key: string]: object; }}
-     * @memberof Conveyor
-     */
-    'properties'?: { [key: string]: object; };
-    /**
-     * 
      * @type {boolean}
      * @memberof Conveyor
      */
     'mainPath'?: boolean;
+    /**
+     * 
+     * @type {{ [key: string]: object; }}
+     * @memberof Conveyor
+     */
+    'properties'?: { [key: string]: object; };
 }
 
 export const ConveyorTypeEnum = {
@@ -305,6 +305,12 @@ export interface CreateConveyorInput {
      * @type {number}
      * @memberof CreateConveyorInput
      */
+    'minDistance'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof CreateConveyorInput
+     */
     'timeToTraverseMs'?: number;
     /**
      * 
@@ -488,15 +494,27 @@ export interface GraphData {
 /**
  * 
  * @export
- * @interface mainPathUpdateRequest
+ * @interface ImportResult
  */
-export interface mainPathUpdateRequest {
+export interface ImportResult {
     /**
      * 
      * @type {boolean}
-     * @memberof mainPathUpdateRequest
+     * @memberof ImportResult
      */
-    'mainPath'?: boolean;
+    'success'?: boolean;
+    /**
+     * 
+     * @type {string}
+     * @memberof ImportResult
+     */
+    'message'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof ImportResult
+     */
+    'sourceTimestamp'?: string;
 }
 /**
  * 
@@ -980,6 +998,19 @@ export interface LoginRequest {
      * @memberof LoginRequest
      */
     'password'?: string;
+}
+/**
+ * 
+ * @export
+ * @interface MainPathUpdateRequest
+ */
+export interface MainPathUpdateRequest {
+    /**
+     * 
+     * @type {boolean}
+     * @memberof MainPathUpdateRequest
+     */
+    'mainPath'?: boolean;
 }
 /**
  * 
@@ -1602,46 +1633,6 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
         },
         /**
          * 
-         * @summary Update if conveyor is part of the main path
-         * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateConveyormainPath: async (id: string, mainPathUpdateRequest: mainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'id' is not null or undefined
-            assertParamExists('updateConveyormainPath', 'id', id)
-            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
-            assertParamExists('updateConveyormainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
-            const localVarPath = `/api/conveyors/{id}/mainPath`
-                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
          * @summary Update conveyor length
          * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
@@ -1714,6 +1705,46 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
             localVarRequestOptions.data = serializeDataIfNeeded(speedUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyormainPath: async (id: string, mainPathUpdateRequest: MainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyormainPath', 'id', id)
+            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyormainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/mainPath`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -1798,20 +1829,6 @@ export const ConveyorsApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary Update if conveyor is part of the main path
-         * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyormainPath(id, mainPathUpdateRequest, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyormainPath']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
          * @summary Update conveyor length
          * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
@@ -1836,6 +1853,20 @@ export const ConveyorsApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorSpeed(id, speedUpdateRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorSpeed']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyormainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyormainPath(id, mainPathUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyormainPath']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -1901,17 +1932,6 @@ export const ConveyorsApiFactory = function (configuration?: Configuration, base
         },
         /**
          * 
-         * @summary Update if conveyor is part of the main path
-         * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
          * @summary Update conveyor length
          * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
@@ -1931,6 +1951,17 @@ export const ConveyorsApiFactory = function (configuration?: Configuration, base
          */
         updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Update if conveyor is part of the main path
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyormainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -2005,19 +2036,6 @@ export class ConveyorsApi extends BaseAPI {
 
     /**
      * 
-     * @summary Update if conveyor is part of the main path
-     * @param {string} id 
-     * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof ConveyorsApi
-     */
-    public updateConveyormainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig) {
-        return ConveyorsApiFp(this.configuration).updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
      * @summary Update conveyor length
      * @param {string} id 
      * @param {LengthUpdateRequest} lengthUpdateRequest 
@@ -2040,6 +2058,19 @@ export class ConveyorsApi extends BaseAPI {
      */
     public updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig) {
         return ConveyorsApiFp(this.configuration).updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Update if conveyor is part of the main path
+     * @param {string} id 
+     * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyormainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyormainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -2217,6 +2248,35 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
     return {
         /**
          * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        exportGraph: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/graph/export`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @summary Get the current state of the graph
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2245,6 +2305,46 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
                 options: localVarRequestOptions,
             };
         },
+        /**
+         * 
+         * @param {File} file 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        importGraph: async (file: File, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'file' is not null or undefined
+            assertParamExists('importGraph', 'file', file)
+            const localVarPath = `/api/graph/import`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+            const localVarFormParams = new ((configuration && configuration.formDataCtor) || FormData)();
+
+
+            if (file !== undefined) { 
+                localVarFormParams.append('file', file as any);
+            }
+    
+    
+            localVarHeaderParameter['Content-Type'] = 'multipart/form-data';
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = localVarFormParams;
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
     }
 };
 
@@ -2257,6 +2357,17 @@ export const GraphApiFp = function(configuration?: Configuration) {
     return {
         /**
          * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async exportGraph(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.exportGraph(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['GraphApi.exportGraph']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @summary Get the current state of the graph
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -2265,6 +2376,18 @@ export const GraphApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.getGraphData(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['GraphApi.getGraphData']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {File} file 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async importGraph(file: File, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<ImportResult>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.importGraph(file, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['GraphApi.importGraph']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -2279,12 +2402,29 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
     return {
         /**
          * 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        exportGraph(options?: RawAxiosRequestConfig): AxiosPromise<string> {
+            return localVarFp.exportGraph(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @summary Get the current state of the graph
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
         getGraphData(options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
             return localVarFp.getGraphData(options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {File} file 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        importGraph(file: File, options?: RawAxiosRequestConfig): AxiosPromise<ImportResult> {
+            return localVarFp.importGraph(file, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -2298,6 +2438,16 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
 export class GraphApi extends BaseAPI {
     /**
      * 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof GraphApi
+     */
+    public exportGraph(options?: RawAxiosRequestConfig) {
+        return GraphApiFp(this.configuration).exportGraph(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @summary Get the current state of the graph
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -2305,6 +2455,17 @@ export class GraphApi extends BaseAPI {
      */
     public getGraphData(options?: RawAxiosRequestConfig) {
         return GraphApiFp(this.configuration).getGraphData(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {File} file 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof GraphApi
+     */
+    public importGraph(file: File, options?: RawAxiosRequestConfig) {
+        return GraphApiFp(this.configuration).importGraph(file, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -2934,45 +3095,6 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
         /**
          * 
          * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateLocationmainPath: async (id: string, mainPathUpdateRequest: mainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'id' is not null or undefined
-            assertParamExists('updateLocationmainPath', 'id', id)
-            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
-            assertParamExists('updateLocationmainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
-            const localVarPath = `/api/locations/{id}/mainPath`
-                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-
-    
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -3087,6 +3209,45 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
                 options: localVarRequestOptions,
             };
         },
+        /**
+         * 
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationmainPath: async (id: string, mainPathUpdateRequest: MainPathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationmainPath', 'id', id)
+            // verify required parameter 'mainPathUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationmainPath', 'mainPathUpdateRequest', mainPathUpdateRequest)
+            const localVarPath = `/api/locations/{id}/mainPath`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+    
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(mainPathUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
     }
 };
 
@@ -3186,19 +3347,6 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
         /**
          * 
          * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationmainPath(id, mainPathUpdateRequest, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationmainPath']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -3233,6 +3381,19 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationSpeed(id, speedUpdateRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationSpeed']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationmainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationmainPath(id, mainPathUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationmainPath']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -3313,16 +3474,6 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
         /**
          * 
          * @param {string} id 
-         * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
-            return localVarFp.updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @param {string} id 
          * @param {LengthUpdateRequest} lengthUpdateRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -3349,6 +3500,16 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          */
         updateLocationSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateLocationSpeed(id, speedUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @param {string} id 
+         * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationmainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -3442,18 +3603,6 @@ export class LocationControllerApi extends BaseAPI {
     /**
      * 
      * @param {string} id 
-     * @param {mainPathUpdateRequest} mainPathUpdateRequest 
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof LocationControllerApi
-     */
-    public updateLocationmainPath(id: string, mainPathUpdateRequest: mainPathUpdateRequest, options?: RawAxiosRequestConfig) {
-        return LocationControllerApiFp(this.configuration).updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @param {string} id 
      * @param {LengthUpdateRequest} lengthUpdateRequest 
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -3485,6 +3634,18 @@ export class LocationControllerApi extends BaseAPI {
      */
     public updateLocationSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig) {
         return LocationControllerApiFp(this.configuration).updateLocationSpeed(id, speedUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @param {string} id 
+     * @param {MainPathUpdateRequest} mainPathUpdateRequest 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationmainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

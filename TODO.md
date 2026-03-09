@@ -12,7 +12,7 @@ stopping conveyour
 
 TODO:
 
-need to hide items on a chute (be and fe) - then increase the count..
+see if its better without remove add itemds each time
 import export graph
 items are not disappearing on exit (sometimes)
 add edit of location type

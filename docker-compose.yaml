@@ -41,7 +41,7 @@ services:
       - app-network
 
   orientdb:
-    image: orientdb:3.2.2
+    image: orientdb:3.2.50
     container_name: flunav_orientdb
     environment:
       ORIENTDB_ROOT_PASSWORD: ${ORIENTDB_ROOT_PASSWORD}

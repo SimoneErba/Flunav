@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Item;
+import com.flunav.backend.exception.DuplicateItemException;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
@@ -104,12 +105,8 @@ public class ItemService {
                 item = vertexToItem(itemInDb);
             }
         } catch (Exception e) {
-            logger.warn("Could not fetch item {} from OrientDB, might be a simulation test", id);
-        }
-
-        if (item == null) {
-            // Fallback for simulation tests: create a dummy item with the ID
-            item = new Item(id, "Mock Item", true, new HashMap<>());
+            logger.error("Could not fetch item {} from OrientDB", id);
+            return null;
         }
 
         // 2. Fetch Live State
@@ -133,7 +130,7 @@ public class ItemService {
             orientDBService.withTransaction(db -> {
 
                 if (db != null && OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
-                    throw new IllegalArgumentException("Item with ID " + itemInput.getId() + " already exists.");
+                    throw new DuplicateItemException("Item with ID " + itemInput.getId() + " already exists.");
                 }
 
                 // 1. Create Master Record in OrientDB
@@ -172,6 +169,10 @@ public class ItemService {
                         null,
                         null);
             });
+        } catch (DuplicateItemException e) {
+            // We know exactly what this is, so just re-throw it for the processor to
+            // handle.
+            throw e;
         } catch (Exception e) {
             // It's good practice to re-throw with context
             throw new RuntimeException("Error creating item " + itemInput.getId(), e);
