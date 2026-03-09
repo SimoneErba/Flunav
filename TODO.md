@@ -13,6 +13,7 @@ stopping conveyour
 TODO:
 
 need to hide items on a chute (be and fe) - then increase the count..
+import export graph
 items are not disappearing on exit (sometimes)
 add edit of location type
 color input is out of the page
