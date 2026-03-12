@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.exception.DuplicateItemException;
 import com.orientechnologies.orient.core.db.ODatabasePool;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.ODatabaseType;
@@ -129,6 +130,8 @@ public class OrientDBService {
                 session.activateOnCurrentThread();
                 session.commit();
                 logger.debug("Transaction committed successfully.");
+            } catch (DuplicateItemException e) {
+                // Known business case — no rollback needed, nothing was written
             } catch (Exception e) {
                 logger.error("Error during transactional callback. Initiating rollback.", e);
                 if (!session.isClosed() && session.getTransaction().isActive()) {
