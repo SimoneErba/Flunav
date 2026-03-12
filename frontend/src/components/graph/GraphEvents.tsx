@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
-import { GraphData, ItemResponse } from "../../api-client/api";
+import { DisplayRuleColorResult, GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "../editors/edge.editor";
 import { NodeEditor } from "../editors/node.editor";
 
@@ -21,16 +21,17 @@ interface GraphEventsProps {
   setHoverTarget: (t: HoverTarget | null) => void;
   selectedItemData: any | null;
   setSelectedItemData: (d: any | null) => void;
+  colorOverrides?: DisplayRuleColorResult | null;
 }
 
 export const GraphEvents = ({ 
     initialGraphData, simulationId, simTime,
-    hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData 
+    hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData, colorOverrides
 }: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
   
   // 1. Load Data
-  useGraphLoader(initialGraphData, activeItemsRef);
+  useGraphLoader(initialGraphData, activeItemsRef, colorOverrides);
 
   // 2. Handle WebSockets & Speed Adjustments
   const { adjustItemsForSpeedChange } = useGraphLiveEvents(activeItemsRef, simulationId, simTime);

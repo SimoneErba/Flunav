@@ -38,7 +38,8 @@ public class DisplayRulesService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
-    public DisplayRulesService(OrientDBService orientDBService, StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public DisplayRulesService(OrientDBService orientDBService, StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper) {
         this.orientDBService = orientDBService;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -53,7 +54,11 @@ public class DisplayRulesService {
     }
 
     public boolean applies(Map<String, Object> properties, DisplayRule rule) {
-        Object propValue = properties.get(rule.getFieldName());
+        Object propValue = properties.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(rule.getFieldName()))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(null);
         if (propValue == null || rule.getOperator() == null) {
             return false;
         }
@@ -116,7 +121,8 @@ public class DisplayRulesService {
         String cachedJson = redisTemplate.opsForValue().get(key);
         if (cachedJson != null) {
             try {
-                return objectMapper.readValue(cachedJson, new TypeReference<List<DisplayRule>>() {});
+                return objectMapper.readValue(cachedJson, new TypeReference<List<DisplayRule>>() {
+                });
             } catch (JsonProcessingException e) {
                 logger.warn("Failed to parse display rules from cache", e);
             }
@@ -125,9 +131,11 @@ public class DisplayRulesService {
         // 2. Fetch from DB
         try (ODatabaseSession session = orientDBService.getSession()) {
             List<DisplayRule> rules = new ArrayList<>();
-            if (session == null) return rules;
+            if (session == null)
+                return rules;
             OResultSet rs = session.query("SELECT FROM " + DISPLAY_RULES_CLASS);
-            if (rs == null) return rules;
+            if (rs == null)
+                return rules;
             if (rs.hasNext()) {
                 OResult result = rs.next();
                 OElement element = result.getElement().orElse(null);

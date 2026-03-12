@@ -3,12 +3,15 @@ package com.flunav.backend.services;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
+import com.flunav.backend.models.response.DisplayRuleColorResult;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
+
+import flunav.types.DisplayRule;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class GraphService {
@@ -191,6 +195,32 @@ public class GraphService {
             redisRepository.deleteItems(itemsToRemove);
         }
         return activeItems;
+    }
+
+    public DisplayRuleColorResult computeColors(List<DisplayRule> rules) {
+        Topology topology = fetchTopology();
+
+        Map<String, String> locationColors = topology.nodeMap.entrySet().stream()
+                .filter(e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules) != null)
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules)));
+
+        Map<String, String> conveyorColors = topology.conveyorMap.entrySet().stream()
+                .filter(e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules) != null)
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules)));
+
+        // Items need live state — fetch only IDs + properties, no physics calculation
+        Map<String, Map<String, Object>> items = fetchItemProperties();
+        Map<String, String> itemColors = items.entrySet().stream()
+                .filter(e -> displayRulesService.applyDisplayRules(e.getValue(), rules) != null)
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> displayRulesService.applyDisplayRules(e.getValue(), rules)));
+
+        return new DisplayRuleColorResult(itemColors, locationColors, conveyorColors);
     }
 
     private Map<String, Map<String, Object>> fetchItemProperties() {

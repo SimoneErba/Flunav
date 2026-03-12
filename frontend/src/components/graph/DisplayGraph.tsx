@@ -3,7 +3,7 @@ import { SigmaContainer } from "@react-sigma/core";
 import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
 
-import { GraphData } from "../../api-client/api";
+import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
 import { GraphEvents } from "./GraphEvents";
 import { GraphHighlighter } from "./GraphHighlighter";
 
@@ -11,6 +11,7 @@ interface DisplayGraphProps {
     initialGraphData: GraphData;
     simulationId?: string;
     simTime: number;
+    colorOverrides?: DisplayRuleColorResult | null;
 }
 
 export interface HoverTarget {
@@ -23,7 +24,8 @@ export interface HoverTarget {
 export const DisplayGraph = ({ 
     initialGraphData, 
     simulationId,
-    simTime
+    simTime,
+    colorOverrides
 }: DisplayGraphProps) => {
     
     const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
@@ -61,6 +63,7 @@ export const DisplayGraph = ({
                     setHoverTarget={setHoverTarget}
                     selectedItemData={selectedItemData}
                     setSelectedItemData={setSelectedItemData}
+                    colorOverrides={colorOverrides}
                 />
             </SigmaContainer>
         </div>

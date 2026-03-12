@@ -1,15 +1,18 @@
 import { useEffect } from "react";
-import { useLoadGraph } from "@react-sigma/core";
+import { useLoadGraph, useSigma } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
-import { GraphData, ConveyorResponse, ItemResponse } from "../../../api-client/api";
+import { GraphData, ConveyorResponse, ItemResponse, DisplayRuleColorResult } from "../../../api-client/api";
 import { hashToNumber } from "../utils/graphUtils";
 
 export const useGraphLoader = (
     initialGraphData: GraphData,
-    activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>
+    activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
+    colorOverrides?: DisplayRuleColorResult | null
 ) => {
     const loadGraph = useLoadGraph();
+    const sigma = useSigma();
 
+    // --- EXISTING: Full graph reload when data changes ---
     useEffect(() => {
         const graph = new MultiDirectedGraph();
 
@@ -27,11 +30,11 @@ export const useGraphLoader = (
                 locationType: loc.type,
                 properties: loc.properties,
                 customColor: loc.customColor,
-                itemsInChute: [] as ItemResponse[],  // <-- chute storage
+                itemsInChute: [] as ItemResponse[],
             });
         });
 
-        // 2. Conveyors (unchanged)
+        // 2. Conveyors
         const conveyorLookup = new Map<string, ConveyorResponse>();
         initialGraphData?.conveyors?.forEach((conv) => {
             conveyorLookup.set(conv.id!, conv);
@@ -61,7 +64,7 @@ export const useGraphLoader = (
             const isInChute =
                 item.locationId &&
                 graph.hasNode(item.locationId) &&
-                graph.getNodeAttribute(item.locationId, "locationType") === "CHUTE"; // adjust to your type value
+                graph.getNodeAttribute(item.locationId, "locationType") === "CHUTE";
 
             if (isInChute) {
                 const existing: ItemResponse[] = graph.getNodeAttribute(item.locationId!, "itemsInChute") ?? [];
@@ -112,4 +115,42 @@ export const useGraphLoader = (
 
         loadGraph(graph);
     }, [activeItemsRef, initialGraphData, loadGraph]);
+
+    // --- NEW: Patch colors only — no graph reload, no position reset ---
+    useEffect(() => {
+        if (!colorOverrides) return;
+        const graph = sigma.getGraph();
+
+        // Patch location node colors
+        graph.forEachNode((nodeId, attrs) => {
+            if (attrs.isItem) {
+                // Item node — patch color + update ref
+                const newColor = colorOverrides.itemColors?.[nodeId];
+                const color = newColor ?? attrs.customColor ?? "#FF0000";
+                graph.setNodeAttribute(nodeId, "color", color);
+
+                // Keep the ref in sync so the animation loop sees the new color
+                const item = activeItemsRef.current.get(nodeId);
+                if (item) item.customColor = newColor ?? null;
+            } else {
+                // Location node
+                const newColor = colorOverrides.locationColors?.[nodeId];
+                const color = newColor ?? attrs.customColor ?? "#69b3a2";
+                graph.setNodeAttribute(nodeId, "color", color);
+            }
+        });
+
+        // Patch conveyor edge colors
+        graph.forEachEdge((edgeId, attrs) => {
+            const newColor = colorOverrides.conveyorColors?.[edgeId];
+            if (newColor !== undefined) {
+                graph.setEdgeAttribute(edgeId, "color", newColor);
+                graph.setEdgeAttribute(edgeId, "originalColor", newColor);
+            } else if (attrs.customColor) {
+                graph.setEdgeAttribute(edgeId, "color", attrs.customColor);
+            }
+        });
+
+        sigma.refresh();
+    }, [colorOverrides, sigma, activeItemsRef]);
 };

@@ -1,37 +1,33 @@
 import React, { useRef, useState, useEffect, useCallback, memo } from "react";
 import { useApi } from "../hooks/useApi";
-import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from "../api-client";
+import { DisplayRule, DisplayRuleColorResult, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from "../api-client";
 import toast from "react-hot-toast";
 import { RuleRow } from "./editors/RuleRow";
-import { v4 as uuidv4 } from 'uuid'; // Use uuid for reliable keys if available, otherwise simpler generator
+import { v4 as uuidv4 } from 'uuid';
 import { ComponentAnalytics } from "./analytics/ComponentAnalytics";
 import { PathAnalytics } from "./analytics/PathAnalytics";
 
-// Extended type for local state with ID
 type ExtendedDisplayRule = DisplayRule & { _localId: string };
 type TabType = 'settings' | 'charts';
+type DockSide = 'left' | 'right' | 'bottom';
 
 // --- ICONS ---
 const IconDockLeft = (props: any) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    <line x1="9" y1="3" x2="9" y2="21" />
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="9" y1="3" x2="9" y2="21" />
   </svg>
 );
 const IconDockBottom = (props: any) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    <line x1="3" y1="15" x2="21" y2="15" />
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="15" x2="21" y2="15" />
   </svg>
 );
 const IconDockRight = (props: any) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    <line x1="15" y1="3" x2="15" y2="21" />
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="15" y1="3" x2="15" y2="21" />
   </svg>
 );
 
-// --- Dock Button ---
 const DockButton = memo(({ Svg, isActive, onClick }: { Svg: React.FC<any>, isActive: boolean, onClick: () => void }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -41,25 +37,55 @@ const DockButton = memo(({ Svg, isActive, onClick }: { Svg: React.FC<any>, isAct
   </button>
 ));
 
-// --- SettingsPanel ---
-type DockSide = 'left' | 'right' | 'bottom';
+interface SettingsPanelProps {
+  onColorsUpdated: (result: DisplayRuleColorResult) => void;
+}
 
-const SettingsPanel = () => {
+const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [dockSide, setDockSide] = useState<DockSide>('bottom');
   const [rules, setRules] = useState<ExtendedDisplayRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-   const [activeTab, setActiveTab] = useState<TabType>('settings');
+  const [activeTab, setActiveTab] = useState<TabType>('settings');
 
   const { displayRuleApi } = useApi();
+
+  // --- Panel ref for click-outside ---
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // --- Dimensions ---
   const [dimensions, setDimensions] = useState({ width: 350, height: 300 });
   const startPos = useRef(0);
   const startDim = useRef(0);
   const raf = useRef<number | null>(null);
+
+  // --- Click outside to close ---
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        e.stopPropagation();
+        e.preventDefault();
+        setIsExpanded(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
+      document.addEventListener('pointerdown', handleClickOutside, true);
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('pointerdown', handleClickOutside, true);
+    };
+  }, [isExpanded]);
 
   const startResize = (e: React.PointerEvent) => {
     startPos.current = dockSide === 'bottom' ? e.clientY : e.clientX;
@@ -72,19 +98,12 @@ const SettingsPanel = () => {
   const onResize = (e: PointerEvent) => {
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = requestAnimationFrame(() => {
-        let delta;
-        if (dockSide === 'bottom') {
-            delta = startPos.current - e.clientY;
-        } else if (dockSide === 'left') {
-            delta = e.clientX - startPos.current;
-        } else { // 'right'
-            delta = startPos.current - e.clientX;
-        }
-        const newSize = Math.max(200, startDim.current + delta);
-        setDimensions(prev => ({
-            ...prev,
-            [dockSide === 'bottom' ? 'height' : 'width']: newSize
-        }));
+      let delta;
+      if (dockSide === 'bottom') delta = startPos.current - e.clientY;
+      else if (dockSide === 'left') delta = e.clientX - startPos.current;
+      else delta = startPos.current - e.clientX;
+      const newSize = Math.max(200, startDim.current + delta);
+      setDimensions(prev => ({ ...prev, [dockSide === 'bottom' ? 'height' : 'width']: newSize }));
     });
   };
 
@@ -115,16 +134,12 @@ const SettingsPanel = () => {
   const sendRules = async () => {
     try {
       setSaving(true);
-      // Clean local ID and assign Priority based on index (1-based)
       const rulesToSend = rules.map((r, index) => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { _localId, ...rest } = r;
-        return {
-            ...rest,
-            priority: index + 1
-        };
+        return { ...rest, priority: index + 1 };
       });
-      await displayRuleApi.updateDisplayRules(rulesToSend);
+      const result = (await displayRuleApi.updateDisplayRules(rulesToSend)).data;
+      onColorsUpdated(result);
       toast.success("Rules saved successfully!");
     } catch (err) {
       console.error(err);
@@ -138,12 +153,8 @@ const SettingsPanel = () => {
     try {
       setLoading(true);
       const backendRules = (await displayRuleApi.getDisplayRules()).data;
-      // Sort by priority if available
       backendRules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-      
-      // Assign local stable IDs
-      const rulesWithIds = backendRules.map(r => ({ ...r, _localId: uuidv4() }));
-      setRules(rulesWithIds);
+      setRules(backendRules.map(r => ({ ...r, _localId: uuidv4() })));
     } catch (err) {
       console.error(err);
     } finally {
@@ -153,30 +164,23 @@ const SettingsPanel = () => {
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
 
-  // --- Drag & Drop Handlers ---
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index);
-  };
+  // --- Drag & Drop ---
+  const handleDragStart = (index: number) => setDraggedIndex(index);
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault(); // Necessary to allow dropping
+    e.preventDefault();
     if (draggedIndex === null || draggedIndex === index) return;
-
-    // Live swapping
     setRules(prev => {
-        const newRules = [...prev];
-        const draggedItem = newRules[draggedIndex];
-        newRules.splice(draggedIndex, 1);
-        newRules.splice(index, 0, draggedItem);
-        return newRules;
+      const newRules = [...prev];
+      const draggedItem = newRules[draggedIndex];
+      newRules.splice(draggedIndex, 1);
+      newRules.splice(index, 0, draggedItem);
+      return newRules;
     });
     setDraggedIndex(index);
   };
 
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-  };
-
+  const handleDragEnd = () => setDraggedIndex(null);
 
   // --- Collapsed state ---
   if (!isExpanded) {
@@ -211,78 +215,133 @@ const SettingsPanel = () => {
     cursorClass = 'cursor-col-resize w-2 h-full';
   }
 
+  const isSide = dockSide === 'left' || dockSide === 'right';
+
   return (
-    <div style={sideStyles} className={`${containerClasses} ${borderClass}`}>
+    // 👇 panelRef goes on the outermost div — the one with sideStyles
+    <div ref={panelRef} style={sideStyles} className={`${containerClasses} ${borderClass}`}>
+
+      {/* Resize handle */}
       <div
         onPointerDown={startResize}
         className={`${cursorClass} bg-transparent hover:bg-gray-200 dark:hover:bg-white/20 transition-colors shrink-0 z-50`}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="flex justify-between items-center px-4 py-2 border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-black/20 shrink-0">
-          <strong className="text-base">Display Rules</strong>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
 
-          <div className="flex items-center gap-3">
-                  <button
-                     onClick={() => setActiveTab('settings')}
-                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === 'settings'
-                           ? 'bg-blue-600 text-white dark:bg-blue-500'
-                           : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                     }`}
-                  >
-                     Settings
-                  </button>
-                  <button
-                     onClick={() => setActiveTab('charts')}
-                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === 'charts'
-                           ? 'bg-blue-600 text-white dark:bg-blue-500'
-                           : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                     }`}
-                  >
-                     Charts
-                  </button>
-            <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
-              <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
-              <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
-              <DockButton Svg={IconDockRight} isActive={dockSide === 'right'} onClick={() => setDockSide('right')} />
-            </div>
-
-            <button
-              onClick={() => setIsExpanded(false)}
-              className="text-gray-900 dark:text-white hover:text-red-500 w-6 h-6 flex items-center justify-center rounded transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {activeTab === "settings" ? (
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
-          {loading ? (
-            <div className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">Loading rules...</div>
-          ) : (
-            rules.map((rule, idx) => (
-              <div
-                key={rule._localId}
-                draggable
-                onDragStart={() => handleDragStart(idx)}
-                onDragOver={(e) => handleDragOver(e, idx)}
-                onDragEnd={handleDragEnd}
-                className={`transition-opacity ${draggedIndex === idx ? 'opacity-50' : 'opacity-100'}`}
+        {/* Header */}
+        {isSide ? (
+          // --- Side panels: two rows ---
+          <div className="border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-black/20 shrink-0">
+            {/* Row 1: Title + Close */}
+            <div className="flex justify-between items-center px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+              <strong className="text-base">Display Rules</strong>
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="text-gray-500 dark:text-gray-400 hover:text-red-500 w-6 h-6 flex items-center justify-center rounded transition-colors"
               >
-                <RuleRow
-                  rule={rule}
-                  onChange={updated => updateRule(idx, updated)}
-                  onDelete={() => deleteRule(idx)}
-                  orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
-                />
+                ✕
+              </button>
+            </div>
+            {/* Row 2: Tab buttons + Dock buttons */}
+            <div className="flex items-center justify-between px-3 py-1.5 gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    activeTab === 'settings'
+                      ? 'bg-blue-600 text-white dark:bg-blue-500'
+                      : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Settings
+                </button>
+                <button
+                  onClick={() => setActiveTab('charts')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    activeTab === 'charts'
+                      ? 'bg-blue-600 text-white dark:bg-blue-500'
+                      : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Charts
+                </button>
               </div>
-            ))
-          )}
+              <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
+                <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
+                <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
+                <DockButton Svg={IconDockRight} isActive={dockSide === 'right'} onClick={() => setDockSide('right')} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          // --- Bottom panel: single row ---
+          <div className="flex justify-between items-center px-4 py-2 border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-black/20 shrink-0">
+            <strong className="text-base">Display Rules</strong>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'settings'
+                    ? 'bg-blue-600 text-white dark:bg-blue-500'
+                    : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                Settings
+              </button>
+              <button
+                onClick={() => setActiveTab('charts')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'charts'
+                    ? 'bg-blue-600 text-white dark:bg-blue-500'
+                    : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                Charts
+              </button>
+              <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
+                <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
+                <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
+                <DockButton Svg={IconDockRight} isActive={dockSide === 'right'} onClick={() => setDockSide('right')} />
+              </div>
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="text-gray-900 dark:text-white hover:text-red-500 w-6 h-6 flex items-center justify-center rounded transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
-          <div className={`flex gap-2 ${dockSide === 'bottom' ? 'flex-row' : 'flex-col'}`}>
+        {/* Content */}
+        {activeTab === "settings" ? (
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+            {loading ? (
+              <div className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">Loading rules...</div>
+            ) : (
+              rules.map((rule, idx) => (
+                <div
+                  key={rule._localId}
+                  draggable
+                  onDragStart={() => handleDragStart(idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  className={`transition-opacity ${draggedIndex === idx ? 'opacity-50' : 'opacity-100'}`}
+                >
+                  <RuleRow
+                    rule={rule}
+                    onChange={updated => updateRule(idx, updated)}
+                    onDelete={() => deleteRule(idx)}
+                    orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
+                    // Pass dock position so RuleRow can flip the color picker direction
+                    dockSide={dockSide}
+                  />
+                </div>
+              ))
+            )}
+
+            <div className={`flex gap-2 ${dockSide === 'bottom' ? 'flex-row' : 'flex-col'}`}>
               <button
                 onClick={addRule}
                 className="cursor-pointer mt-1 w-full py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900/20 border border-dashed border-blue-300 rounded transition-colors flex items-center justify-center gap-1"
@@ -294,24 +353,26 @@ const SettingsPanel = () => {
                 onClick={sendRules}
                 disabled={saving || rules.length === 0}
                 className={`mt-1 w-full py-2 text-sm font-semibold rounded ${
-                  saving || rules.length === 0 ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-600 dark:text-gray-400' : 'bg-green-600 hover:bg-green-700 text-white'
+                  saving || rules.length === 0
+                    ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-600 dark:text-gray-400'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
                 } transition-colors`}
               >
                 {saving ? "Saving..." : "Save Changes"}
               </button>
-          </div>
-        </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900">
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                  <PathAnalytics />
-              </div>
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Component Analytics</h3>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                  <ComponentAnalytics />
-              </div>
             </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+              <PathAnalytics />
+            </div>
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Component Analytics</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+              <ComponentAnalytics />
+            </div>
+          </div>
         )}
       </div>
     </div>

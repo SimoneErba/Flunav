@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, Link } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -16,7 +16,7 @@ import { useSimulationClock } from './components/graph/hooks/useSimulationClock'
 import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
 import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
 import { useApi } from './hooks/useApi';
-import { SimulationStateResponseStatusEnum } from "./api-client/api";
+import { DisplayRuleColorResult, SimulationStateResponseStatusEnum } from "./api-client/api";
 
 // --- CONTEXTS ---
 import { GraphThemeProvider } from './context/theme.context';
@@ -52,6 +52,7 @@ function LiveWorkspace() {
    const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
    const [isSelectingDate, setIsSelectingDate] = useState(false);
    const [showLiveAnalysis, setShowLiveAnalysis] = useState(false);
+  const [colorOverrides, setColorOverrides] = useState<DisplayRuleColorResult | null>(null);
 
   // --- Hooks ---
   const { graphData, loading: graphLoading, refetchGraphData, error: graphError } = useGraph();
@@ -76,6 +77,9 @@ function LiveWorkspace() {
     return (new Date(selectedDate.getTime() - offset)).toISOString().slice(0, 16);
   }, [selectedDate]);
 
+  const updateColors = useCallback((result: DisplayRuleColorResult) => {
+      setColorOverrides(result);
+  }, []);
   // --- Handlers ---
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
@@ -285,11 +289,12 @@ function LiveWorkspace() {
             initialGraphData={graphData} 
             simulationId={activeSimulation?.id}
             simTime={simTime}
+            colorOverrides={colorOverrides}
           />
         )}
       </main>
       
-       <LiveAnalysisPanel />
+       <LiveAnalysisPanel onColorsUpdated={updateColors} />
     </div>
   );
 }

@@ -463,6 +463,31 @@ export type DisplayRuleOperatorEnum = typeof DisplayRuleOperatorEnum[keyof typeo
 /**
  * 
  * @export
+ * @interface DisplayRuleColorResult
+ */
+export interface DisplayRuleColorResult {
+    /**
+     * 
+     * @type {{ [key: string]: string; }}
+     * @memberof DisplayRuleColorResult
+     */
+    'itemColors'?: { [key: string]: string; };
+    /**
+     * 
+     * @type {{ [key: string]: string; }}
+     * @memberof DisplayRuleColorResult
+     */
+    'locationColors'?: { [key: string]: string; };
+    /**
+     * 
+     * @type {{ [key: string]: string; }}
+     * @memberof DisplayRuleColorResult
+     */
+    'conveyorColors'?: { [key: string]: string; };
+}
+/**
+ * 
+ * @export
  * @interface GraphData
  */
 export interface GraphData {
@@ -2173,7 +2198,7 @@ export const DisplayRulesControllerApiFp = function(configuration?: Configuratio
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+        async updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DisplayRuleColorResult>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateDisplayRules(displayRule, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['DisplayRulesControllerApi.updateDisplayRules']?.[localVarOperationServerIndex]?.url;
@@ -2203,7 +2228,7 @@ export const DisplayRulesControllerApiFactory = function (configuration?: Config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+        updateDisplayRules(displayRule: Array<DisplayRule>, options?: RawAxiosRequestConfig): AxiosPromise<DisplayRuleColorResult> {
             return localVarFp.updateDisplayRules(displayRule, options).then((request) => request(axios, basePath));
         },
     };
