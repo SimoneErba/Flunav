@@ -8,22 +8,22 @@ allow items to move in the middle of a coveyour. not just locations. add a param
 check if on amssive graph items become big. check massive graph reformance
 
 stopping conveyour
+add edit of location type
+import export graph
+
 ---
 
 TODO:
 
-see if its better without remove add itemds each time
-import export graph
-items are not disappearing on exit (sometimes)
-add edit of location type
-color input is out of the page
 attese, ricircoli
 for analytics, count items exite not deleted
+simualte into the future. just skip events form clickhouse
+fast forward fromt he present (create a simulation)
+backwards mode (need ot add a revert actio to some event)
 
 see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode
 edit active simulations to see "what if"
-outlet box: save to orient db only if websocket can be sent (transaction)
 page to see item history
 add del, enter shortcuts
 chatbot to ask about item history or location events

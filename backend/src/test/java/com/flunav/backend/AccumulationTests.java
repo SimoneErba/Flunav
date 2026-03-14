@@ -57,8 +57,6 @@ class AccumulationTests extends BaseIntegrationTest {
                 sim.stubLocation("junction", "Junction", LocationType.JUNCTION);
 
                 // Stub chute with capacity 1
-                com.flunav.backend.domain.Location chute = new com.flunav.backend.domain.Location("chute", "Chute",
-                                LocationType.CHUTE, true, new HashMap<>(), 0.0, 0.0, 1);
                 sim.stubLocation("chute", "Chute", LocationType.CHUTE);
 
                 sim.stubLocation("end", "End", LocationType.GENERIC);
@@ -75,7 +73,7 @@ class AccumulationTests extends BaseIntegrationTest {
                 }
 
                 // Create item that WANTS to go to chute
-                sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "conv1", PositionType.CONVEYOR, 0.0,
+                sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                                 new HashMap<>(), start));
                 sim.applyEvent(new flunav.events.ItemDestinationEvent("item-1", "chute"));
 

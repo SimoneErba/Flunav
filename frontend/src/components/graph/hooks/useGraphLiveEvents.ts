@@ -64,6 +64,7 @@ export const useGraphLiveEvents = (
 
         // 1. Position Update
         unsubscribers.push(subscribeToPositionUpdates((update) => {
+            console.log("Got item position chnaged");
             if (!graph.hasNode(update.itemId)) return;
 
             // FIX: Handle LOST status (Item removed from system)
@@ -74,6 +75,7 @@ export const useGraphLiveEvents = (
             }
 
             const currentItem = activeItemsRef.current.get(update.itemId);
+            console.log("curent item", currentItem)
             if (currentItem) {
                 const isConveyor = update.type === 'CONVEYOR';
                 const updatedItem = {
@@ -85,6 +87,7 @@ export const useGraphLiveEvents = (
                 };
                 
                 activeItemsRef.current.set(update.itemId, updatedItem);
+                console.log("curent item", currentItem)
 
                 // Update graph node logical state
                 graph.setNodeAttribute(update.itemId, "currentEdgeId", updatedItem.currentEdgeId);

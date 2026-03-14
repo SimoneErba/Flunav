@@ -40,6 +40,7 @@ public class LiveSystemScheduler {
         } else {
             ScheduledFuture<?> future = scheduler.schedule(() -> {
                 try {
+                    logger.info("PROCESSING SCHEDULED EVENT {}", event.getEventType());
                     scheduledTasksByItem.remove(itemId);
                     eventProcessor.process(event, true);
                 } catch (Exception e) {

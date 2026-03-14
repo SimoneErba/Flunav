@@ -52,7 +52,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item at the start of the conveyor
-        sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, conveyorId, PositionType.CONVEYOR, 0.0,
+        sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, startLocId, PositionType.LOCATION, 0.0,
                 new HashMap<>(), startTime));
 
         // 2. Advance 5 seconds - should be at 50% (5m / 10m)
@@ -84,7 +84,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item
-        sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, conveyorId, PositionType.CONVEYOR, 0.0,
+        sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, startLocId, PositionType.LOCATION, 0.0,
                 new HashMap<>(), startTime));
 
         // 2. Advance 2 seconds -> progress 0.2

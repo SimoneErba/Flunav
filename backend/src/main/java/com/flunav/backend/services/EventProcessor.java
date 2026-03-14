@@ -59,6 +59,7 @@ public class EventProcessor {
     private final TopologyProvider topologyProvider;
     private final boolean manageLogic;
     private final LocationService locationService;
+    private final ItemMovementProcessor itemMovementProcessor;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -82,6 +83,7 @@ public class EventProcessor {
             @Value("${rabbitmq.routing-key.item-events}") String itemEventsRoutingKey,
             TimeService timeService,
             TopologyProvider topologyProvider,
+            ItemMovementProcessor itemMovementProcessor,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -99,6 +101,7 @@ public class EventProcessor {
         this.itemEventsRoutingKey = itemEventsRoutingKey;
         this.timeService = timeService;
         this.topologyProvider = topologyProvider;
+        this.itemMovementProcessor = itemMovementProcessor;
         this.manageLogic = manageLogic;
     }
 
@@ -229,14 +232,12 @@ public class EventProcessor {
                             if (positionType == PositionType.CONVEYOR) {
                                 liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
                                         e.getTimestamp());
-                                handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(), e.getTimestamp(),
+                                itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(),
+                                        e.getTimestamp(),
                                         e.getProgress(), null);
                             } else {
-                                var location = topologyProvider.getLocationById(item.getLocationId());
-                                // Only store items in locations that act as buffers (e.g., Chutes)
-                                if (location != null && location.getType() == LocationType.CHUTE) {
-                                    liveLocationRepository.addItemToLocation(item.getLocationId(), e.getEntityId());
-                                }
+                                itemMovementProcessor.processLocationEntry(e.getEntityId(), item.getLocationId(),
+                                        e.getTimestamp());
                             }
                         }
 
@@ -256,10 +257,6 @@ public class EventProcessor {
 
                 case ItemPositionChangedEvent e -> {
                     var positionType = topologyProvider.getPositionType(e.getLocationId());
-                    Location location = null;
-                    if (positionType == PositionType.LOCATION) {
-                        location = locationService.getLocationById(e.getLocationId());
-                    }
 
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = lastState.getPositionId();
@@ -286,8 +283,9 @@ public class EventProcessor {
                                 positionType)) {
                             List<String> path = pathfindingService.calculateShortestPath(previousPosId,
                                     lastPositionType, e.getLocationId());
-                            publishEvent(new PathTraversedEvent(e.getEntityId(), previousPosId, lastPositionType,
-                                    e.getLocationId(), positionType, path));
+                            itemMovementProcessor.publishEvent(
+                                    new PathTraversedEvent(e.getEntityId(), previousPosId, lastPositionType,
+                                            e.getLocationId(), positionType, path));
                         }
                     }
 
@@ -297,13 +295,12 @@ public class EventProcessor {
                     // --- ADD TO NEW POSITION ---
                     if (positionType == PositionType.CONVEYOR) {
                         liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId(), e.getTimestamp());
-                        handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(), e.getTimestamp(), e.getProgress(),
+                        itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(),
+                                e.getTimestamp(), e.getProgress(),
                                 previousPosId);
                     } else {
-                        // Only add if it's a buffer location
-                        if (location != null && location.getType() == LocationType.CHUTE) {
-                            liveLocationRepository.addItemToLocation(e.getLocationId(), e.getEntityId());
-                        }
+                        itemMovementProcessor.processLocationEntry(e.getEntityId(), e.getLocationId(),
+                                e.getTimestamp());
                     }
 
                     if (shouldBroadcast) {
@@ -318,7 +315,7 @@ public class EventProcessor {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     // This logic is now handled by liveItemRepository.deleteItem(), which is more
                     // robust
-                    cancelScheduledEvent(e.getEntityId());
+                    itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
                     if (shouldBroadcast)
                         webSocketService.broadcastPositionLost(e.getEntityId(), e.getTimestamp());
@@ -348,7 +345,7 @@ public class EventProcessor {
                 case ItemDeactivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", false)));
-                    cancelScheduledEvent(e.getEntityId());
+                    itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(
                                 new UpdateModel(item.getId(), Map.of("active", false)), e.getTimestamp());
@@ -386,12 +383,13 @@ public class EventProcessor {
                     if (lastState != null) {
                         // TODO: do we really need to fire these events for analytics?
                         if (lastState.getPositionId() != null && lastState.getType() != null) {
-                            publishEvent(new PathTraversedEvent(e.getEntityId(), lastState.getPositionId(),
-                                    lastState.getType(), lastState.getPositionId(),
-                                    lastState.getType(), List.of(lastState.getPositionId())));
+                            itemMovementProcessor
+                                    .publishEvent(new PathTraversedEvent(e.getEntityId(), lastState.getPositionId(),
+                                            lastState.getType(), lastState.getPositionId(),
+                                            lastState.getType(), List.of(lastState.getPositionId())));
                         }
                     }
-                    cancelScheduledEvent(e.getEntityId());
+                    itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
                     liveItemRepository.deleteItem(e.getEntityId());
 
@@ -511,8 +509,8 @@ public class EventProcessor {
                         conveyor.setSpeed(e.getSpeed());
                         conveyorService.updateConveyor(conveyor);
                         if (manageLogic && oldSpeed <= 0 && e.getSpeed() > 0) {
-                            recalculateConveyorAccumulation(e.getEntityId());
-                            wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
+                            itemMovementProcessor.recalculateConveyorAccumulation(e.getEntityId());
+                            itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
                         }
                         if (shouldBroadcast)
                             webSocketService.broadcastConnectionUpdated(
@@ -532,7 +530,7 @@ public class EventProcessor {
                         webSocketService.broadcastChuteEmptied(e.getEntityId(), e.getTimestamp());
 
                     if (manageLogic) {
-                        wakeUpPrecedingConveyors(e.getEntityId());
+                        itemMovementProcessor.wakeUpPrecedingConveyors(e.getEntityId());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -633,235 +631,7 @@ public class EventProcessor {
         });
     }
 
-    private void publishEvent(DomainEvent event) {
-        try {
-            amqpTemplate.convertAndSend(itemEventsRoutingKey, event);
-        } catch (Exception e) {
-            logger.error("Failed to publish event of type {}", event.getEventType(), e);
-        }
-    }
-
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        var allItems = liveConveyorRepository.getItemsOrderedByDistance(edgeId); // Using ordered set now
-        Instant nowInstant = timestamp;
-
-        for (var itemId : allItems) {
-            var itemData = liveItemRepository.getItemState(itemId);
-            var lastUpdateTime = itemData.getEntryTime();
-            Double storedDistance = itemData.getAccumulatedDistance();
-
-            if (lastUpdateTime != null) {
-                long timeElapsed = nowInstant.toEpochMilli() - lastUpdateTime.toEpochMilli();
-                double distanceTraveledSinceLastUpdate = (timeElapsed / 1000.0) * oldSpeed;
-                double totalDistance = storedDistance + distanceTraveledSinceLastUpdate;
-                liveItemRepository.checkpointPhysics(itemId, nowInstant, totalDistance);
-                handleItemEntryToConveyor(itemId, edgeId, nowInstant, (totalDistance / oldSpeed) * 100, null);
-            }
-        }
-    }
-
-    private void handleItemEntryToConveyor(String itemId, String conveyorId, Instant timestamp, Double progress,
-            String previousPosId) {
-        if (progress == null)
-            progress = 0.0;
-        Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
-        if (conveyor == null)
-            return;
-
-        double speed = conveyor.getSpeed();
-        double length = conveyor.getLength();
-        Double minDistance = conveyor.getMinDistance();
-
-        // 1. Handle Stopped Conveyor
-        if (speed <= 0) {
-            cancelScheduledEvent(itemId);
-            Double currentTail = liveConveyorRepository.getTailPosition(conveyorId);
-            double itemDistance = length * (progress / 100.0);
-            if (currentTail == null || itemDistance < currentTail) {
-                liveConveyorRepository.updateTailPosition(conveyorId, itemDistance);
-            }
-            return;
-        }
-
-        double remainingDistance = length * (1.0 - progress / 100.0);
-        long travelTimeMillis = (long) ((remainingDistance / speed) * 1000);
-        Instant arrivalAtEnd = timestamp.plusMillis(travelTimeMillis);
-
-        String nextConveyorId = calculateNextConveyor(itemId, conveyor.getTargetLocationId(), conveyorId);
-
-        if (nextConveyorId != null) {
-            Conveyor nextConv = topologyProvider.getConveyorById(nextConveyorId);
-
-            // --- RECIRCULATION FIX START ---
-            // If the intended path is blocked, try to find an alternative "Main Path" to
-            // keep moving
-            if (isNextSegmentBlocked(nextConv)) {
-                String alternativeId = findRecirculationPath(conveyor.getTargetLocationId(), nextConveyorId);
-                if (alternativeId != null) {
-                    // Update target to the alternative (recirculation) path
-                    nextConveyorId = alternativeId;
-                    nextConv = topologyProvider.getConveyorById(nextConveyorId);
-                }
-            }
-            // --- RECIRCULATION FIX END ---
-
-            if (isNextSegmentBlocked(nextConv)) {
-                // Both primary path AND recirculation path are blocked (or no recirculation
-                // exists).
-                // NOW we stop the item.
-                double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
-                Double nextTail = liveConveyorRepository.getTailPosition(nextConveyorId);
-                if (nextTail == null)
-                    nextTail = 0.0;
-
-                double stopAt = length - (nextTail + effectiveMinDist);
-                if (stopAt < 0)
-                    stopAt = 0;
-
-                double distanceToStop = stopAt - (length * (progress / 100.0));
-
-                if (distanceToStop > 0) {
-                    long timeToStop = (long) ((distanceToStop / speed) * 1000);
-                    scheduleEvent(new ItemPositionChangedEvent(itemId, conveyorId, (stopAt / length) * 100,
-                            timestamp.plusMillis(timeToStop), conveyorId));
-                    liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
-                } else {
-                    cancelScheduledEvent(itemId);
-                    double actualPos = length * (progress / 100.0);
-                    // Force position logic...
-                    if (actualPos > stopAt) {
-                        itemService.updateItemPosition(itemId, conveyorId, PositionType.CONVEYOR, timestamp,
-                                (stopAt / length) * 100, null);
-                        liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
-                    } else {
-                        liveConveyorRepository.updateTailPosition(conveyorId, actualPos);
-                    }
-                }
-            } else {
-                // Path is clear (either original or recirculation), move!
-                scheduleEvent(new ItemPositionChangedEvent(itemId, nextConveyorId, 0.0, arrivalAtEnd, conveyorId));
-                liveConveyorRepository.updateTailPosition(conveyorId, length);
-            }
-        } else {
-            // Logic for item reaching a Location/Chute (keeps item stopped if Chute is
-            // full)
-            var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
-            if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
-                Integer capacity = targetLocation.getCapacity();
-                Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId());
-                if (capacity != null && currentOccupancy >= capacity) {
-                    double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
-                    double stopAt = length - effectiveMinDist;
-                    long timeToStop = (long) (((stopAt - length * (progress / 100.0)) / speed) * 1000);
-                    if (timeToStop > 0)
-                        scheduleEvent(new ItemPositionChangedEvent(itemId, conveyorId, (stopAt / length) * 100,
-                                timestamp.plusMillis(timeToStop), conveyorId));
-                    liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
-                } else {
-                    scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd,
-                            conveyorId));
-                }
-            }
-        }
-    }
-
-    private boolean isNextSegmentBlocked(Conveyor nextConv) {
-        if (nextConv == null)
-            return true;
-        if (!nextConv.isActive())
-            return true;
-
-        var targetLocation = topologyProvider.getLocationById(nextConv.getTargetLocationId());
-        if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
-            Integer capacity = targetLocation.getCapacity();
-            Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId()); // Using accurate count
-            return (capacity != null && currentOccupancy >= capacity);
-        }
-        return false;
-    }
-
-    private void wakeUpPrecedingConveyors(String locationId) {
-        if (!manageLogic)
-            return;
-        topologyProvider.getAllConveyors().stream()
-                .filter(c -> c.getTargetLocationId().equals(locationId))
-                .forEach(c -> recalculateConveyorAccumulation(c.getId()));
-    }
-
-    private void recalculateConveyorAccumulation(String conveyorId) {
-        if (!manageLogic)
-            return;
-        Set<String> items = liveConveyorRepository.getItemsOrderedByDistance(conveyorId); // Using ordered set
-        Instant now = timeService.now();
-        Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
-        if (conveyor == null)
-            return;
-        for (String itemId : items) {
-            var state = liveItemRepository.getItemState(itemId);
-            if (state == null)
-                continue;
-            handleItemEntryToConveyor(itemId, conveyorId, now,
-                    (state.getAccumulatedDistance() / conveyor.getLength()) * 100, null);
-        }
-    }
-
-    private void scheduleEvent(DomainEvent event) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        if (simId != null)
-            simulationService.addInternalEvent(event);
-        else
-            liveSystemScheduler.scheduleInternalEvent(event);
-    }
-
-    private void cancelScheduledEvent(String itemId) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        if (simId != null)
-            simulationService.cancelInternalEvent(itemId);
-        else
-            liveSystemScheduler.cancelInternalEvent(itemId);
-    }
-
-    private String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId) {
-        var item = itemService.getItemById(itemId);
-        List<Conveyor> outgoing = topologyProvider.getOutgoingConveyors(currentLocationId).stream()
-                .filter(Conveyor::isActive).toList();
-        if (outgoing.isEmpty())
-            return null;
-
-        String targetConveyorId = null;
-        if (item.getPath() != null && !item.getPath().isEmpty()) {
-            int currentIndex = item.getPath().indexOf(currentLocationId);
-            if (currentIndex >= 0 && currentIndex < item.getPath().size() - 1) {
-                String nextVertexId = item.getPath().get(currentIndex + 1);
-                targetConveyorId = outgoing.stream().filter(c -> c.getTargetLocationId().equals(nextVertexId))
-                        .map(Conveyor::getId).findFirst().orElse(null);
-            }
-        }
-
-        if (targetConveyorId != null) {
-            Conveyor target = topologyProvider.getConveyorById(targetConveyorId);
-            if (target != null && isNextSegmentBlocked(target)) {
-                // If the target conveyor is blocked (leads to full chute), try to recirculate
-                // on main path
-                return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
-                        .orElse(targetConveyorId);
-            }
-            return targetConveyorId;
-        }
-        return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
-                .orElse(outgoing.get(0).getId());
-    }
-
-    private String findRecirculationPath(String currentLocationId, String blockedConveyorId) {
-        // Find outgoing conveyors from the current location
-        return topologyProvider.getOutgoingConveyors(currentLocationId).stream()
-                .filter(Conveyor::isActive)
-                .filter(c -> c.isMainPath()) // Look for one marked as "Main Path" / Loop
-                .filter(c -> !c.getId().equals(blockedConveyorId)) // Don't pick the one that is blocked
-                .filter(c -> !isNextSegmentBlocked(c)) // Ensure the recirculation path itself isn't blocked
-                .map(Conveyor::getId)
-                .findFirst()
-                .orElse(null);
+        itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
     }
 }

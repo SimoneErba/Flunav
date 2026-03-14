@@ -72,7 +72,7 @@ class SimulationTests extends BaseIntegrationTest {
         sim.stubConveyor("conv1", "start", "end", 10000.0, 1.0, false);
 
         // 1. Create item at start of conveyor
-        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "conv1", PositionType.CONVEYOR, 0.0,
+        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), start));
 
         // 2. Advance 5000 seconds
@@ -105,7 +105,7 @@ class SimulationTests extends BaseIntegrationTest {
         sim.stubLocation("chute", "Exit", LocationType.CHUTE);
         sim.stubConveyor("conv1", "start", "chute", 10000.0, 1.0, false);
 
-        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "conv1", PositionType.CONVEYOR, 0.0,
+        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), start));
 
         // Advance past the 10000s mark
@@ -137,7 +137,7 @@ class SimulationTests extends BaseIntegrationTest {
         sim.stubConveyor("conv1", "start", "mid", 10000.0, 1.0, false);
         sim.stubConveyor("conv2", "mid", "end", 10000.0, 1.0, false);
 
-        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "conv1", PositionType.CONVEYOR, 0.0,
+        sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), start));
 
         // 15000 seconds: should be 5000 seconds into conv2
