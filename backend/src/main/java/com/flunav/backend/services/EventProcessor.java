@@ -217,10 +217,6 @@ public class EventProcessor {
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
-            logger.debug("Processing {}", event.getEventType());
-            if (event instanceof EntityEvent) {
-                logger.debug("for entity {}", ((EntityEvent) event).getEntityId());
-            }
             return switch (event) {
                 case ItemCreatedEvent e -> {
                     try {
@@ -259,11 +255,17 @@ public class EventProcessor {
                     var positionType = topologyProvider.getPositionType(e.getLocationId());
 
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
-                    String previousPosId = lastState.getPositionId();
-                    var lastPositionType = lastState.getType();
+                    String previousPosId = (lastState != null) ? lastState.getPositionId() : null;
+                    var lastPositionType = (lastState != null) ? lastState.getType() : null;
 
-                    boolean isTeleport = previousPosId != null && e.getPreviousLocationId() != null
-                            && !previousPosId.equals(e.getPreviousLocationId());
+                    // If we are moving to a location (conveyor or node) that is NOT connected to
+                    // the previous one,
+                    // we consider it a teleport.
+                    boolean isTeleport = false;
+                    if (previousPosId != null && lastPositionType != null) {
+                        isTeleport = !pathfindingService.arePositionsConnected(previousPosId, lastPositionType,
+                                e.getLocationId(), positionType);
+                    }
 
                     // --- REMOVE FROM PREVIOUS POSITION ---
                     if (previousPosId != null) {
@@ -279,14 +281,7 @@ public class EventProcessor {
                     }
 
                     if (isTeleport && previousPosId != null && lastPositionType != null) {
-                        if (pathfindingService.arePositionsConnected(previousPosId, lastPositionType, e.getLocationId(),
-                                positionType)) {
-                            List<String> path = pathfindingService.calculateShortestPath(previousPosId,
-                                    lastPositionType, e.getLocationId());
-                            itemMovementProcessor.publishEvent(
-                                    new PathTraversedEvent(e.getEntityId(), previousPosId, lastPositionType,
-                                            e.getLocationId(), positionType, path));
-                        }
+                        // TODO: record into ch?
                     }
 
                     itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),

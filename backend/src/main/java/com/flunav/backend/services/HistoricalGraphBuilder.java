@@ -72,11 +72,6 @@ public class HistoricalGraphBuilder {
                 for (DomainEvent event : eventsToReplay) {
                     try {
                         eventProcessor.processEventWithoutBroadcast(event);
-
-                        logger.debug("DONE processing event {}", event.getEventType());
-                        if (event instanceof EntityEvent) {
-                            logger.debug("for entity {}", ((EntityEvent) event).getEntityId());
-                        }
                     } catch (Exception e) {
                         logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
                                 event.getEventType(), e.getMessage());

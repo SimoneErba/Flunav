@@ -75,6 +75,10 @@ public class App {
                     logger.info("--- Selected: LARGE SCALE REALISTIC Simulation ---");
                     simulation = new LargeLoopSimulation();
                     break;
+                case "jump":
+                    logger.info("--- Selected: ITEM JUMP / POSITION UPDATE Simulation ---");
+                    simulation = new PositionUpdateSimulation();
+                    break;
                 default:
                     logger.severe("Unknown simulation type: " + simulationType);
                     return;
@@ -315,7 +319,7 @@ public class App {
 
                     // Force position update (Teleport/Correction)
                     // Note: In a real system, this would correct the drift.
-                    sendEvent(new ItemPositionChangedEvent(lostItemId, randomCheckpoint, 0.0, null), "PUT");
+                    sendEvent(new ItemPositionChangedEvent(lostItemId, randomCheckpoint, 0.0), "PUT");
                 }
             }
         }
@@ -680,5 +684,75 @@ public class App {
     private static void deleteConveyor(String from, String to) throws Exception {
         logger.info("Deleting Conveyor: " + from + " -> " + to);
         sendEvent(new ConnectionDeletedEvent(from, to), "DELETE");
+    }
+
+    // --- Position Update Simulation ---
+    static class PositionUpdateSimulation implements Simulation {
+        @Override
+        public void setup() throws Exception {
+            logger.info("--- Setting up Jump/Update Simulation ---");
+
+            createLocation("A", 0, -50, LocationType.JUNCTION);
+            createLocation("B", 0, 50, LocationType.JUNCTION);
+            createLocation("C", 50, 100, LocationType.CHUTE);
+
+            logger.info("Waiting for nodes to persist...");
+            Thread.sleep(1000);
+
+            logger.info("--- Creating Connections ---");
+            createConveyor("A", "B", 100.0, 5.0, true);
+            createConveyor("B", "C", 80.0, 4.0, true);
+        }
+
+        @Override
+        public void destroy() throws Exception {
+            logger.info("--- Destroying Jump Simulation ---");
+            deleteConveyor("A", "B");
+            deleteConveyor("B", "C");
+            deleteLocation("A");
+            deleteLocation("B");
+            deleteLocation("C");
+        }
+
+        @Override
+        public void run() throws Exception {
+            logger.info("--- Starting Position Jumps ---");
+            String edge1 = "Conveyor_A_B";
+            String edge2 = "Conveyor_B_C";
+
+            while (true) {
+                String itemId = "Jumper-" + itemCounter.incrementAndGet();
+
+                // 1. Create at A
+                logger.info("Creating " + itemId + " at A");
+                sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "A", flunav.types.PositionType.LOCATION, 0.0,
+                        new HashMap<>()), "POST");
+
+                Thread.sleep(2000);
+
+                // 2. Jump to middle of Edge 1
+                logger.info("Jumping " + itemId + " to middle of " + edge1);
+                sendEvent(new ItemPositionChangedEvent(itemId, edge1, 0.5), "PUT");
+
+                Thread.sleep(2000);
+
+                // 3. Jump to end of Edge 1 (near B)
+                logger.info("Jumping " + itemId + " to end of " + edge1);
+                sendEvent(new ItemPositionChangedEvent(itemId, edge1, 0.9), "PUT");
+
+                Thread.sleep(2000);
+
+                // 4. Jump to B
+                logger.info("Jumping " + itemId + " to node B");
+                sendEvent(new ItemPositionChangedEvent(itemId, "B", 0.0), "PUT");
+
+                Thread.sleep(2000);
+
+                // 5. Jump to Edge 2
+                logger.info("Jumping " + itemId + " to start of " + edge2);
+                sendEvent(new ItemPositionChangedEvent(itemId, edge2, 0.1), "PUT");
+                Thread.sleep(5000); // Wait for it to move normally or next item
+            }
+        }
     }
 }

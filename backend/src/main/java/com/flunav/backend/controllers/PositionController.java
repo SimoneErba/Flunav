@@ -37,8 +37,7 @@ public class PositionController {
                 model.getItemId(),
                 model.getLocationId(),
                 model.getProgress(),
-                Instant.now(),
-                null);
+                Instant.now());
 
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> {

@@ -143,7 +143,7 @@ public class ItemMovementProcessor {
                 if (distanceToStop > 0) {
                     long timeToStop = (long) ((distanceToStop / speed) * 1000);
                     scheduleEvent(new ItemPositionChangedEvent(itemId, conveyorId, (stopAt / length) * 100,
-                            timestamp.plusMillis(timeToStop), conveyorId));
+                            timestamp.plusMillis(timeToStop)));
                     liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
                 } else {
                     cancelScheduledEvent(itemId);
@@ -157,7 +157,7 @@ public class ItemMovementProcessor {
                     }
                 }
             } else {
-                scheduleEvent(new ItemPositionChangedEvent(itemId, nextConveyorId, 0.0, arrivalAtEnd, conveyorId));
+                scheduleEvent(new ItemPositionChangedEvent(itemId, nextConveyorId, 0.0, arrivalAtEnd));
                 liveConveyorRepository.updateTailPosition(conveyorId, length);
             }
         } else {
@@ -171,11 +171,10 @@ public class ItemMovementProcessor {
                     long timeToStop = (long) (((stopAt - length * (progress / 100.0)) / speed) * 1000);
                     if (timeToStop > 0)
                         scheduleEvent(new ItemPositionChangedEvent(itemId, conveyorId, (stopAt / length) * 100,
-                                timestamp.plusMillis(timeToStop), conveyorId));
+                                timestamp.plusMillis(timeToStop)));
                     liveConveyorRepository.updateTailPosition(conveyorId, stopAt);
                 } else {
-                    scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd,
-                            conveyorId));
+                    scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd));
                 }
             }
         }

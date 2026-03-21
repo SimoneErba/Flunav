@@ -75,23 +75,49 @@ export const useGraphLiveEvents = (
             }
 
             const currentItem = activeItemsRef.current.get(update.itemId);
-            console.log("curent item", currentItem)
             if (currentItem) {
                 const isConveyor = update.type === 'CONVEYOR';
+                
+                let entryTimestamp = new Date(update.timestamp).toISOString();
+                
+                // If we are on a conveyor, we use the progress to adjust the entry timestamp
+                // so the animation starts at the correct position relative to the current simulation time.
+                if (isConveyor && update.edgeId) {
+                    const edgeKey = graph.findEdge((_edge, attrs) => attrs.id === update.edgeId);
+                    if (edgeKey) {
+                        const edgeAttrs = graph.getEdgeAttributes(edgeKey);
+                        if (edgeAttrs.speed > 0) {
+                            const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
+                            const progress = update.progress || 0;
+                            const offset = progress * totalDuration;
+                            
+                            // Align the item's entry time with the current simulation clock
+                            const adjustedEntryTime = simTimeRef.current - offset;
+                            entryTimestamp = new Date(adjustedEntryTime).toISOString();
+                        }
+                    }
+                }
+
                 const updatedItem = {
                     ...currentItem,
                     currentEdgeId: isConveyor ? update.edgeId : null,
                     locationId: isConveyor ? null : update.edgeId,
-                    entryTimestamp: new Date(update.timestamp).toISOString(),
+                    entryTimestamp: entryTimestamp,
                     progress: update.progress || 0
                 };
                 
                 activeItemsRef.current.set(update.itemId, updatedItem);
-                console.log("curent item", currentItem)
 
-                // Update graph node logical state
+                // Update graph node logical state for highlighting/interactions
                 graph.setNodeAttribute(update.itemId, "currentEdgeId", updatedItem.currentEdgeId);
                 graph.setNodeAttribute(update.itemId, "locationId", updatedItem.locationId);
+
+                // If stationary, immediately update visual position
+                if (!isConveyor && updatedItem.locationId && graph.hasNode(updatedItem.locationId)) {
+                    const locAttrs = graph.getNodeAttributes(updatedItem.locationId);
+                    graph.setNodeAttribute(update.itemId, "x", locAttrs.x);
+                    graph.setNodeAttribute(update.itemId, "y", locAttrs.y);
+                }
             }
         }, simulationId));
 
