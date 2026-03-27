@@ -215,6 +215,34 @@ public class LiveItemRepository {
         return size != null ? size : 0;
     }
 
+    public int deleteLiveItemsOlderThan(Instant cutoff) {
+        if (cutoff == null) {
+            return 0;
+        }
+
+        Set<String> activeIds = redis.opsForSet().members("active_items");
+        if (activeIds == null || activeIds.isEmpty()) {
+            return 0;
+        }
+
+        List<String> staleItemIds = new ArrayList<>();
+        for (String itemId : activeIds) {
+            RedisLiveItem item = getItemState(itemId, null);
+            if (item == null) {
+                redis.opsForSet().remove("active_items", itemId);
+                continue;
+            }
+
+            Instant entryTime = item.getEntryTime();
+            if (entryTime != null && entryTime.isBefore(cutoff)) {
+                staleItemIds.add(itemId);
+            }
+        }
+
+        staleItemIds.forEach(itemId -> deleteItem(itemId, null));
+        return staleItemIds.size();
+    }
+
     // --- CLEANUP HELPER ---
 
     public void cleanupSimulationData(String simulationId) {

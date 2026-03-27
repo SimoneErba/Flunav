@@ -7,6 +7,10 @@ import flunav.types.PositionType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,12 +23,28 @@ import java.util.Map;
 @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "stale-item-cleanup.enabled", havingValue = "true", matchIfMissing = true)
 public class StaleItemCleanupService {
     private static final Logger logger = LoggerFactory.getLogger(StaleItemCleanupService.class);
+    private static final Duration STARTUP_ITEM_MAX_AGE = Duration.ofHours(24);
     private final LiveItemRepository liveItemRepository;
     private final LocationService locationService;
 
     public StaleItemCleanupService(LiveItemRepository liveItemRepository, LocationService locationService) {
         this.liveItemRepository = liveItemRepository;
         this.locationService = locationService;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void cleanupExpiredLiveItemsOnStartup() {
+        cleanupExpiredLiveItemsOnStartup(Instant.now());
+    }
+
+    public void cleanupExpiredLiveItemsOnStartup(Instant referenceTime) {
+        Instant cutoffTime = referenceTime.minus(STARTUP_ITEM_MAX_AGE);
+        int removedCount = liveItemRepository.deleteLiveItemsOlderThan(cutoffTime);
+
+        if (removedCount > 0) {
+            logger.info("Removed {} live Redis items older than {} on startup.", removedCount, STARTUP_ITEM_MAX_AGE);
+        }
     }
 
     @Scheduled(fixedRate = 300_000) // Run every 5 minutes
