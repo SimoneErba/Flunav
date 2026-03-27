@@ -52,6 +52,7 @@ public class HistoricalEventPlayer {
             state.setStatus(SimulationStatus.PLAYING);
             state.setSpeedFactor(initialSpeedFactor);
             state.setLastProcessedTimestamp(simulationStartTime); // Initialize progress
+            simulationService.updateLastProcessedTimestamp(simulationId, simulationStartTime);
             webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, Instant.now());
 
             Instant currentSimulationTime = simulationStartTime;
@@ -99,6 +100,7 @@ public class HistoricalEventPlayer {
 
                 // CRITICAL: Persistently save the progress after every chunk.
                 state.setLastProcessedTimestamp(currentSimulationTime);
+                simulationService.updateLastProcessedTimestamp(simulationId, currentSimulationTime);
 
                 // --- Dynamic Sleep Calculation ---
                 long elapsedNs = System.nanoTime() - loopWallClockStartNs;
@@ -121,7 +123,7 @@ public class HistoricalEventPlayer {
                 logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
                 if (state != null) {
                     state.setStatus(SimulationStatus.STOPPED);
-                    webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.STOPPED, Instant.now());
+                    simulationService.updateSimulationStatus(simulationId, SimulationStatus.STOPPED, Instant.now());
                 }
             }
             // Preserve the interrupted status for the thread pool.
@@ -132,7 +134,7 @@ public class HistoricalEventPlayer {
             SimulationState state = simulationService.getSimulationState(simulationId);
             if (state != null) {
                 state.setStatus(SimulationStatus.FAILED);
-                webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.FAILED, Instant.now());
+                simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, Instant.now());
             }
         }
 

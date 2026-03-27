@@ -3,9 +3,13 @@ package com.flunav.backend.services;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
+import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -13,7 +17,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
@@ -35,6 +38,7 @@ public class SimulationService {
     private final HistoricalGraphBuilder historicalGraphBuilder;
     private final WebSocketService webSocketService;
     private final LiveItemRepository liveItemRepository;
+    private final LiveSimulationRepository liveSimulationRepository;
     private final TopologyProvider topologyProvider;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -53,12 +57,14 @@ public class SimulationService {
             WebSocketService webSocketService,
             @Lazy HistoricalGraphBuilder historicalGraphBuilder,
             LiveItemRepository liveItemRepository,
+            LiveSimulationRepository liveSimulationRepository,
             @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
         this.webSocketService = webSocketService;
         this.liveItemRepository = liveItemRepository;
+        this.liveSimulationRepository = liveSimulationRepository;
         this.topologyProvider = topologyProvider;
     }
 
@@ -70,14 +76,19 @@ public class SimulationService {
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
         SimulationState state = new SimulationState(simulationId, timestamp);
         simulationCache.put(simulationId, state);
+        persistState(state);
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
         return state;
     }
 
     public SimulationState getOrCreateSimulation(String simulationId, Instant timestamp) {
-        if (simulationCache.containsKey(simulationId)) {
-            return simulationCache.get(simulationId);
+        SimulationState cached = simulationCache.get(simulationId);
+        if (cached != null) {
+            return cached;
+        }
+        if (liveSimulationRepository.exists(simulationId)) {
+            return getSimulationState(simulationId);
         }
         return createSimulation(simulationId, timestamp);
     }
@@ -91,6 +102,8 @@ public class SimulationService {
         Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
                 : state.getTimestamp();
         state.setStatus(SimulationStatus.PLAYING);
+        state.setSpeedFactor(speedFactor);
+        persistState(state);
         var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
         activePlaybacks.put(simulationId, playbackFuture);
     }
@@ -99,8 +112,10 @@ public class SimulationService {
         Future<?> playbackFuture = activePlaybacks.get(simulationId);
         SimulationState state = simulationCache.get(simulationId);
         if (playbackFuture != null && !playbackFuture.isDone()) {
-            if (state != null)
+            if (state != null) {
                 state.setStatus(SimulationStatus.STOPPED);
+                persistState(state);
+            }
             playbackFuture.cancel(true);
             activePlaybacks.remove(simulationId);
         }
@@ -117,6 +132,7 @@ public class SimulationService {
                     "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
         }
         state.setStatus(SimulationStatus.PAUSED);
+        persistState(state);
         webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
                 state.getLastProcessedTimestamp());
         playbackTask.cancel(true);
@@ -126,33 +142,60 @@ public class SimulationService {
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
         SimulationState state = getSimulationState(simulationId);
         state.setSpeedFactor(newSpeedFactor);
+        persistState(state);
     }
 
     public void destroySimulation(String simulationId) {
         cancelPlayback(simulationId);
         SimulationState state = simulationCache.remove(simulationId);
-        if (state != null) {
+        try {
             orientDBService.dropDatabase(simulationId);
+        } catch (Exception e) {
+            logger.warn("Failed to drop simulation database {}: {}", simulationId, e.getMessage());
+        }
+        try {
             liveItemRepository.cleanupSimulationData(simulationId);
-            simulationCache.remove(simulationId);
+        } catch (Exception e) {
+            logger.warn("Failed to cleanup Redis data for simulation {}: {}", simulationId, e.getMessage());
+        }
+        liveSimulationRepository.deleteState(simulationId);
+
+        if (state != null) {
             logger.info("Successfully destroyed simulation: {}", simulationId);
         } else {
-            logger.warn("Attempted to destroy non-existent simulation: {}", simulationId);
+            logger.info("Destroyed external or stale simulation resources for simulation: {}", simulationId);
         }
     }
 
     public SimulationState getSimulationState(String simulationId) {
-        SimulationState state = simulationCache.get(simulationId);
-        if (state == null)
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulation not found: " + simulationId);
-        state.setLastHeartbeatTimestamp(Instant.now());
+        }
+        updateHeartbeat(simulationId);
         return state;
     }
 
+    public void updateHeartbeat(String simulationId) {
+        Instant now = Instant.now();
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state != null) {
+            state.setLastHeartbeatTimestamp(now);
+            persistState(state);
+            return;
+        }
+
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulation not found: " + simulationId);
+    }
+
     public void updateSimulationStatus(String simulationId, SimulationStatus status, Instant timestamp) {
-        SimulationState state = simulationCache.get(simulationId);
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state != null) {
             state.setStatus(status);
+            if (timestamp != null) {
+                state.setLastProcessedTimestamp(timestamp);
+            }
+            persistState(state);
             this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), timestamp);
         }
     }
@@ -176,17 +219,21 @@ public class SimulationService {
         if ("true".equals(System.getProperty("disable-sim-cleanup")))
             return;
         Instant now = Instant.now();
-        for (Iterator<Map.Entry<String, SimulationState>> it = simulationCache.entrySet().iterator(); it.hasNext();) {
-            Map.Entry<String, SimulationState> entry = it.next();
-            if (Duration.between(entry.getValue().getLastHeartbeatTimestamp(), now).toMinutes() > 2) {
-                destroySimulation(entry.getKey());
+        for (var heartbeat : liveSimulationRepository.getAllSimulationHeartbeats()) {
+            if (Duration.between(heartbeat.lastHeartbeatTimestamp(), now).toMinutes() > 2) {
+                destroySimulation(heartbeat.simulationId());
             }
         }
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    public void cleanupAbandonedSimulationsOnStartup() {
+        cleanupAbandonedSimulations();
+    }
+
     public SimulationState getCurrentSimulation() {
         var id = DatabaseContextHolder.getSimulationId();
-        var state = id != null ? simulationCache.get(id) : null;
+        var state = id != null ? loadOrRefreshSimulationState(id) : null;
         if (id != null) {
             logger.debug("getCurrentSimulation for id {}: found state? {}", id, (state != null));
         }
@@ -219,7 +266,7 @@ public class SimulationService {
     }
 
     public void processEventsUntil(String simulationId, Instant targetTime) {
-        SimulationState state = simulationCache.get(simulationId);
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state == null)
             return;
 
@@ -244,6 +291,55 @@ public class SimulationService {
         }
 
         checkpointAllItems(simulationId, targetTime);
+        state.setLastProcessedTimestamp(targetTime);
+        persistState(state);
+    }
+
+    public void updateLastProcessedTimestamp(String simulationId, Instant timestamp) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state != null) {
+            state.setLastProcessedTimestamp(timestamp);
+            persistState(state);
+        }
+    }
+
+    private SimulationState loadOrRefreshSimulationState(String simulationId) {
+        SimulationState cached = simulationCache.get(simulationId);
+        SimulationMetadata metadata = liveSimulationRepository.getState(simulationId).orElse(null);
+
+        if (metadata == null) {
+            return cached;
+        }
+
+        if (cached == null) {
+            SimulationState restored = new SimulationState(
+                    metadata.simulationId(),
+                    metadata.timestamp(),
+                    metadata.status(),
+                    metadata.lastHeartbeatTimestamp(),
+                    metadata.lastProcessedTimestamp(),
+                    metadata.speedFactor());
+            simulationCache.put(simulationId, restored);
+            return restored;
+        }
+
+        cached.setStatus(metadata.status());
+        cached.setLastHeartbeatTimestamp(metadata.lastHeartbeatTimestamp());
+        cached.setLastProcessedTimestamp(metadata.lastProcessedTimestamp());
+        if (Double.compare(cached.getSpeedFactor(), metadata.speedFactor()) != 0) {
+            cached.setSpeedFactor(metadata.speedFactor());
+        }
+        return cached;
+    }
+
+    private void persistState(SimulationState state) {
+        liveSimulationRepository.saveState(new SimulationMetadata(
+                state.getId(),
+                state.getTimestamp(),
+                state.getStatus(),
+                state.getLastHeartbeatTimestamp(),
+                state.getLastProcessedTimestamp(),
+                state.getSpeedFactor()));
     }
 
     private void checkpointAllItems(String simulationId, Instant now) {

@@ -100,6 +100,8 @@ public class HistoricalGraphBuilder {
                 clearDatabase(session);
 
                 Map<String, ORID> locationIdToRidMap = new HashMap<>();
+                Map<String, ConveyorResponse> conveyorMap = new HashMap<>();
+                Instant snapshotTimestamp = graphData.getTimestamp();
 
                 // --- 1. RESTORE LOCATIONS (Nodes) ---
                 if (graphData.getLocations() != null) {
@@ -129,6 +131,7 @@ public class HistoricalGraphBuilder {
                 // Note: GraphData now contains ConveyorResponse, not ConnectionResponse
                 if (graphData.getConveyors() != null) {
                     for (ConveyorResponse convData : graphData.getConveyors()) {
+                        conveyorMap.put(convData.getId(), convData);
                         ORID sourceRid = locationIdToRidMap.get(convData.getSourceId());
                         ORID targetRid = locationIdToRidMap.get(convData.getTargetId());
 
@@ -179,7 +182,7 @@ public class HistoricalGraphBuilder {
                         itemVertex.save();
 
                         // Restore to Redis (for GraphService visibility)
-                        restoreItemToRedis(itemData);
+                        restoreItemToRedis(itemData, conveyorMap, snapshotTimestamp);
                     }
                 }
 
@@ -193,25 +196,32 @@ public class HistoricalGraphBuilder {
         });
     }
 
-    private void restoreItemToRedis(ItemResponse itemData) {
+    private void restoreItemToRedis(ItemResponse itemData, Map<String, ConveyorResponse> conveyorMap,
+            Instant snapshotTimestamp) {
         String positionId;
         PositionType type;
+        double accumulatedDistance = 0.0;
+        Instant effectiveTimestamp = snapshotTimestamp != null ? snapshotTimestamp : itemData.getEntryTimestamp();
 
         if (itemData.getCurrentEdgeId() != null) {
             positionId = itemData.getCurrentEdgeId();
             type = PositionType.CONVEYOR;
+            ConveyorResponse conveyor = conveyorMap.get(positionId);
+            if (conveyor != null && conveyor.getLength() != null && itemData.getProgress() != null) {
+                accumulatedDistance = conveyor.getLength() * itemData.getProgress();
+            }
         } else {
             positionId = itemData.getLocationId();
             type = PositionType.LOCATION;
         }
 
-        if (positionId != null && itemData.getEntryTimestamp() != null) {
+        if (positionId != null && effectiveTimestamp != null) {
             liveItemRepository.saveItemState(
                     itemData.getId(),
                     positionId,
                     type,
-                    itemData.getEntryTimestamp(),
-                    0.0, // Default offset for snapshot restore
+                    effectiveTimestamp,
+                    accumulatedDistance,
                     itemData.getName(),
                     itemData.getDestinationId(),
                     itemData.getPath());

@@ -24,11 +24,17 @@ public class SimulationState {
     private final Map<String, DomainEvent> scheduledEventsByItem = new ConcurrentHashMap<>();
 
     public SimulationState(String id, Instant timestamp) {
+        this(id, timestamp, SimulationStatus.QUEUED, Instant.now(), null, 1.0);
+    }
+
+    public SimulationState(String id, Instant timestamp, SimulationStatus status, Instant lastHeartbeatTimestamp,
+            Instant lastProcessedTimestamp, double speedFactor) {
         this.id = id;
         this.timestamp = timestamp;
-        this.status = SimulationStatus.QUEUED;
-        this.lastHeartbeatTimestamp = Instant.now();
-        this.speedFactor = 1.0;
+        this.status = status;
+        this.lastHeartbeatTimestamp = lastHeartbeatTimestamp;
+        this.lastProcessedTimestamp = lastProcessedTimestamp;
+        this.speedFactor = speedFactor;
     }
 
     public synchronized void setSpeedFactor(double speedFactor) {

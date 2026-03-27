@@ -1,10 +1,12 @@
 package com.flunav.backend;
 
-import com.flunav.backend.services.OrientDBService;
-import com.flunav.backend.services.ClickHouseService;
-import com.flunav.backend.test.SimulationTestHarness;
-import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.SimulationService;
+import com.flunav.backend.test.SimulationTestHarness;
+
 import flunav.events.ItemCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -12,15 +14,15 @@ import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import com.orientechnologies.orient.core.db.ODatabaseSession;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,6 +42,18 @@ class SimulationTests extends BaseIntegrationTest {
 
     @Autowired
     private LiveItemRepository liveItemRepository;
+
+    @Autowired
+    private LiveSimulationRepository liveSimulationRepository;
+
+    @Autowired
+    private SimulationService simulationService;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private OrientDBService orientDBService;
 
     @MockBean
     private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
@@ -146,6 +160,49 @@ class SimulationTests extends BaseIntegrationTest {
         var item = sim.getItem("item-1").orElseThrow();
         assertEquals("conv2", item.getCurrentEdgeId(), "Item should have transferred to conv2");
         assertEquals(0.5, item.getProgress(), 0.01, "Item should be halfway through conv2");
+    }
+
+    @Test
+    void cleanupAbandonedSimulationsRemovesStaleRedisBackedSimulations() {
+        String simulationId = "stale-sim";
+        orientDBService.createInMemoryDatabase(simulationId);
+        redisTemplate.opsForValue().set("sim:" + simulationId + ":probe", "present");
+        liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                simulationId,
+                Instant.now().minus(Duration.ofMinutes(10)),
+                com.flunav.backend.models.simulation.SimulationStatus.READY,
+                Instant.now().minus(Duration.ofMinutes(3)),
+                Instant.now().minus(Duration.ofMinutes(10)),
+                1.0));
+
+        System.clearProperty("disable-sim-cleanup");
+        simulationService.cleanupAbandonedSimulations();
+
+        assertFalse(liveSimulationRepository.exists(simulationId));
+        Set<String> remainingKeys = redisTemplate.keys("sim:" + simulationId + ":*");
+        assertTrue(remainingKeys == null || remainingKeys.isEmpty(), "Simulation Redis keys should be removed");
+        assertThrows(IllegalStateException.class, () -> orientDBService.getSession(simulationId));
+    }
+
+    @Test
+    void updateHeartbeatRefreshesRedisHeartbeatEvenWithoutLocalCacheState() {
+        String simulationId = "remote-sim";
+        Instant oldHeartbeat = Instant.now().minus(Duration.ofMinutes(5));
+        liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                simulationId,
+                Instant.now().minus(Duration.ofMinutes(20)),
+                com.flunav.backend.models.simulation.SimulationStatus.READY,
+                oldHeartbeat,
+                Instant.now().minus(Duration.ofMinutes(10)),
+                2.5));
+
+        simulationService.updateHeartbeat(simulationId);
+
+        Instant refreshedHeartbeat = liveSimulationRepository.getState(simulationId)
+                .map(LiveSimulationRepository.SimulationMetadata::lastHeartbeatTimestamp)
+                .orElseThrow();
+
+        assertTrue(refreshedHeartbeat.isAfter(oldHeartbeat), "Heartbeat should be refreshed in Redis");
     }
 
     @AfterEach

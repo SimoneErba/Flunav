@@ -29,7 +29,7 @@ public class GraphSnapshotService {
      * Periodically takes a snapshot of the current graph state from OrientDB
      * and saves it as a historical record in ClickHouse.
      */
-    @Scheduled(fixedRate = 3600000) // Runs every hour
+    @Scheduled(initialDelay = 3600000, fixedRate = 3600000) // Runs every hour, starting one hour after boot
     public void takeSnapshot() {
         try {
             logger.info("Starting graph snapshot process...");

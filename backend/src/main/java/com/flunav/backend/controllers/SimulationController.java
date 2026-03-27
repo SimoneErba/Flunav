@@ -144,7 +144,7 @@ public class SimulationController {
     @ApiResponse(responseCode = "204", description = "Heartbeat received.")
     public ResponseEntity<Void> sendHeartbeat(
             @Parameter(description = "The ID of the active simulation") @PathVariable String simulationId) {
-        simulationService.getSimulationState(simulationId);
+        simulationService.updateHeartbeat(simulationId);
         return ResponseEntity.noContent().build();
     }
 
