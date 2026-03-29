@@ -136,36 +136,44 @@ public class PathfindingService {
     public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2,
             PositionType type2) {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            String fromClause, toClause;
+            String resolvedPosition1 = resolveConnectivityAnchor(db, positionId1, type1, true);
+            String resolvedPosition2 = resolveConnectivityAnchor(db, positionId2, type2, false);
 
-            if (type1 == PositionType.CONVEYOR) {
-                fromClause = "$from = (SELECT expand(out) FROM Conveyor WHERE customId = :pos1)";
-            } else {
-                fromClause = "$from = (SELECT FROM Location WHERE customId = :pos1)";
-            }
-
-            if (type2 == PositionType.CONVEYOR) {
-                toClause = "$to = (SELECT expand(in) FROM Conveyor WHERE customId = :pos2)";
-            } else {
-                toClause = "$to = (SELECT FROM Location WHERE customId = :pos2)";
-            }
-
-            String query = "SELECT COUNT(*) AS count " +
-                    "LET " + fromClause + ", " + toClause + " " +
-                    "FROM Location " +
-                    "WHERE $from = $to";
-
-            try (OResultSet rs = db.query(query, Map.of("pos1", positionId1, "pos2", positionId2))) {
-                if (rs.hasNext()) {
-                    OResult result = rs.next();
-                    Long count = result.getProperty("count");
-                    return count != null && count > 0;
-                }
-            }
+            return resolvedPosition1 != null && resolvedPosition1.equals(resolvedPosition2);
         } catch (Exception e) {
             logger.error("Error checking connectivity between {} ({}) and {} ({})", positionId1, type1, positionId2,
                     type2, e);
         }
         return false;
+    }
+
+    private String resolveConnectivityAnchor(ODatabaseSession db, String positionId, PositionType type,
+            boolean useOutgoingLocationForConveyor) {
+        if (type == PositionType.LOCATION) {
+            return positionId;
+        }
+
+        String direction = useOutgoingLocationForConveyor ? "out" : "in";
+        String query = "SELECT expand(" + direction + ") AS location FROM Conveyor WHERE customId = :positionId";
+
+        try (OResultSet rs = db.query(query, Map.of("positionId", positionId))) {
+            if (!rs.hasNext()) {
+                return null;
+            }
+
+            OResult result = rs.next();
+            if (result.isVertex()) {
+                return result.getVertex()
+                        .map(vertex -> (String) vertex.getProperty("customId"))
+                        .orElse(null);
+            }
+
+            Object location = result.getProperty("location");
+            if (location instanceof OVertex vertex) {
+                return vertex.getProperty("customId");
+            }
+        }
+
+        return null;
     }
 }
