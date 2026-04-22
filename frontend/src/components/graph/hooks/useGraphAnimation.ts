@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemResponse } from "../../../api-client/api";
+import type { Attributes } from "graphology-types";
 import { findNextEdge } from "../utils/graphUtils";
 
 export const useGraphAnimation = (
@@ -38,7 +39,7 @@ export const useGraphAnimation = (
                 // CASE 1: Item on Conveyor (Moving)
                 if (item.currentEdgeId) {
                     let edgeKey: string | undefined;
-                    let edgeAttrs: any;
+                    let edgeAttrs: Attributes | undefined;
                     
                     graph.forEachEdge((edge, attrs) => { 
                         if (attrs.id === item.currentEdgeId) { edgeKey = edge; edgeAttrs = attrs; } 
@@ -199,5 +200,5 @@ export const useGraphAnimation = (
 
         animationFrameId.current = requestAnimationFrame(animate);
         return () => { if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current); };
-    }, [sigma, simTime]);
+    }, [activeItemsRef, draggedNodeRef, sigma, simTime]);
 };

@@ -14,7 +14,6 @@ import {
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
 import { baseURL, CLIENT_ID } from '../api/config';
-import { useAuth } from '../context/auth.context';
 import { axiosInstance } from '../api/axiosInstance'; 
 
 export const useApi = () => {

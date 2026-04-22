@@ -1,23 +1,21 @@
 import React, { useState } from "react";
-import { useTheme, THEMES } from "../context/theme.context";
 import toast from "react-hot-toast";
 
 interface PropertiesEditorProps {
-  properties: Record<string, any>;
-  onChange: (updatedProperties: Record<string, any>) => void;
+  properties: Record<string, unknown>;
+  onChange: (updatedProperties: Record<string, unknown>) => void;
 }
 
 type PropertyType = "text" | "number" | "boolean" | "datetime";
 
 export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditorProps) => {
-  const { mode } = useTheme();
   // State for adding new property
   const [isAdding, setIsAdding] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [newType, setNewType] = useState<PropertyType>("text");
 
   // Helper to detect type of existing values
-  const getInputType = (value: any): PropertyType => {
+  const getInputType = (value: unknown): PropertyType => {
     if (typeof value === "boolean") return "boolean";
     if (typeof value === "number") return "number";
     if (typeof value === "string" && !isNaN(Date.parse(value)) && value.includes("T")) {
@@ -30,13 +28,13 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
     if (!isoString) return "";
     try {
       return new Date(isoString).toISOString().slice(0, 16);
-    } catch (e) {
+    } catch {
       return "";
     }
   };
 
-  const handleFieldChange = (key: string, rawValue: any, type: string) => {
-    let finalValue = rawValue;
+  const handleFieldChange = (key: string, rawValue: string | boolean, type: PropertyType) => {
+    let finalValue: unknown = rawValue;
 
     if (type === "number") {
       finalValue = parseFloat(rawValue);
@@ -59,12 +57,12 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
       toast.error("Key name cannot be empty");
       return;
     }
-    if (properties.hasOwnProperty(newKey)) {
+    if (Object.prototype.hasOwnProperty.call(properties, newKey)) {
       toast.error("Key already exists");
       return;
     }
 
-    let initialValue: any = "";
+    let initialValue: string | number | boolean = "";
     switch (newType) {
       case "number": initialValue = 0; break;
       case "boolean": initialValue = false; break;
@@ -138,7 +136,7 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
                     <input
                       type="number"
                       step="any"
-                      value={value}
+                      value={typeof value === "number" ? value : 0}
                       onChange={(e) => handleFieldChange(key, e.target.value, "number")}
                       className="w-full p-1.5 rounded text-sm font-mono border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500 outline-none"
                     />
@@ -147,7 +145,7 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
                   {type === "datetime" && (
                     <input
                       type="datetime-local"
-                      value={formatForDateTimeInput(value)}
+                      value={formatForDateTimeInput(typeof value === "string" ? value : "")}
                       onChange={(e) => handleFieldChange(key, e.target.value, "datetime")}
                       className="w-full p-1.5 rounded text-sm border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500 outline-none dark:[color-scheme:dark]"
                     />
@@ -156,7 +154,7 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
                   {type === "text" && (
                     <input
                       type="text"
-                      value={value}
+                      value={typeof value === "string" ? value : String(value ?? "")}
                       onChange={(e) => handleFieldChange(key, e.target.value, "text")}
                       className="w-full p-1.5 rounded text-sm border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500 outline-none"
                     />

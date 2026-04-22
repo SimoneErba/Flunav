@@ -44,7 +44,7 @@ export interface EntityMessage<T> {
 
 export interface EntityUpdateMessage {
     id: string;
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
 }
 
 export interface SimulationStatusUpdate {

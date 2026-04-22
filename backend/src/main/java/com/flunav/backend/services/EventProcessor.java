@@ -135,7 +135,9 @@ public class EventProcessor {
                     });
                 });
             }
-            return taskResultFuture.thenApply(v -> null);
+            CompletableFuture<Void> chainedFuture = taskResultFuture.handle((result, error) -> null);
+            chainedFuture.whenComplete((ignored, error) -> processingFutures.remove(entityId, chainedFuture));
+            return chainedFuture;
         });
 
         return taskResultFuture;
@@ -403,7 +405,11 @@ public class EventProcessor {
 
                     item.setDestinationId(e.getLocationId());
                     item.setPath(calculatedPath);
-
+                    var oldEvent = itemMovementProcessor.getScheduledEvent(item.getId());
+                    itemMovementProcessor.cancelScheduledEvent(item.getId());
+                    itemMovementProcessor
+                            .scheduleEvent(new ItemPositionChangedEvent(item.getId(), calculatedPath.getFirst(), 0.0,
+                                    oldEvent.getTimestamp()));
                     itemService.fullUpdateItem(item);
 
                     if (shouldBroadcast) {

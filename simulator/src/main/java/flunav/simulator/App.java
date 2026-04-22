@@ -541,7 +541,7 @@ public class App {
             logger.info("--- Starting Sorting Logic ---");
             int cycle = 0;
             while (true) {
-                Thread.sleep(2000);
+                Thread.sleep(10000);
                 String itemId = "BoxMulti-" + itemCounter.incrementAndGet();
                 String destination = null;
                 int scenario = cycle % 3;

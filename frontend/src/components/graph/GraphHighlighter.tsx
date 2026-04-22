@@ -1,10 +1,9 @@
 import { useEffect } from "react";
 import { useSigma } from "@react-sigma/core";
-import { GraphData } from "../../api-client";
+import { ItemEditorData } from "../editors/item.editor";
 
 interface GraphHighlighterProps {
-    initialGraphData: GraphData;
-    highlightedItem: any | null;
+    highlightedItem: ItemEditorData | null;
 }
 
 const STYLES = {
@@ -92,12 +91,9 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
                         const outEdges = graph.outEdges(currentNode);
                         let mainEdge: string | null = null;
 
-                        console.log(`Highlighter [Step ${steps}]: Checking outgoing edges from ${currentNode}`, outEdges);
-
                         // Find the outgoing edge marked as main path
                         for (const edge of outEdges) {
                             const isMain = graph.getEdgeAttribute(edge, 'mainPath');
-                            console.log(`   -> Edge ${edge}: mainPath =`, isMain);
                             
                             if (isMain === true || isMain === "true") { // Check for string "true" just in case
                                 mainEdge = edge;
@@ -107,7 +103,6 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
 
                         if (mainEdge) {
                             const target = graph.target(mainEdge);
-                            console.log(`   -> FOUND Main Path: ${mainEdge} pointing to ${target}`);
                             
                             pathEdgeSet.add(`${currentNode}|${target}`);
                             pathEdgeSet.add(`${target}|${currentNode}`);
@@ -116,12 +111,9 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
                             currentNode = target;
                             steps++;
                         } else {
-                            console.log(`   -> STOP. No main path edge found from ${currentNode}`);
                             break;
                         }
                     }
-                } else {
-                 console.log("Highlighter: Could not determine valid start node.", currentNode);
                 }
             }
         }
@@ -185,7 +177,8 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
                 if (container && container.clientWidth > 0) {
                     sigma.refresh();
                 }
-            } catch (e) {
+            } catch {
+                // Sigma may already be disposed during unmount.
             }
         };
 

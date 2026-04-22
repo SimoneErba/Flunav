@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import toast, { ToastOptions } from 'react-hot-toast';
 
 export const toastWarning = (message: string, options?: ToastOptions) => {
@@ -17,7 +17,7 @@ export const toastWarning = (message: string, options?: ToastOptions) => {
 
 export const confirmToast = (message: string, onConfirm: () => void) => {
   toast((t) => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault();
         onConfirm();
@@ -27,7 +27,7 @@ export const confirmToast = (message: string, onConfirm: () => void) => {
       if (e.key === "Escape") {
         toast.dismiss(t.id);
       }
-    };
+    }, [t.id]);
 
     useEffect(() => {
       if (t.visible) {
@@ -37,7 +37,7 @@ export const confirmToast = (message: string, onConfirm: () => void) => {
       return () => {
         window.removeEventListener("keydown", handleKeyDown);
       };
-    }, [t.visible]);
+    }, [handleKeyDown, t.visible]);
 
     return (
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>

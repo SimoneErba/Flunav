@@ -4,7 +4,6 @@ import { DisplayRule, DisplayRuleDataTypeEnum, DisplayRuleOperatorEnum } from '.
 interface RuleRowProps {
   rule: DisplayRule;
   orientation: 'horizontal' | 'vertical';
-  dockSide?: 'left' | 'right' | 'bottom';
   onChange: (updatedRule: DisplayRule) => void;
   onDelete: () => void;
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
@@ -31,12 +30,12 @@ const InputWrapper: React.FC<{
   </div>
 );
 
-export const RuleRow = ({ rule, onChange, onDelete, orientation, dockSide = 'bottom', dragHandleProps }: RuleRowProps) => {
+export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps }: RuleRowProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newType = e.target.value as DisplayRuleDataTypeEnum;
-    let defaultValue: any = '';
+    let defaultValue: string | number | boolean = '';
     let operator: DisplayRuleOperatorEnum = null;
 
     if (newType === DisplayRuleDataTypeEnum.String) {
@@ -69,11 +68,11 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dockSide = 'bot
 
     switch (rule.dataType) {
       case DisplayRuleDataTypeEnum.Datetime:
-        return <input type="date" value={rule.value as any} onChange={e => onChange({ ...rule, value: e.target.value })} className={`${commonInputClasses} dark:[color-scheme:dark]`} />;
+        return <input type="date" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={`${commonInputClasses} dark:[color-scheme:dark]`} />;
       case DisplayRuleDataTypeEnum.Number:
-        return <input type="number" value={rule.value as any} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
+        return <input type="number" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
       default:
-        return <input type="text" value={rule.value as any} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
+        return <input type="text" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
     }
   };
 

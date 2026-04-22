@@ -296,4 +296,32 @@ public class OrientDBService {
             logger.info("Asynchronous index creation finished for database: {}", session.getName());
         }
     }
+
+    /**
+     * Completely destroys and recreates the main database.
+     * Perfect for completely resetting the state between tests.
+     */
+    public void resetMainDatabaseForTests(String dbName) {
+        logger.info("Wiping OrientDB test database: {}", dbName);
+
+        // 1. Close the current connection pool
+        ODatabasePool pool = databasePools.remove(dbName);
+        if (pool != null) {
+            pool.close();
+        }
+
+        // 2. Nuke the database from the server
+        if (orientDB.exists(dbName)) {
+            orientDB.drop(dbName);
+        }
+
+        // 3. Recreate it fresh
+        orientDB.create(dbName, ODatabaseType.PLOCAL);
+
+        // 4. Re-initialize the connection pool and rebuild the schema
+        databasePools.put(dbName, new ODatabasePool(orientDB, dbName, username, password));
+        ensureSchemaExists(dbName);
+
+        logger.info("Test database '{}' has been completely wiped and is ready for the next test.", dbName);
+    }
 }

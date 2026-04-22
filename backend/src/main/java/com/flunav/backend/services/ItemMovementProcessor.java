@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
@@ -222,7 +223,8 @@ public class ItemMovementProcessor {
 
     public void processLocationEntry(String itemId, String locationId, Instant timestamp) {
         var location = topologyProvider.getLocationById(locationId);
-        if (location == null) return;
+        if (location == null)
+            return;
 
         if (location.getType() == LocationType.CHUTE) {
             liveLocationRepository.addItemToLocation(locationId, itemId);
@@ -254,9 +256,19 @@ public class ItemMovementProcessor {
             liveSystemScheduler.cancelInternalEvent(itemId);
     }
 
+    public DomainEvent getScheduledEvent(String itemId) {
+        String simId = DatabaseContextHolder.getSimulationId();
+        if (simId != null) {
+            return simulationService.getScheduledEvent(itemId);
+        } else {
+            return liveSystemScheduler.getScheduledEvent(itemId);
+        }
+    }
+
     public String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId) {
         var item = itemService.getItemById(itemId);
-        if (item == null) return null;
+        if (item == null)
+            return null;
         List<Conveyor> outgoing = topologyProvider.getOutgoingConveyors(currentLocationId).stream()
                 .filter(Conveyor::isActive).toList();
         if (outgoing.isEmpty())

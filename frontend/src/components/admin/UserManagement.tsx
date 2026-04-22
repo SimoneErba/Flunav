@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
 import toast from "react-hot-toast";
-import { CreateUserRoleEnum } from "../../api-client";
+import { CreateUserRoleEnum, UserResponse } from "../../api-client";
+import type { AxiosError } from "axios";
 
 export const UserManagement = () => {
-  const { authApi, usersApi } = useApi();
-  const [users, setUsers] = useState<any[]>([]);
+  const { userApi } = useApi();
+  const [users, setUsers] = useState<UserResponse[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Form State
@@ -13,19 +14,19 @@ export const UserManagement = () => {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<CreateUserRoleEnum>(CreateUserRoleEnum.Viewer);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
-      const res = await usersApi.getAllUsers();
+      const res = await userApi.getAllUsers();
       setUsers(res.data);
     } catch (error) {
       console.error("Failed to fetch users", error);
       // Don't toast here to avoid spamming if permission denied on mount
     }
-  };
+  }, [userApi]);
 
   useEffect(() => {
     fetchUsers();
-  }, [usersApi]);
+  }, [fetchUsers]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,7 +34,7 @@ export const UserManagement = () => {
 
     setLoading(true);
     try {
-      await usersApi.createUser({
+      await userApi.createUser({
         username,
         password,
         role
@@ -47,9 +48,10 @@ export const UserManagement = () => {
       
       // Refresh list
       fetchUsers();
-    } catch (error: any) {
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message?: string }>;
       console.error(error);
-      toast.error("Failed to create user. " + (error.response?.data?.message || ""));
+      toast.error("Failed to create user. " + (axiosError.response?.data?.message || ""));
     } finally {
       setLoading(false);
     }
@@ -59,10 +61,10 @@ export const UserManagement = () => {
     if (!window.confirm(`Are you sure you want to delete ${usernameToDelete}?`)) return;
     
     try {
-      await usersApi.deleteUser(usernameToDelete);
+      await userApi.deleteUser(usernameToDelete);
       toast.success("User deleted");
       fetchUsers();
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete user");
     }
   };

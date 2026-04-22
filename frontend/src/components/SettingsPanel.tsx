@@ -10,25 +10,26 @@ import { PathAnalytics } from "./analytics/PathAnalytics";
 type ExtendedDisplayRule = DisplayRule & { _localId: string };
 type TabType = 'settings' | 'charts';
 type DockSide = 'left' | 'right' | 'bottom';
+type IconProps = React.SVGProps<SVGSVGElement>;
 
 // --- ICONS ---
-const IconDockLeft = (props: any) => (
+const IconDockLeft = (props: IconProps) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="9" y1="3" x2="9" y2="21" />
   </svg>
 );
-const IconDockBottom = (props: any) => (
+const IconDockBottom = (props: IconProps) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="15" x2="21" y2="15" />
   </svg>
 );
-const IconDockRight = (props: any) => (
+const IconDockRight = (props: IconProps) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="15" y1="3" x2="15" y2="21" />
   </svg>
 );
 
-const DockButton = memo(({ Svg, isActive, onClick }: { Svg: React.FC<any>, isActive: boolean, onClick: () => void }) => (
+const DockButton = memo(({ Svg, isActive, onClick }: { Svg: React.FC<IconProps>, isActive: boolean, onClick: () => void }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onClick(); }}
     className={`p-1 leading-none border border-gray-500 rounded text-gray-900 dark:text-white cursor-pointer transition-colors ${isActive ? 'bg-gray-200 dark:bg-white/20' : 'bg-transparent hover:bg-gray-100 dark:hover:bg-white/10'}`}
@@ -135,8 +136,14 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
     try {
       setSaving(true);
       const rulesToSend = rules.map((r, index) => {
-        const { _localId, ...rest } = r;
-        return { ...rest, priority: index + 1 };
+        return {
+          fieldName: r.fieldName,
+          dataType: r.dataType,
+          operator: r.operator,
+          value: r.value,
+          color: r.color,
+          priority: index + 1
+        };
       });
       const result = (await displayRuleApi.updateDisplayRules(rulesToSend)).data;
       onColorsUpdated(result);

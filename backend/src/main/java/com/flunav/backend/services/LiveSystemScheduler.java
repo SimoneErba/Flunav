@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.*;
 
 @Service
@@ -18,7 +19,10 @@ public class LiveSystemScheduler {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(100,
             Thread.ofVirtual().factory());
 
-    private final java.util.Map<String, ScheduledFuture<?>> scheduledTasksByItem = new java.util.concurrent.ConcurrentHashMap<>();
+    private record ScheduledTask(ScheduledFuture<?> future, DomainEvent event) {
+    }
+
+    private final Map<String, ScheduledTask> scheduledTasksByItem = new ConcurrentHashMap<>();
 
     public LiveSystemScheduler(@Lazy EventProcessor eventProcessor) {
         this.eventProcessor = eventProcessor;
@@ -46,14 +50,22 @@ public class LiveSystemScheduler {
                     logger.error("Error processing scheduled live event: {}", event.getEventType(), e);
                 }
             }, delay, TimeUnit.MILLISECONDS);
-            scheduledTasksByItem.put(itemId, future);
+
+            // Store both the future and the original event
+            scheduledTasksByItem.put(itemId, new ScheduledTask(future, event));
         }
     }
 
     public void cancelInternalEvent(String itemId) {
-        ScheduledFuture<?> future = scheduledTasksByItem.remove(itemId);
-        if (future != null) {
-            future.cancel(false);
+        // Update cancellation to use the record
+        ScheduledTask task = scheduledTasksByItem.remove(itemId);
+        if (task != null && task.future() != null) {
+            task.future().cancel(false); // cancel the actual thread
         }
+    }
+
+    public DomainEvent getScheduledEvent(String itemId) {
+        ScheduledTask task = scheduledTasksByItem.get(itemId);
+        return task != null ? task.event() : null;
     }
 }

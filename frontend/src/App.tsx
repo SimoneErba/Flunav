@@ -13,10 +13,11 @@ import { AppHeader } from './components/AppHeader';
 // --- HOOKS & UTILS ---
 import { useGraph } from './hooks/useGraph';
 import { useSimulationClock } from './components/graph/hooks/useSimulationClock';
-import { useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
+import { WebSocketProvider, useWebSocketConnection } from './hooks/websocket/useWebSocketConnection';
 import { useWebSocketEvents } from './hooks/websocket/useWebSocketEvents';
 import { useApi } from './hooks/useApi';
 import { DisplayRuleColorResult, SimulationStateResponseStatusEnum } from "./api-client/api";
+import type { SimulationStatusUpdate } from './types/WebsocketTypes';
 
 // --- CONTEXTS ---
 import { GraphThemeProvider } from './context/theme.context';
@@ -51,7 +52,6 @@ function LiveWorkspace() {
    const [isRestoring, setIsRestoring] = useState(false);
    const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
    const [isSelectingDate, setIsSelectingDate] = useState(false);
-   const [showLiveAnalysis, setShowLiveAnalysis] = useState(false);
   const [colorOverrides, setColorOverrides] = useState<DisplayRuleColorResult | null>(null);
 
   // --- Hooks ---
@@ -159,7 +159,7 @@ function LiveWorkspace() {
     const simId = activeSimulation?.id;
     if (!connected || !simId) return;
     
-    const handleStatusUpdate = (update: any) => {
+    const handleStatusUpdate = (update: SimulationStatusUpdate & { timestamp: number }) => {
         setActiveSimulation(prev => {
             if (prev?.id !== simId) return prev;
             return { ...prev, status: update.status };
@@ -184,7 +184,7 @@ function LiveWorkspace() {
         }
     }).catch(console.warn);
     return () => { unsubscribe(); };
-  }, [connected, activeSimulation?.id, subscribeToSimulationStatus, refetchGraphData]); 
+  }, [connected, activeSimulation?.id, refetchGraphData, setActiveSimulation, simulationApi, subscribeToSimulationStatus]); 
 
   useEffect(() => {
     if (!activeSimulation?.id) return;
@@ -193,7 +193,7 @@ function LiveWorkspace() {
       simulationApi.sendHeartbeat(simId).catch(console.warn);
     }, 30_000);
     return () => clearInterval(intervalId);
-  }, [activeSimulation?.id]); 
+  }, [activeSimulation?.id, simulationApi]); 
 
   const isLoading = graphLoading || isRestoring;
 
@@ -361,29 +361,31 @@ function App() {
     <GraphThemeProvider>
       <AuthProvider>
         <SimulationProvider>
-          <Toaster position="bottom-center" reverseOrder={false} />
-          
-          <BrowserRouter>
-            <Routes>
-              {/* Public Route */}
-              <Route path="/login" element={<LoginPage />} />
+          <WebSocketProvider>
+            <Toaster position="bottom-center" reverseOrder={false} />
+            
+            <BrowserRouter>
+              <Routes>
+                {/* Public Route */}
+                <Route path="/login" element={<LoginPage />} />
 
-              {/* Protected Routes */}
-              <Route element={<RequireAuth />}>
-                {/* Redirect root to live */}
-                <Route path="/" element={<Navigate to="/live" replace />} />
-                
-                {/* Operational View (Graph) */}
-                <Route path="/live" element={<LiveWorkspace />} />
-                
-                {/* Admin View (Tables/Forms) */}
-                <Route path="/admin/*" element={<AdminWorkspace />} />
-              </Route>
+                {/* Protected Routes */}
+                <Route element={<RequireAuth />}>
+                  {/* Redirect root to live */}
+                  <Route path="/" element={<Navigate to="/live" replace />} />
+                  
+                  {/* Operational View (Graph) */}
+                  <Route path="/live" element={<LiveWorkspace />} />
+                  
+                  {/* Admin View (Tables/Forms) */}
+                  <Route path="/admin/*" element={<AdminWorkspace />} />
+                </Route>
 
-              {/* Catch All */}
-              <Route path="*" element={<Navigate to="/live" replace />} />
-            </Routes>
-          </BrowserRouter>
+                {/* Catch All */}
+                <Route path="*" element={<Navigate to="/live" replace />} />
+              </Routes>
+            </BrowserRouter>
+          </WebSocketProvider>
 
         </SimulationProvider>
       </AuthProvider>

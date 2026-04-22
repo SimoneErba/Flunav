@@ -37,7 +37,7 @@ export interface EntityMessage<T> {
 export interface EntityUpdateMessage {
   id: string;
   properties: {
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 

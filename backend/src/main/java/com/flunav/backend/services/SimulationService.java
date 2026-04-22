@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import com.flunav.backend.repositories.LiveItemRepository;
 
+import flunav.events.DomainEvent;
 import flunav.types.PositionType;
 
 @Service
@@ -172,7 +173,9 @@ public class SimulationService {
         if (state == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulation not found: " + simulationId);
         }
-        updateHeartbeat(simulationId);
+        // commented bc it can cause race conditions, we need to send hartbeat
+        // separately
+        // updateHeartbeat(simulationId);
         return state;
     }
 
@@ -263,6 +266,15 @@ public class SimulationService {
                     .removeIf(e -> e instanceof flunav.events.EntityEvent ee && ee.getEntityId().equals(itemId));
             state.getScheduledEventsByItem().remove(itemId);
         }
+    }
+
+    public DomainEvent getScheduledEvent(String itemId) {
+        SimulationState state = getCurrentSimulation();
+        if (state != null) {
+            // Fetch it from the specific simulation's state map
+            return state.getScheduledEventsByItem().get(itemId);
+        }
+        return null;
     }
 
     public void processEventsUntil(String simulationId, Instant targetTime) {

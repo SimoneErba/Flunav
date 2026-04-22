@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, createContext, useContext, useState } from "react";
 import { useSigma } from "@react-sigma/core";
 

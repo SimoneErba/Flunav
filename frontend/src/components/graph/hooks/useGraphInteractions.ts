@@ -3,21 +3,20 @@ import { useRegisterEvents, useSigma } from "@react-sigma/core";
 import { useApi } from "../../../hooks/useApi";
 import { EdgeEditorData } from "../../editors/edge.editor";
 import { NodeEditorData } from "../../editors/node.editor";
+import { ItemEditorData } from "../../editors/item.editor";
 import { LocationTypeEnum } from "../../../api-client";
 import toast from "react-hot-toast";
 import { toastWarning } from "../utils/toastUtils";
-import { HoverTarget } from "../DisplayGraph";
 
 export interface InteractionState {
-    hoverTarget: HoverTarget | null;
-    setHoverTarget: (t: HoverTarget | null) => void;
-    selectedItemData: any | null;
-    setSelectedItemData: (d: any | null) => void;
+    setHoverTarget: (t: { nodeId: string; x: number; y: number; attributes: ItemEditorData } | null) => void;
+    selectedItemData: ItemEditorData | null;
+    setSelectedItemData: (d: ItemEditorData | null) => void;
 }
 
 export const useGraphInteractions = (
     adjustItemsForSpeedChange: (edgeId: string, newSpeed: number) => void,
-    { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }: InteractionState, 
+    { setHoverTarget, selectedItemData, setSelectedItemData }: InteractionState, 
     simulationId?: string | null 
 ) => {
     const sigma = useSigma();
@@ -78,12 +77,22 @@ export const useGraphInteractions = (
             isDetailsOpen
         };
     }, [
-        isReadOnly, locationApi, conveyorsApi, adjustItemsForSpeedChange,
+        isReadOnly, locationApi, conveyorsApi, itemApi, adjustItemsForSpeedChange,
         selectedEdgeData, selectedNodeData, selectedItemData, isDetailsOpen
     ]);
 
     // --- 2. STABLE HANDLERS (Editors) ---
-    const handleEdgeSubmit = useCallback(async ({ speed, length, mainPath, properties }: any) => {
+    const handleEdgeSubmit = useCallback(async ({
+        speed,
+        length,
+        mainPath,
+        properties
+    }: {
+        speed: number;
+        length: number;
+        mainPath: boolean;
+        properties: Record<string, unknown>;
+    }) => {
         const { isReadOnly, conveyorsApi, adjustItemsForSpeedChange } = stateRef.current;
         if (!selectedEdgeData || isReadOnly) return;
         
@@ -97,7 +106,7 @@ export const useGraphInteractions = (
             graph.setEdgeAttribute(edgeId, 'length', Number(length));
             graph.setEdgeAttribute(edgeId, 'mainPath', mainPath);
             graph.setEdgeAttribute(edgeId, 'size', mainPath ? 6 : 3);
-            graph.setNodeAttribute(edgeId, 'properties', properties);
+            graph.setEdgeAttribute(edgeId, 'properties', properties);
 
             if (conveyorId) {
                 await conveyorsApi.updateConveyor(conveyorId, { speed: Number(speed), length: Number(length), mainPath, properties });
@@ -111,7 +120,17 @@ export const useGraphInteractions = (
         }
     }, [sigma, selectedEdgeData]);
 
-    const handleNodeSubmit = useCallback(async ({ name, capacity, properties }: any) => {
+    const handleNodeSubmit = useCallback(async ({
+        name,
+        capacity,
+        locationType,
+        properties
+    }: {
+        name: string;
+        capacity: number;
+        locationType: string;
+        properties: Record<string, unknown>;
+    }) => {
         const { isReadOnly, locationApi } = stateRef.current;
         if (!selectedNodeData || isReadOnly) return;
         
@@ -121,9 +140,10 @@ export const useGraphInteractions = (
         try {
             graph.setNodeAttribute(nodeId, 'label', name);
             graph.setNodeAttribute(nodeId, 'capacity', capacity);
+            graph.setNodeAttribute(nodeId, 'locationType', locationType);
             graph.setNodeAttribute(nodeId, 'properties', properties);
             sigma.refresh();
-            await locationApi.updateLocation(nodeId, { name, capacity, properties });
+            await locationApi.updateLocation(nodeId, { name, capacity, type: locationType, properties });
             toast.success("Location updated");
         } catch (error) { 
             console.error(error);
@@ -132,7 +152,13 @@ export const useGraphInteractions = (
         setSelectedNodeData(null);
     }, [sigma, selectedNodeData]);
 
-    const handleItemSubmit = useCallback(async ({ name, properties }: any) => {
+    const handleItemSubmit = useCallback(async ({
+        name,
+        properties
+    }: {
+        name: string;
+        properties: Record<string, unknown>;
+    }) => {
         const { isReadOnly, itemApi } = stateRef.current;
         if (!selectedItemData || isReadOnly) return;
         
@@ -150,7 +176,7 @@ export const useGraphInteractions = (
             toast.error("Failed to update item");
         }
         setSelectedItemData(null);
-    }, [sigma, selectedItemData]);
+    }, [setSelectedItemData, sigma, selectedItemData]);
 
     const handleEdgeDelete = useCallback(async (edgeId: string, sourceId: string, targetId: string) => {
         const { isReadOnly, conveyorsApi } = stateRef.current;
@@ -163,7 +189,7 @@ export const useGraphInteractions = (
                 sigma.refresh();
                 await conveyorsApi.deleteConveyor(sourceId, targetId);
                 toast.success("Conveyor deleted");
-            } catch (error) {
+            } catch {
                 toast.error("Failed to delete conveyor");
             }
         }
@@ -181,7 +207,7 @@ export const useGraphInteractions = (
                 sigma.refresh();
                 await locationApi.deleteLocation(nodeId);
                 toast.success("Location deleted");
-            } catch (error) {
+            } catch {
                 toast.error("Failed to delete location");
             }
         }
@@ -199,12 +225,12 @@ export const useGraphInteractions = (
                 sigma.refresh();
                 await itemApi.deleteItem(itemId);
                 toast.success("Item deleted");
-            } catch (error) {
+            } catch {
                 toast.error("Failed to delete item");
             }
         }
         setSelectedItemData(null);
-    }, [sigma]);
+    }, [setSelectedItemData, sigma]);
 
     // --- 3. THE MAIN EVENT LOOP ---
     useEffect(() => {
@@ -372,9 +398,9 @@ export const useGraphInteractions = (
                         graph.addEdge(source, target, { id, type: 'arrow', size: 3, speed: 1, length: 10 });
                         
                         try {
-                            await conveyorsApi.createConveyor({ sourceId: source, targetId: target, name: "New", speed: 1, length: 10, isActive: true, mainPath: false });
+                            await conveyorsApi.createConveyor({ sourceId: source, targetId: target, name: "New", speed: 1, length: 10, active: true, mainPath: false });
                             toast.success("Connection created");
-                        } catch (e) {
+                        } catch {
                             graph.dropEdge(source, target);
                             toast.error("Failed to create connection");
                         }
@@ -408,7 +434,7 @@ export const useGraphInteractions = (
                 }
             }
         });
-    }, [sigma, registerEvents, notifyReadOnly]); // Dependency array is now clean and stable!
+    }, [sigma, registerEvents, notifyReadOnly, setHoverTarget, setSelectedItemData]); // Dependency array is now clean and stable!
 
     return { 
         selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,

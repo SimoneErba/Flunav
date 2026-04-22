@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { GraphData, GraphApi, Configuration, DisplayRuleColorResult } from '../api-client';
+import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
 import { baseURL } from '../api/config';
 import { axiosInstance } from '../api/axiosInstance';

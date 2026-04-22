@@ -48,6 +48,7 @@ public abstract class BaseIntegrationTest {
         static void properties(DynamicPropertyRegistry registry) {
                 registry.add("spring.data.redis.host", REDIS_CONTAINER::getHost);
                 registry.add("spring.data.redis.port", () -> REDIS_CONTAINER.getMappedPort(6379));
+                registry.add("metric-snapshot.enabled", () -> "false");
 
                 registry.add("clickhouse.url",
                                 () -> String.format("http://%s:%d/default", CLICKHOUSE_CONTAINER.getHost(),
@@ -59,6 +60,6 @@ public abstract class BaseIntegrationTest {
                                 ORIENTDB_CONTAINER.getMappedPort(2424)));
                 registry.add("orientdb.username", () -> "root");
                 registry.add("orientdb.password", () -> "root");
-                registry.add("orientdb.db.name", () -> "test-sim");
+                registry.add("orientdb.db.name", () -> "test-live");
         }
 }

@@ -10,7 +10,7 @@ import { useGraphAnimation } from "./hooks/useGraphAnimation";
 import { useGraphLiveEvents } from "./hooks/useGraphLiveEvents";
 import { useGraphInteractions } from "./hooks/useGraphInteractions";
 import { HoverOverlay } from "./HoverOverlay";
-import { ItemEditor } from "../editors/item.editor";
+import { ItemEditor, ItemEditorData } from "../editors/item.editor";
 import { HoverTarget } from "./DisplayGraph";
 
 interface GraphEventsProps {
@@ -19,8 +19,8 @@ interface GraphEventsProps {
   simTime: number;
   hoverTarget: HoverTarget | null;
   setHoverTarget: (t: HoverTarget | null) => void;
-  selectedItemData: any | null;
-  setSelectedItemData: (d: any | null) => void;
+  selectedItemData: ItemEditorData | null;
+  setSelectedItemData: (d: ItemEditorData | null) => void;
   colorOverrides?: DisplayRuleColorResult | null;
 }
 
@@ -47,9 +47,9 @@ export const GraphEvents = ({
   useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);
 
 
-  const handleNodeClose = useCallback(() => setSelectedNodeData(null), []);
-  const handleEdgeClose = useCallback(() => { setSelectedEdgeData(null); setHoverTarget(null); setIsDetailsOpen(false); }, []);
-  const handleItemClose = useCallback(() => { setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false); }, []);
+  const handleNodeClose = useCallback(() => setSelectedNodeData(null), [setSelectedNodeData]);
+  const handleEdgeClose = useCallback(() => { setSelectedEdgeData(null); setHoverTarget(null); setIsDetailsOpen(false); }, [setHoverTarget, setIsDetailsOpen, setSelectedEdgeData]);
+  const handleItemClose = useCallback(() => { setSelectedItemData(null); setHoverTarget(null); setIsDetailsOpen(false); }, [setHoverTarget, setIsDetailsOpen, setSelectedItemData]);
 
   return (
     <>
@@ -71,7 +71,6 @@ export const GraphEvents = ({
       {hoverTarget && !selectedItemData && (
         <HoverOverlay 
             position={{ x: hoverTarget.x, y: hoverTarget.y }}
-            onCancel={() => setHoverTarget(null)}
             onLock={() => {
                 setSelectedItemData(hoverTarget.attributes);
                 setHoverTarget(null);

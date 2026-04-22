@@ -11,14 +11,14 @@ export interface EdgeEditorData {
   speed: number;
   length: number;
   mainPath?: boolean;
-  properties?: Record<string, any>;
+  properties?: Record<string, unknown>;
 }
 
 interface EdgeEditorProps {
   data: EdgeEditorData;
   onClose: () => void;
   // Unified submission handler
-  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; properties: Record<string, any> }) => void;
+  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; properties: Record<string, unknown> }) => void;
   onDelete: (edgeId: string, sourceId: string, targetId: string) => void;
 }
 

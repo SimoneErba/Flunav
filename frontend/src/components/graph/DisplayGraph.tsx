@@ -6,6 +6,7 @@ import "@react-sigma/core/lib/react-sigma.min.css";
 import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
 import { GraphEvents } from "./GraphEvents";
 import { GraphHighlighter } from "./GraphHighlighter";
+import { ItemEditorData } from "../editors/item.editor";
 
 interface DisplayGraphProps {
     initialGraphData: GraphData;
@@ -18,7 +19,7 @@ export interface HoverTarget {
     nodeId: string;
     x: number;
     y: number;
-    attributes: any; 
+    attributes: ItemEditorData; 
 }
 
 export const DisplayGraph = ({ 
@@ -29,7 +30,7 @@ export const DisplayGraph = ({
 }: DisplayGraphProps) => {
     
     const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
-    const [selectedItemData, setSelectedItemData] = useState<any | null>(null);
+    const [selectedItemData, setSelectedItemData] = useState<ItemEditorData | null>(null);
     
     const highlightedItem = selectedItemData;
 
@@ -51,7 +52,6 @@ export const DisplayGraph = ({
                 className="w-full h-full !bg-transparent"
             >
                 <GraphHighlighter 
-                    initialGraphData={initialGraphData} 
                     highlightedItem={highlightedItem} 
                 />
 

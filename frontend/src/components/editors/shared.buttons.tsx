@@ -17,7 +17,7 @@ export const SharedButtons = ({onDelete, onClose, onSubmit}: SharedButtonsProps)
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [onDelete]);
   
     return (
         <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">

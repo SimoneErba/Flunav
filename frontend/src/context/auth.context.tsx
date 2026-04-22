@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { axiosInstance } from "../api/axiosInstance"; 
 import { AuthControllerApi, Configuration } from "../api-client";

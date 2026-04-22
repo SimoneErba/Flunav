@@ -55,7 +55,7 @@ export const useGraphLiveEvents = (
                 activeItemsRef.current.set(itemId, { ...item, entryTimestamp: newEntryTimestamp });
             }
         });
-    }, [sigma]);
+    }, [activeItemsRef, sigma]);
 
     useEffect(() => {
         if (!connected || !sigma) return;
@@ -64,7 +64,6 @@ export const useGraphLiveEvents = (
 
         // 1. Position Update
         unsubscribers.push(subscribeToPositionUpdates((update) => {
-            console.log("Got item position chnaged");
             if (!graph.hasNode(update.itemId)) return;
 
             // FIX: Handle LOST status (Item removed from system)
@@ -319,7 +318,24 @@ export const useGraphLiveEvents = (
         }, simulationId));
 
         return () => unsubscribers.forEach(u => u());
-    }, [connected, sigma, simulationId, adjustItemsForSpeedChange]);
+    }, [
+        activeItemsRef,
+        adjustItemsForSpeedChange,
+        connected,
+        sigma,
+        simulationId,
+        subscribeToAllItemUpdates,
+        subscribeToAllLocationUpdates,
+        subscribeToChuteEmptied,
+        subscribeToConnectionCreated,
+        subscribeToConnectionDeleted,
+        subscribeToConnectionUpdated,
+        subscribeToItemCreated,
+        subscribeToItemDeleted,
+        subscribeToLocationCreated,
+        subscribeToLocationDeleted,
+        subscribeToPositionUpdates
+    ]);
 
     return { adjustItemsForSpeedChange };
 };

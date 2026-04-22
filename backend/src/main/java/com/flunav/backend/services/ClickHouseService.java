@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flunav.backend.models.analytics.MetricEvent;
+import com.flunav.backend.models.analytics.ThroughputDto;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.ThroughputMetric;
@@ -37,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 
 @Service
@@ -48,7 +50,7 @@ public class ClickHouseService {
     private final ObjectMapper objectMapper;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
             .withZone(ZoneOffset.UTC);
-    private final BlockingQueue<DomainEvent> eventQueue = new LinkedBlockingQueue<>();
+    private final LinkedBlockingDeque<DomainEvent> eventQueue = new LinkedBlockingDeque<>();
     private static final int BATCH_SIZE = 1000;
 
     public ClickHouseService(
@@ -131,7 +133,14 @@ public class ClickHouseService {
             logger.info("Flushed {} events to ClickHouse", batch.size());
 
         } catch (Exception e) {
+            requeueBatch(batch);
             logger.error("Error flushing batch to ClickHouse. Events might be lost!", e);
+        }
+    }
+
+    private void requeueBatch(List<DomainEvent> batch) {
+        for (int i = batch.size() - 1; i >= 0; i--) {
+            eventQueue.offerFirst(batch.get(i));
         }
     }
 
@@ -159,7 +168,7 @@ public class ClickHouseService {
 
             // Insert into the 'snapshots' table using the JSONEachRow format.
             try (var inputStream = new ByteArrayInputStream(finalJson.getBytes(StandardCharsets.UTF_8))) {
-                client.insert("snapshots", inputStream, ClickHouseFormat.JSONEachRow);
+                client.insert("snapshots", inputStream, ClickHouseFormat.JSONEachRow).get();
             }
 
             logger.info("Successfully saved graph snapshot with ID: {}", snapshotId);
@@ -235,7 +244,7 @@ public class ClickHouseService {
         String formattedStartTimestamp = CLICKHOUSE_FORMATTER.format(startTime);
         String formattedEndTimestamp = CLICKHOUSE_FORMATTER.format(endTime);
 
-        String query = "SELECT data FROM Events WHERE timestamp_processed >= {ts_start:Datetime64(3)} AND timestamp_processed < {ts_end:Datetime64(3)} ORDER BY timestamp_processed ASC FORMAT JSONEachRow";
+        String query = "SELECT data FROM Events WHERE timestamp_received > {ts_start:Datetime64(3)} AND timestamp_received <= {ts_end:Datetime64(3)} ORDER BY timestamp_received ASC, timestamp_processed ASC FORMAT JSONEachRow";
 
         logger.info("Executing query to find events between {} and {}", formattedStartTimestamp, formattedEndTimestamp);
 
@@ -358,39 +367,41 @@ public class ClickHouseService {
 
     public ThroughputMetric getLatestThroughput() {
         String sql = """
-                    SELECT
-                        minute as ts,
-                        sum(items_entered) as entered,
-                        sum(items_exited) as exited,
-                        sum(movements_count) as segments
-                    FROM default.analytics_time_series
-                    WHERE minute >= toStartOfMinute(now())
-                    GROUP BY minute
-                    FORMAT JSONEachRow
+                SELECT
+                    minute as ts,
+                    sum(items_entered) as entered,
+                    sum(items_exited) as exited,
+                    sum(movements_count) as segments
+                FROM default.analytics_time_series
+                WHERE minute >= toStartOfMinute(now())
+                GROUP BY minute
+                FORMAT JSONEachRow
                 """;
 
-        try (QueryResponse response = client.query(sql).get()) {
-            try (InputStream inputStream = response.getInputStream()) {
-                MappingIterator<Map<String, Object>> it = objectMapper
-                        .readerFor(Map.class)
-                        .readValues(inputStream);
+        try (QueryResponse response = client.query(sql).get();
+                InputStream inputStream = response.getInputStream()) {
 
-                if (it.hasNext()) {
-                    Map<String, Object> row = it.next();
-                    String tsString = (String) row.get("ts");
+            MappingIterator<ThroughputDto> it = objectMapper.readerFor(ThroughputDto.class)
+                    .readValues(inputStream);
 
-                    LocalDateTime localDateTime = LocalDateTime.parse(tsString, CH_DATE_FORMATTER);
-                    Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
-                    return new ThroughputMetric(
-                            ts,
-                            ((Number) row.get("entered")).longValue(),
-                            ((Number) row.get("exited")).longValue(),
-                            ((Number) row.get("segments")).longValue());
-                }
+            if (it.hasNext()) {
+                ThroughputDto row = it.next();
+
+                LocalDateTime localDateTime = LocalDateTime.parse(row.ts, CH_DATE_FORMATTER);
+
+                Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
+
+                return new ThroughputMetric(
+                        ts,
+                        row.entered,
+                        row.exited,
+                        row.segments);
             }
+
         } catch (Exception e) {
             logger.error("Failed to fetch latest throughput", e);
         }
+
         return new ThroughputMetric(Instant.now(), 0, 0, 0);
     }
 

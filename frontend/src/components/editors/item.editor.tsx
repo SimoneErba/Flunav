@@ -3,10 +3,21 @@ import { PropertiesEditor } from "../properties.editor";
 import { confirmToast } from "../graph/utils/toastUtils";
 import { SharedButtons } from "./shared.buttons";
 
+export interface ItemEditorData {
+  id: string;
+  label?: string;
+  isActive?: boolean;
+  properties?: Record<string, unknown>;
+  path?: string[];
+  locationId?: string | null;
+  currentEdgeId?: string | null;
+  customColor?: string | null;
+}
+
 interface ItemEditorProps {
-  data: any;
+  data: ItemEditorData;
   onClose: () => void;
-  onSubmit: (updatedData: any) => void; 
+  onSubmit: (updatedData: { name: string; properties: Record<string, unknown> }) => void; 
   onDelete: (id: string) => void;
 }
 

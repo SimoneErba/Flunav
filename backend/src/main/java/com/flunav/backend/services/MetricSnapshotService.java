@@ -8,6 +8,7 @@ import com.flunav.backend.services.TopologyProvider;
 import flunav.types.LocationType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
+@ConditionalOnProperty(name = "metric-snapshot.enabled", havingValue = "true", matchIfMissing = true)
 public class MetricSnapshotService {
     private static final Logger logger = LoggerFactory.getLogger(MetricSnapshotService.class);
 

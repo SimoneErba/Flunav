@@ -15,6 +15,7 @@ import export graph
 
 TODO:
 
+fix pathing. its nodes right now
 attese, ricircoli
 for analytics, count items exite not deleted
 simualte into the future. just skip events form clickhouse

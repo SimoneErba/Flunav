@@ -89,7 +89,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
-            liveItemRepository.saveItemState("sim-stale", "sim-start", PositionType.LOCATION, now.minusSeconds(30 * 3600),
+            liveItemRepository.saveItemState("sim-stale", "sim-start", PositionType.LOCATION,
+                    now.minusSeconds(30 * 3600),
                     0.0, "Simulation Stale", null, null);
         }
 
@@ -174,16 +175,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         try {
-            orientDBService.withSession(db -> {
-                db.command("DELETE EDGE Conveyor");
-                db.command("DELETE VERTEX Item");
-                db.command("DELETE VERTEX Location");
-            });
-        } catch (Exception ignored) {
-        }
-
-        try {
-            orientDBService.dropDatabase(SIMULATION_ID);
+            orientDBService.resetMainDatabaseForTests(SIMULATION_ID);
         } catch (Exception ignored) {
         }
 

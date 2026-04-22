@@ -1,9 +1,14 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/auth.context";
 import { useNavigate } from "react-router-dom";
-import { Configuration } from "../api-client";
 import toast from "react-hot-toast";
 import { useApi } from "../hooks/useApi";
+
+interface LoginResponse {
+  token?: string;
+  refreshToken?: string;
+  role?: string;
+}
 
 export const LoginPage = () => {
   const [username, setUsername] = useState("");
@@ -19,13 +24,13 @@ export const LoginPage = () => {
     setLoading(true);
 
     try {
-      // Chiamata al backend
       const response = await authApi.login({ username, password });
-      console.log(response)
-      // Assumendo che il backend ritorni { token: "...", refreshToken: "...", role: "..." }
-      // Adatta in base al tuo DTO reale
-      const { token, refreshToken, role } = response.data as any; 
+      const { token, refreshToken, role } = response.data as LoginResponse;
       
+      if (!token || !refreshToken || !role) {
+        throw new Error("Missing authentication payload");
+      }
+
       login(token, refreshToken, username, role);
       toast.success(`Welcome back, ${username}!`);
       navigate("/"); // Redirect alla home

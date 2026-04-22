@@ -49,7 +49,6 @@ public class PathfindingService {
         String destLetClause = "$dst = (SELECT FROM Location WHERE customId = :dest)";
 
         // 2. Define the Weight Function (JavaScript)
-        // (Same as before)
         String weightFunction = "function(edge) {" +
                 "  var fixedTime = edge.getProperty('fixedTransitTime');" +
                 "  if (fixedTime != null && fixedTime > 0) {" +

@@ -1,6 +1,6 @@
 import { useAuth } from "../context/auth.context";
 
-const UserMenu = () => {
+export const UserMenu = () => {
   const { user, logout } = useAuth();
   
   if (!user) return null;

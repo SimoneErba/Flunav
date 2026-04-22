@@ -2,11 +2,10 @@ import React, { useEffect, useState } from 'react';
 
 interface HoverOverlayProps {
     position: { x: number, y: number };
-    onCancel: () => void;
     onLock: () => void;
 }
 
-export const HoverOverlay: React.FC<HoverOverlayProps> = ({ position, onCancel, onLock }) => {
+export const HoverOverlay: React.FC<HoverOverlayProps> = ({ position, onLock }) => {
     const [progress, setProgress] = useState(0);
     // We use a ref to ensure we don't call onLock multiple times
     const hasLockedRef = React.useRef(false);

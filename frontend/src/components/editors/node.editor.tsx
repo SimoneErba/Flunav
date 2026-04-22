@@ -18,14 +18,14 @@ export interface NodeEditorData {
   name: string;
   capacity?: number;
   locationType?: string;
-  properties?: Record<string, any>;
+  properties?: Record<string, unknown>;
   itemsInChute?: ItemResponse[];
 }
 
 interface NodeEditorProps {
   data: NodeEditorData;
   onClose: () => void;
-  onSubmit: (updatedData: { name: string; capacity: number; locationType: string; properties: Record<string, any> }) => void;
+  onSubmit: (updatedData: { name: string; capacity: number; locationType: string; properties: Record<string, unknown> }) => void;
   onDelete: (nodeId: string) => void;
 }
 
@@ -59,7 +59,6 @@ export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: Nod
   };
 
   const isChute = locationType === "CHUTE";
-  console.log("Location type:", locationType, "isChute:", isChute);
   const itemsInChute = data.itemsInChute ?? [];
 
   const inputClass = `
