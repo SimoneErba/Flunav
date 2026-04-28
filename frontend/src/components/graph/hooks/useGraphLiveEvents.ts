@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef } from "react";
 import { useSigma } from "@react-sigma/core";
-import { ItemResponse } from "../../../api-client/api";
+import { ItemPositionTypeEnum, ItemResponse } from "../../../api-client/api";
 import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents";
 import { hashToNumber } from "../utils/graphUtils";
 
@@ -75,7 +75,7 @@ export const useGraphLiveEvents = (
 
             const currentItem = activeItemsRef.current.get(update.itemId);
             if (currentItem) {
-                const isConveyor = update.type === 'CONVEYOR';
+                const isConveyor = update.type === ItemPositionTypeEnum.Conveyor;
                 
                 let entryTimestamp = new Date(update.timestamp).toISOString();
                 
@@ -96,6 +96,7 @@ export const useGraphLiveEvents = (
                         }
                     }
                 }
+
 
                 const updatedItem = {
                     ...currentItem,

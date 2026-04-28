@@ -468,6 +468,17 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case LocationTypeChangedEvent e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    location.setType(e.getLocationType());
+                    var updateModel = new UpdateModel(location.getId(), Map.of("type", location.getType().getValue()));
+                    locationService.updateLocation(updateModel);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case LocationDeletedEvent e -> {
                     locationService.deleteLocation(e.getEntityId());
                     if (shouldBroadcast) {

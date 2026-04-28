@@ -92,4 +92,8 @@ public class Location {
     public void updateCapacity(Integer capacity) {
         this.capacity = capacity;
     }
+
+    public void setType(LocationType type) {
+        this.type = type;
+    }
 }

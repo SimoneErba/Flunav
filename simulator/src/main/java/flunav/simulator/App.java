@@ -1062,7 +1062,7 @@ public class App {
                 logger.info("Jumping " + itemId + " to end of " + edge1);
                 sendEvent(new ItemPositionChangedEvent(itemId, edge1, 0.9), "PUT");
 
-                Thread.sleep(2000);
+                Thread.sleep(5000);
 
                 // 4. Jump to B
                 logger.info("Jumping " + itemId + " to node B");

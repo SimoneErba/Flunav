@@ -178,6 +178,24 @@ public class LocationController {
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
             }
+
+            if (updates.containsKey("type")) {
+                Object value = updates.get("type");
+                LocationType type = null;
+                if (value instanceof String) {
+                    type = LocationType.fromString((String) value);
+                } else if (value instanceof LocationType) {
+                    type = (LocationType) value;
+                }
+
+                if (type != null) {
+                    events.add(new LocationTypeChangedEvent(id, type));
+                } else {
+                    logger.warn("Validation failed for location {}: 'type' is invalid, but was {}", id,
+                            value != null ? value.getClass().getSimpleName() : "null");
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+            }
         } catch (Exception e) {
             logger.error("An unexpected error occurred during payload validation for location {}", id, e);
             return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
@@ -261,7 +279,14 @@ public class LocationController {
                 .thenApply(result -> ResponseEntity.ok(result));
     }
 
-    // TODO: update type.
+    @BlockInDemo
+    @PutMapping("/{id}/type")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationType(
+            @PathVariable String id, @RequestBody TypeUpdateRequest request) {
+        var event = new LocationTypeChangedEvent(id, request.type());
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(result -> ResponseEntity.ok(result));
+    }
 
     @BlockInDemo
     @DeleteMapping("/{id}")

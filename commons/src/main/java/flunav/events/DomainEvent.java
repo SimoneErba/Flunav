@@ -32,6 +32,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = LocationDeactivatedEvent.class, name = "LOCATION_DEACTIVATED"),
         @JsonSubTypes.Type(value = LocationDeletedEvent.class, name = "LOCATION_DELETED"),
         @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
+        @JsonSubTypes.Type(value = LocationTypeChangedEvent.class, name = "LOCATION_TYPE_CHANGED"),
         @JsonSubTypes.Type(value = ChuteEmptyEvent.class, name = "CHUTE_EMPTY"),
 
         // --- CONNECTION (CONVEYOR) EVENTS ---

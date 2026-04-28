@@ -4,12 +4,10 @@ GEMINI_MODEL="gemini-3.0-pro" gemini
 
 TEST:
 
-allow items to move in the middle of a coveyour. not just locations. add a param maybe in the event, edge or lcoation. 
 check if on amssive graph items become big. check massive graph reformance
 
 stopping conveyour
 add edit of location type
-import export graph
 
 ---
 
@@ -26,7 +24,6 @@ see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode
 edit active simulations to see "what if"
 page to see item history
-add del, enter shortcuts
 chatbot to ask about item history or location events
 puppygraph or ckickgraph for analytics (BI) - 
 
