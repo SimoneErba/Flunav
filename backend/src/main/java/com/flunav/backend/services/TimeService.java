@@ -5,44 +5,79 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Objects;
 
 /**
  * Centralized service to manage time across the application.
- * This allows for deterministic testing by swapping the real clock with a simulation clock.
+ * The physical clock represents the real system timeline. Virtual time is scoped
+ * to the current thread while simulation events are being processed.
  */
 @Service
 public class TimeService {
-    private Clock clock = Clock.systemUTC();
+    private volatile Clock physicalClock = Clock.systemUTC();
+    private final ThreadLocal<Instant> virtualNow = new ThreadLocal<>();
 
     public Instant now() {
-        return Instant.now(clock);
+        Instant scopedVirtualNow = virtualNow.get();
+        return scopedVirtualNow != null ? scopedVirtualNow : physicalNow();
+    }
+
+    public Instant physicalNow() {
+        return Instant.now(physicalClock);
     }
 
     public long millis() {
-        return clock.millis();
+        Instant scopedVirtualNow = virtualNow.get();
+        return scopedVirtualNow != null ? scopedVirtualNow.toEpochMilli() : physicalClock.millis();
     }
 
     /**
-     * Replaces the current clock with a fixed or adjustable one.
-     * Primarily used for testing and simulations.
+     * Replaces the physical clock with a fixed or adjustable one.
+     * Primarily used for deterministic tests.
      */
     public void setClock(Clock clock) {
-        this.clock = clock;
+        this.physicalClock = Objects.requireNonNull(clock);
     }
 
     /**
-     * Resets the clock to the system default.
+     * Resets the physical clock to the system default and clears scoped virtual
+     * time on the current thread.
      */
     public void reset() {
-        this.clock = Clock.systemUTC();
+        this.physicalClock = Clock.systemUTC();
+        this.virtualNow.remove();
     }
 
     /**
-     * Utility to jump forward in time if using a mutable clock.
-     * Note: This requires a specialized Clock implementation if we want to "advance" 
-     * without creating a new FixedClock every time.
+     * Runs the current thread on a simulation timestamp until the returned context
+     * is closed.
+     */
+    public TimeContext enterVirtualTime(Instant instant) {
+        return new TimeContext(instant);
+    }
+
+    /**
+     * Utility to set the physical clock to a fixed instant.
      */
     public void useFixedClock(Instant instant) {
-        this.clock = Clock.fixed(instant, ZoneId.of("UTC"));
+        this.physicalClock = Clock.fixed(instant, ZoneId.of("UTC"));
+    }
+
+    public final class TimeContext implements AutoCloseable {
+        private final Instant previousVirtualNow;
+
+        private TimeContext(Instant instant) {
+            this.previousVirtualNow = virtualNow.get();
+            virtualNow.set(Objects.requireNonNull(instant));
+        }
+
+        @Override
+        public void close() {
+            if (previousVirtualNow == null) {
+                virtualNow.remove();
+            } else {
+                virtualNow.set(previousVirtualNow);
+            }
+        }
     }
 }

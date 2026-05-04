@@ -37,24 +37,28 @@ public class HistoricalGraphBuilder {
     private final OrientDBService orientDBService;
     private final SimulationService simulationService;
     private final LiveItemRepository liveItemRepository;
+    private final TimeService timeService;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
             OrientDBService orientDBService, SimulationService simulationService,
-            LiveItemRepository liveItemRepository) {
+            LiveItemRepository liveItemRepository, TimeService timeService) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.orientDBService = orientDBService;
         this.simulationService = simulationService;
         this.liveItemRepository = liveItemRepository;
+        this.timeService = timeService;
     }
 
     @Async("taskExecutor")
     public void build(String simulationId, Instant restorePoint, Semaphore buildPermits) {
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             logger.info("Starting historical graph build for simulation: {}", simulationId);
+            Instant physicalNow = timeService.physicalNow();
+            Instant realEventReplayEnd = restorePoint.isAfter(physicalNow) ? physicalNow : restorePoint;
 
             // 1. Restore from Snapshot (The Baseline)
-            Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(restorePoint);
+            Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(realEventReplayEnd);
             Instant eventsAfterTimestamp = Instant.EPOCH;
 
             if (snapshotOpt.isPresent()) {
@@ -65,12 +69,14 @@ public class HistoricalGraphBuilder {
             }
 
             // 2. Replay Events (The Delta)
-            List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(eventsAfterTimestamp, restorePoint);
+            List<DomainEvent> eventsToReplay = eventsAfterTimestamp.isBefore(realEventReplayEnd)
+                    ? clickHouseService.getEventsBetween(eventsAfterTimestamp, realEventReplayEnd)
+                    : List.of();
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
             orientDBService.withSession(session -> {
                 for (DomainEvent event : eventsToReplay) {
-                    try {
+                    try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
                         eventProcessor.processEventWithoutBroadcast(event);
                     } catch (Exception e) {
                         logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
@@ -79,12 +85,13 @@ public class HistoricalGraphBuilder {
                 }
             });
 
+            simulationService.processEventsUntil(simulationId, restorePoint);
             logger.info("Historical graph build complete for simulation: {}", simulationId);
-            simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, Instant.now());
+            simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, restorePoint);
 
         } catch (Exception e) {
             logger.error("A critical error occurred during the build process for simulation: {}", simulationId, e);
-            simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, Instant.now());
+            simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, null);
         } finally {
             buildPermits.release();
             logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());

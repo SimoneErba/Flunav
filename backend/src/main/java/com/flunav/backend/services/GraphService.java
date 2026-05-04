@@ -59,9 +59,9 @@ public class GraphService {
     }
 
     public GraphData getGraphData() {
-        var currentSimualtion = simulationService.getCurrentSimulation();
-        if (currentSimualtion != null) {
-            return getGraphData(currentSimualtion.getTimestamp());
+        var currentSimulation = simulationService.getCurrentSimulation();
+        if (currentSimulation != null) {
+            return getGraphData(simulationService.getSimulationClock(currentSimulation));
         }
         return getGraphData(timeService.now());
     }
@@ -114,7 +114,10 @@ public class GraphService {
     }
 
     public List<ItemResponse> getAllItemStates() {
-        return calculateAllItemStates(fetchTopology(), timeService.now(), true, DatabaseContextHolder.getSimulationId(),
+        var currentSimulation = simulationService.getCurrentSimulation();
+        Instant now = currentSimulation != null ? simulationService.getSimulationClock(currentSimulation)
+                : timeService.now();
+        return calculateAllItemStates(fetchTopology(), now, true, DatabaseContextHolder.getSimulationId(),
                 false);
     }
 

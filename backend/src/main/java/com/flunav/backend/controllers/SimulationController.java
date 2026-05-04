@@ -78,8 +78,7 @@ public class SimulationController {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
 
-        Instant simulationTime = state.getTimestamp() != null ? state.getTimestamp()
-                : state.getLastProcessedTimestamp();
+        Instant simulationTime = simulationService.getSimulationClock(state);
 
         org.slf4j.LoggerFactory.getLogger(SimulationController.class).info("GetGraphData for SimID: {}, Time: {}",
                 simulationId, simulationTime);

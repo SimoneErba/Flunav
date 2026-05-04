@@ -75,7 +75,8 @@ public class SimulationService {
     }
 
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
-        SimulationState state = new SimulationState(simulationId, timestamp);
+        SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
+                timeService.physicalNow(), null, 1.0);
         simulationCache.put(simulationId, state);
         persistState(state);
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
@@ -180,7 +181,7 @@ public class SimulationService {
     }
 
     public void updateHeartbeat(String simulationId) {
-        Instant now = Instant.now();
+        Instant now = timeService.physicalNow();
         SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state != null) {
             state.setLastHeartbeatTimestamp(now);
@@ -207,7 +208,7 @@ public class SimulationService {
         if (!waitingQueue.isEmpty() && buildPermits.tryAcquire()) {
             SimulationRequest request = waitingQueue.poll();
             if (request != null) {
-                updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, Instant.now());
+                updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, request.timestamp());
                 orientDBService.createInMemoryDatabase(request.simulationId());
                 historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
             } else {
@@ -221,7 +222,7 @@ public class SimulationService {
         logger.info("Running cleanup job for abandoned simulations...");
         if ("true".equals(System.getProperty("disable-sim-cleanup")))
             return;
-        Instant now = Instant.now();
+        Instant now = timeService.physicalNow();
         for (var heartbeat : liveSimulationRepository.getAllSimulationHeartbeats()) {
             if (Duration.between(heartbeat.lastHeartbeatTimestamp(), now).toMinutes() > 2) {
                 destroySimulation(heartbeat.simulationId());
@@ -247,6 +248,17 @@ public class SimulationService {
         return DatabaseContextHolder.getSimulationId();
     }
 
+    public Instant getSimulationClock(SimulationState state) {
+        if (state == null) {
+            return timeService.physicalNow();
+        }
+        return state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp() : state.getTimestamp();
+    }
+
+    public Instant getSimulationClock(String simulationId) {
+        return getSimulationClock(getSimulationState(simulationId));
+    }
+
     public void addInternalEvent(flunav.events.DomainEvent event) {
         SimulationState state = getCurrentSimulation();
         if (state != null && event instanceof flunav.events.EntityEvent ee) {
@@ -265,6 +277,13 @@ public class SimulationService {
             state.getInternalEventQueue()
                     .removeIf(e -> e instanceof flunav.events.EntityEvent ee && ee.getEntityId().equals(itemId));
             state.getScheduledEventsByItem().remove(itemId);
+        }
+    }
+
+    public void markInternalEventProcessed(flunav.events.DomainEvent event) {
+        SimulationState state = getCurrentSimulation();
+        if (state != null && event instanceof flunav.events.EntityEvent ee) {
+            state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
         }
     }
 
@@ -291,13 +310,15 @@ public class SimulationService {
             state.getInternalEventQueue().poll();
 
             checkpointAllItems(simulationId, event.getTimestamp());
-            timeService.useFixedClock(event.getTimestamp());
+            state.setLastProcessedTimestamp(event.getTimestamp());
+            persistState(state);
 
             if (event instanceof flunav.events.EntityEvent ee) {
                 state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
             }
 
-            try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId);
+                    var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
                 eventProcessor.processEventWithoutBroadcast(event);
             }
         }

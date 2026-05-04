@@ -16,6 +16,7 @@ public class LiveSystemScheduler {
     private static final Logger logger = LoggerFactory.getLogger(LiveSystemScheduler.class);
 
     private final EventProcessor eventProcessor;
+    private final TimeService timeService;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(100,
             Thread.ofVirtual().factory());
 
@@ -24,8 +25,9 @@ public class LiveSystemScheduler {
 
     private final Map<String, ScheduledTask> scheduledTasksByItem = new ConcurrentHashMap<>();
 
-    public LiveSystemScheduler(@Lazy EventProcessor eventProcessor) {
+    public LiveSystemScheduler(@Lazy EventProcessor eventProcessor, TimeService timeService) {
         this.eventProcessor = eventProcessor;
+        this.timeService = timeService;
     }
 
     public void scheduleInternalEvent(DomainEvent event) {
@@ -36,7 +38,7 @@ public class LiveSystemScheduler {
         String itemId = ee.getEntityId();
         cancelInternalEvent(itemId);
 
-        Instant now = Instant.now();
+        Instant now = timeService.physicalNow();
         long delay = Duration.between(now, event.getTimestamp()).toMillis();
 
         if (delay <= 0) {

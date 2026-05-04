@@ -3,6 +3,7 @@ package com.flunav.backend;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ItemResponse;
+import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.services.ClickHouseService;
@@ -98,6 +99,12 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         stopAndDestroy("sim-fast");
         stopAndDestroy("sim-slow");
         stopAndDestroy("sim-resume");
+        stopAndDestroy("sim-future-anchor");
+        stopAndDestroy("sim-future-playback");
+        stopAndDestroy("sim-future-state");
+        stopAndDestroy("sim-present-fastforward");
+        stopAndDestroy("sim-future-clickhouse");
+        stopAndDestroy("sim-clock");
         sim.reset();
         truncateClickHouse();
         flushRedis();
@@ -226,6 +233,183 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         assertTrue(resumedAt.isAfter(pausedAt), "Playback should resume from the paused timestamp");
     }
 
+    @Test
+    void simulationBuildUsesRestorePointAsPlaybackAnchorEvenInTheFuture() throws Exception {
+        Instant restorePoint = Instant.now().plus(Duration.ofHours(2));
+
+        simulationService.getOrCreateSimulation("sim-future-anchor", restorePoint);
+        waitForStatus("sim-future-anchor", SimulationStatus.READY);
+
+        SimulationState state = simulationService.getSimulationState("sim-future-anchor");
+        assertEquals(restorePoint.toEpochMilli(), state.getLastProcessedTimestamp().toEpochMilli(),
+                "Build should persist restore point as last processed timestamp");
+    }
+
+    @Test
+    void futurePlaybackContinuesBeyondRealNowUsingInternalQueue() throws Exception {
+        Instant virtualNow = Instant.parse("2026-02-07T18:00:00Z");
+        timeService.useFixedClock(virtualNow);
+        Instant restorePoint = virtualNow.plusSeconds(30);
+
+        simulationService.getOrCreateSimulation("sim-future-playback", restorePoint);
+        waitForStatus("sim-future-playback", SimulationStatus.READY);
+
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("sim-future-playback")) {
+            eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(
+                    "future-start", "Future Start", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()));
+            eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(
+                    "future-end", "Future End", true, 1.0, 1.0, LocationType.GENERIC, 100, new HashMap<>()));
+            eventProcessor.processEventWithoutBroadcast(new ConnectionCreatedEvent(
+                    "future-conv", "future-start", "future-end", 10.0, 1.0, 0.0, null, false,
+                    "Future Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()));
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "future-item", "Future Box", 1.0, true, "future-start", PositionType.LOCATION, 0.0,
+                    new HashMap<>(), restorePoint));
+        }
+
+        simulationService.startPlayback("sim-future-playback", 8.0);
+
+        waitFor(() -> {
+            Instant lastProcessed = simulationService.getSimulationState("sim-future-playback")
+                    .getLastProcessedTimestamp();
+            return lastProcessed != null && lastProcessed.isAfter(restorePoint.plusSeconds(12));
+        }, Duration.ofSeconds(5), "Future playback did not advance past the future restore point");
+
+        Instant lastProcessed = simulationService.getSimulationState("sim-future-playback").getLastProcessedTimestamp();
+        assertTrue(lastProcessed.isAfter(virtualNow), "Simulation time should advance beyond real time");
+
+        ItemResponse item = getSimulationItem("sim-future-playback", lastProcessed, "future-item").orElseThrow();
+        assertEquals("future-end", item.getLocationId(),
+                "Internal queued movement should continue while simulation is in the future");
+    }
+
+    @Test
+    void futureSimulationBuildProjectsItemStateAtFutureTimestamp() throws Exception {
+        clickHouseService.saveEventAsync(new LocationCreatedEvent(
+                "future-state-start", "Start", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new LocationCreatedEvent(
+                "future-state-end", "End", true, 1.0, 1.0, LocationType.GENERIC, 100, new HashMap<>()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new ConnectionCreatedEvent(
+                "future-state-conv", "future-state-start", "future-state-end", 10.0, 1.0, 0.0, null, false,
+                "Future State Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()));
+        Thread.sleep(5);
+
+        Instant itemStart = Instant.now();
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "future-state-item", "Future State Box", 1.0, true, "future-state-start", PositionType.LOCATION,
+                0.0, new HashMap<>(), itemStart));
+        clickHouseService.flushEvents();
+
+        Instant restorePoint = itemStart.plus(Duration.ofHours(1));
+        simulationService.getOrCreateSimulation("sim-future-state", restorePoint);
+        waitForStatus("sim-future-state", SimulationStatus.READY);
+
+        SimulationState state = simulationService.getSimulationState("sim-future-state");
+        assertTrue(state.getInternalEventQueue().isEmpty(),
+                "Build should process generated internal events up to the future restore point");
+        assertFalse(state.getScheduledEventsByItem().containsKey("future-state-item"),
+                "Build should not leave stale scheduled movement for an already projected item");
+
+        ItemResponse item = getSimulationItem("sim-future-state", restorePoint, "future-state-item").orElseThrow();
+        assertEquals("future-state-end", item.getLocationId(),
+                "Future simulation should project item state at the requested future timestamp");
+        assertTrue(item.getProgress() >= 0.99, "Item should have completed conveyor travel in projected future state");
+    }
+
+    @Test
+    void presentSimulationFastForwardAtTwoXContinuesCorrectlyIntoFuture() throws Exception {
+        Instant restorePoint = seedPlaybackScenario("present2x");
+        simulationService.getOrCreateSimulation("sim-present-fastforward", restorePoint);
+        waitForStatus("sim-present-fastforward", SimulationStatus.READY);
+
+        simulationService.startPlayback("sim-present-fastforward", 2.0);
+
+        waitFor(() -> {
+            Instant lastProcessed = simulationService.getSimulationState("sim-present-fastforward")
+                    .getLastProcessedTimestamp();
+            return lastProcessed != null && lastProcessed.isAfter(restorePoint.plusSeconds(12));
+        }, Duration.ofSeconds(8), "2x playback did not advance simulation into future");
+
+        Instant lastProcessed = simulationService.getSimulationState("sim-present-fastforward")
+                .getLastProcessedTimestamp();
+        assertTrue(lastProcessed.isAfter(restorePoint), "Simulation clock should pass the present timestamp");
+
+        ItemResponse item = getSimulationItem("sim-present-fastforward", lastProcessed, "item-present2x")
+                .orElseThrow();
+        assertEquals("end-present2x", item.getLocationId(),
+                "Item should keep moving correctly after crossing from present into future");
+
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("sim-present-fastforward")) {
+            GraphData currentGraph = graphService.getGraphData();
+            assertEquals(lastProcessed.toEpochMilli(), currentGraph.getTimestamp().toEpochMilli(),
+                    "Default simulation graph reads should use the simulation clock");
+            ItemResponse currentItem = currentGraph.getItems().stream()
+                    .filter(candidate -> "item-present2x".equals(candidate.getId()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("end-present2x", currentItem.getLocationId(),
+                    "Default graph reads should reflect playback progress, not the original restore point");
+        }
+    }
+
+    @Test
+    void playbackDoesNotReadClickHouseEventsBeyondPhysicalNowWhenWindowCrossesIt() throws Exception {
+        Instant physicalNow = Instant.parse("2026-02-07T19:00:00Z");
+        timeService.useFixedClock(physicalNow);
+        Instant restorePoint = physicalNow.minusSeconds(1);
+
+        createEmptySimulation("sim-future-clickhouse", restorePoint);
+        createLinearTopology("sim-future-clickhouse", "future-clickhouse");
+
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "future-clickhouse-item", "Future ClickHouse Box", 1.0, true, "future-clickhouse-start",
+                PositionType.LOCATION, 0.0, new HashMap<>(), physicalNow.plusSeconds(1)));
+        clickHouseService.flushEvents();
+
+        simulationService.startPlayback("sim-future-clickhouse", 20.0);
+
+        waitFor(() -> {
+            Instant lastProcessed = simulationService.getSimulationState("sim-future-clickhouse")
+                    .getLastProcessedTimestamp();
+            return lastProcessed != null && lastProcessed.isAfter(physicalNow.plusSeconds(2));
+        }, Duration.ofSeconds(5), "Playback did not advance across the physical-now boundary");
+
+        Instant lastProcessed = simulationService.getSimulationState("sim-future-clickhouse")
+                .getLastProcessedTimestamp();
+        GraphData graphData = graphService.getGraphData(lastProcessed, false, "sim-future-clickhouse", false);
+        assertTrue(graphData.getItems().stream()
+                .noneMatch(item -> "future-clickhouse-item".equals(item.getId())),
+                "Playback must ignore ClickHouse events after physical now once the simulation enters the future");
+    }
+
+    @Test
+    void simulationVirtualClockDoesNotMutatePhysicalClock() throws Exception {
+        Instant physicalNow = Instant.parse("2026-02-07T20:00:00Z");
+        timeService.useFixedClock(physicalNow);
+        Instant simulationStart = physicalNow.plus(Duration.ofHours(1));
+
+        createEmptySimulation("sim-clock", simulationStart);
+        createLinearTopology("sim-clock", "clock");
+
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("sim-clock")) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "clock-item", "Clock Box", 1.0, true, "clock-start", PositionType.LOCATION, 0.0,
+                    new HashMap<>(), simulationStart));
+        }
+
+        Instant targetTime = simulationStart.plusSeconds(15);
+        simulationService.processEventsUntil("sim-clock", targetTime);
+
+        assertEquals(physicalNow, timeService.physicalNow(),
+                "Processing simulation events must not change the physical world clock");
+        assertEquals(physicalNow, timeService.now(),
+                "Outside a scoped simulation event, TimeService.now should report physical time");
+        assertEquals(targetTime, simulationService.getSimulationClock("sim-clock"),
+                "The simulation should keep its own independent clock");
+    }
+
     private void createSimulationWorld(String simulationId, double initialProgress, String itemName) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(
@@ -238,6 +422,18 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                     "shared-item", itemName, 1.0, true, "shared-conveyor", PositionType.CONVEYOR, initialProgress,
                     new HashMap<>(), Instant.parse("2026-02-07T14:00:00Z")));
+        }
+    }
+
+    private void createLinearTopology(String simulationId, String prefix) {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(
+                    prefix + "-start", "Start", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()));
+            eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(
+                    prefix + "-end", "End", true, 1.0, 1.0, LocationType.GENERIC, 100, new HashMap<>()));
+            eventProcessor.processEventWithoutBroadcast(new ConnectionCreatedEvent(
+                    prefix + "-conv", prefix + "-start", prefix + "-end", 10.0, 1.0, 0.0, null, false,
+                    "Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()));
         }
     }
 

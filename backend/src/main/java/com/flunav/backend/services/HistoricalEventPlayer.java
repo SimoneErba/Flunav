@@ -14,6 +14,7 @@ import com.flunav.backend.models.simulation.SimulationStatus;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Future;
 
@@ -25,16 +26,18 @@ public class HistoricalEventPlayer {
     private final ClickHouseService clickHouseService;
     private final SimulationService simulationService;
     private final WebSocketService webSocketService;
+    private final TimeService timeService;
 
     // Define the polling interval as a constant for easy configuration
     private static final Duration POLLING_INTERVAL = Duration.ofSeconds(5);
 
     public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService,
-            @Lazy SimulationService simulationService, WebSocketService webSocketService) {
+            @Lazy SimulationService simulationService, WebSocketService webSocketService, TimeService timeService) {
         this.eventProcessor = eventProcessor;
         this.clickHouseService = clickHouseService;
         this.simulationService = simulationService;
         this.webSocketService = webSocketService;
+        this.timeService = timeService;
     }
 
     @SuppressWarnings("deprecation")
@@ -53,7 +56,7 @@ public class HistoricalEventPlayer {
             state.setSpeedFactor(initialSpeedFactor);
             state.setLastProcessedTimestamp(simulationStartTime); // Initialize progress
             simulationService.updateLastProcessedTimestamp(simulationId, simulationStartTime);
-            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, Instant.now());
+            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
 
             Instant currentSimulationTime = simulationStartTime;
 
@@ -67,23 +70,40 @@ public class HistoricalEventPlayer {
 
                 logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime,
                         windowEndTime);
-                List<DomainEvent> eventChunk = clickHouseService.getEventsBetween(windowStartTime, windowEndTime);
+                List<DomainEvent> eventChunk = new ArrayList<>();
+                Instant physicalNow = timeService.physicalNow();
+                Instant externalWindowEnd = windowEndTime.isAfter(physicalNow) ? physicalNow : windowEndTime;
+                if (windowStartTime.isBefore(externalWindowEnd)) {
+                    eventChunk.addAll(clickHouseService.getEventsBetween(windowStartTime, externalWindowEnd));
+                }
 
                 // --- Process Internal Events ---
+                List<DomainEvent> overdueInternalEvents = new ArrayList<>();
                 while (!state.getInternalEventQueue().isEmpty() &&
                         !state.getInternalEventQueue().peek().getTimestamp().isAfter(windowEndTime)) {
                     DomainEvent internalEvent = state.getInternalEventQueue().poll();
                     if (internalEvent != null) {
-                        eventChunk.add(internalEvent);
+                        simulationService.markInternalEventProcessed(internalEvent);
+                        if (internalEvent.getTimestamp().isBefore(windowStartTime)) {
+                            overdueInternalEvents.add(internalEvent);
+                        } else {
+                            eventChunk.add(internalEvent);
+                        }
                     }
                 }
+
+                overdueInternalEvents.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
+                processOverdueInternalEvents(simulationId, overdueInternalEvents);
 
                 // Sort the combined chunk by timestamp to ensure correct order
                 eventChunk.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
 
                 if (!eventChunk.isEmpty()) {
                     playChunk(simulationId, eventChunk, state);
-                    currentSimulationTime = eventChunk.get(eventChunk.size() - 1).getTimestamp();
+                    Instant lastEventTimestamp = eventChunk.get(eventChunk.size() - 1).getTimestamp();
+                    currentSimulationTime = lastEventTimestamp.isAfter(currentSimulationTime)
+                            ? lastEventTimestamp
+                            : currentSimulationTime;
                 } else {
                     // No events found, advance the clock to avoid getting stuck.
                     currentSimulationTime = windowEndTime;
@@ -123,7 +143,8 @@ public class HistoricalEventPlayer {
                 logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
                 if (state != null) {
                     state.setStatus(SimulationStatus.STOPPED);
-                    simulationService.updateSimulationStatus(simulationId, SimulationStatus.STOPPED, Instant.now());
+                    simulationService.updateSimulationStatus(simulationId, SimulationStatus.STOPPED,
+                            state.getLastProcessedTimestamp());
                 }
             }
             // Preserve the interrupted status for the thread pool.
@@ -134,7 +155,8 @@ public class HistoricalEventPlayer {
             SimulationState state = simulationService.getSimulationState(simulationId);
             if (state != null) {
                 state.setStatus(SimulationStatus.FAILED);
-                simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, Instant.now());
+                simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED,
+                        state.getLastProcessedTimestamp());
             }
         }
 
@@ -204,9 +226,21 @@ public class HistoricalEventPlayer {
             }
 
             try {
-                eventProcessor.processEvent(event);
+                try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+                    eventProcessor.processEvent(event);
+                }
             } catch (Exception e) {
                 logger.warn("Failed to process event {}", event, e);
+            }
+        }
+    }
+
+    private void processOverdueInternalEvents(String simulationId, List<DomainEvent> overdueInternalEvents) {
+        for (DomainEvent event : overdueInternalEvents) {
+            try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+                eventProcessor.processEvent(event);
+            } catch (Exception e) {
+                logger.warn("Failed to process overdue internal event {} for simulation {}", event, simulationId, e);
             }
         }
     }
