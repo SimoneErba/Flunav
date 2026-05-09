@@ -141,8 +141,13 @@ export const useGraphLiveEvents = (
                 } 
                 
                 // CASE B: Spawning on a Conveyor (Edge)
-                else if (graph.hasEdge(item.locationId)) {
-                    const edgeId = item.locationId;
+                else {
+                    const edgeId = graph.hasEdge(item.locationId)
+                        ? item.locationId
+                        : graph.findEdge((_edge, attrs) => attrs.id === item.locationId);
+
+                    if (!edgeId) return;
+
                     const sourceId = graph.source(edgeId);
                     const targetId = graph.target(edgeId);
                     
@@ -179,7 +184,12 @@ export const useGraphLiveEvents = (
                 customColor: item.customColor
             });
 
-            const isConveyor = item.positionType === 'CONVEYOR' || (item.locationId && graph.hasEdge(item.locationId));
+            const edgeKey = item.locationId
+                ? graph.hasEdge(item.locationId)
+                    ? item.locationId
+                    : graph.findEdge((_edge, attrs) => attrs.id === item.locationId)
+                : undefined;
+            const isConveyor = item.positionType === 'CONVEYOR' || Boolean(edgeKey);
             
             // Update Logic State
             activeItemsRef.current.set(item.id!, {

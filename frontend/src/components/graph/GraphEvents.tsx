@@ -1,5 +1,5 @@
-import { useCallback, useRef } from "react";
-import { ControlsContainer, ZoomControl, FullScreenControl } from "@react-sigma/core";
+import { useCallback, useEffect, useRef } from "react";
+import { ControlsContainer, ZoomControl, FullScreenControl, useSigma } from "@react-sigma/core";
 import { DisplayRuleColorResult, GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "../editors/edge.editor";
 import { NodeEditor } from "../editors/node.editor";
@@ -23,6 +23,98 @@ interface GraphEventsProps {
   setSelectedItemData: (d: ItemEditorData | null) => void;
   colorOverrides?: DisplayRuleColorResult | null;
 }
+
+const cloneAttributes = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object") return {};
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+};
+
+const GraphTestApiBridge = ({
+  activeItemsRef,
+  simTime,
+}: {
+  activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>;
+  simTime: number;
+}) => {
+  const sigma = useSigma();
+
+  useEffect(() => {
+    if (import.meta.env.VITE_GRAPH_TEST_API !== "true") return;
+
+    const graph = sigma.getGraph();
+
+    const getNode = (id: string) => {
+      if (!graph.hasNode(id)) return null;
+      return { id, attributes: cloneAttributes(graph.getNodeAttributes(id)) };
+    };
+
+    const getEdge = (keyOrId: string) => {
+      let edgeKey: string | null = null;
+
+      if (graph.hasEdge(keyOrId)) {
+        edgeKey = keyOrId;
+      } else {
+        graph.forEachEdge((key, attributes) => {
+          if (!edgeKey && attributes.id === keyOrId) edgeKey = key;
+        });
+      }
+
+      if (!edgeKey || !graph.hasEdge(edgeKey)) return null;
+      return {
+        key: edgeKey,
+        source: graph.source(edgeKey),
+        target: graph.target(edgeKey),
+        attributes: cloneAttributes(graph.getEdgeAttributes(edgeKey)),
+      };
+    };
+
+    window.__graphTestApi = {
+      version: 1,
+      getSnapshot: () => {
+        const nodes = graph.nodes().map((id) => ({
+          id,
+          attributes: cloneAttributes(graph.getNodeAttributes(id)),
+        }));
+        const edges = graph.edges().map((key) => ({
+          key,
+          source: graph.source(key),
+          target: graph.target(key),
+          attributes: cloneAttributes(graph.getEdgeAttributes(key)),
+        }));
+
+        return {
+          nodeCount: graph.order,
+          edgeCount: graph.size,
+          nodes,
+          edges,
+          activeItems: Array.from(activeItemsRef.current.entries()).map(([id, item]) => [
+            id,
+            cloneAttributes(item),
+          ]),
+          simTime,
+        };
+      },
+      getNode,
+      getEdge,
+      getItem: (id: string) => ({
+        graphNode: getNode(id),
+        activeItem: activeItemsRef.current.has(id)
+          ? cloneAttributes(activeItemsRef.current.get(id))
+          : null,
+      }),
+      hasNode: (id: string) => graph.hasNode(id),
+      hasEdge: (keyOrId: string) => getEdge(keyOrId) !== null,
+    };
+
+    return () => {
+      if (window.__graphTestApi?.version === 1) {
+        delete window.__graphTestApi;
+      }
+    };
+  }, [activeItemsRef, sigma, simTime]);
+
+  return null;
+};
 
 export const GraphEvents = ({ 
     initialGraphData, simulationId, simTime,
@@ -53,6 +145,10 @@ export const GraphEvents = ({
 
   return (
     <>
+      {import.meta.env.VITE_GRAPH_TEST_API === "true" && (
+        <GraphTestApiBridge activeItemsRef={activeItemsRef} simTime={simTime} />
+      )}
+
       {/* SVG Line for Edge Creation */}
       {/* Converted inline styles to Tailwind classes */}
       <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[100]">
