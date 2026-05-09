@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 
 // --- COMPONENTS ---
@@ -45,6 +45,8 @@ const RequireAuth = () => {
 // 2. LIVE WORKSPACE
 // ============================================================================
 function LiveWorkspace() {
+   const { user } = useAuth();
+   const navigate = useNavigate();
    const { activeSimulation, setActiveSimulation } = useSimulationContext();
 
    // --- Simulation State ---
@@ -264,10 +266,14 @@ function LiveWorkspace() {
 
       <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
 
-      
-      <Link to="/admin" className="text-sm font-medium text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors">
-        Admin
-      </Link>
+      {user?.role === 'SUPERADMIN' && (
+        <div
+          onClick={() => navigate('/admin')}
+          className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+        >
+          Users
+        </div>
+      )}
       </>
    );
 
@@ -304,24 +310,26 @@ function LiveWorkspace() {
 // ============================================================================
 const AdminWorkspace = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
+    const canAccessUsers = user?.role === 'SUPERADMIN';
     
     // 1. Center: Title
     const centerContent = (
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
             <span className="font-semibold text-gray-900 dark:text-white">Admin Portal</span>
             <span>/</span>
-            <span>System Configuration</span>
+            <span>User Management</span>
         </div>
     );
 
     // 2. left: Back Button
     const leftActions = (
-        <Link 
-            to="/live" 
-            className="text-sm font-medium text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+        <div
+            onClick={() => navigate('/live')}
+            className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
         >
-            Live Twin
-        </Link>
+            Live
+        </div>
     );
 
     return (
@@ -332,21 +340,13 @@ const AdminWorkspace = () => {
 
             <div className="flex-1 overflow-y-auto p-8">
                 <div className="max-w-6xl mx-auto space-y-8">
-                    
-                    {/* User Management Section */}
-                    {user?.role === 'SUPERADMIN' ? (
+                    {canAccessUsers ? (
                         <UserManagement />
                     ) : (
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
-                            ⚠️ You do not have permission to manage users.
+                            You do not have permission to manage users.
                         </div>
                     )}
-
-                    {/* System Health Section */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700">
-                        <h2 className="text-lg font-bold mb-2">System Health</h2>
-                        <p className="text-gray-500">Dashboards coming soon...</p>
-                    </div>
                 </div>
             </div>
         </div>
@@ -378,7 +378,7 @@ function App() {
                   <Route path="/live" element={<LiveWorkspace />} />
                   
                   {/* Admin View (Tables/Forms) */}
-                  <Route path="/admin/*" element={<AdminWorkspace />} />
+                  <Route path="/admin" element={<AdminWorkspace />} />
                 </Route>
 
                 {/* Catch All */}

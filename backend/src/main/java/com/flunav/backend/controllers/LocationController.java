@@ -289,6 +289,14 @@ public class LocationController {
     }
 
     @BlockInDemo
+    @PutMapping("/{id}/empty")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> emptyLocation(@PathVariable String id) {
+        var event = new ChuteEmptyEvent(id);
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(result -> ResponseEntity.ok(result));
+    }
+
+    @BlockInDemo
     @DeleteMapping("/{id}")
     public CompletableFuture<ResponseEntity<Void>> deleteLocation(@PathVariable String id) {
         var event = new LocationDeletedEvent(id);

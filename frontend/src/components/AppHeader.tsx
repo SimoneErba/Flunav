@@ -12,6 +12,7 @@ export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
 
   return (
     <header className="
+      relative
       h-20 px-6  /* Increased height from h-16 to h-20 for a bigger presence */
       bg-white/90 dark:bg-gray-900/90 backdrop-blur-md
       border-b border-gray-200 dark:border-gray-800 
@@ -21,7 +22,7 @@ export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
     ">
       
       {/* --- LEFT SECTION --- */}
-      <div className="flex items-center gap-6 flex-1 basis-1/4">
+      <div className="relative z-20 flex items-center gap-6 flex-1 basis-1/4 min-w-0">
         {/* Logo Area */}
         <div className="flex items-center gap-3 shrink-0">
           {/* Increased to h-12 (48px) */}
@@ -44,19 +45,19 @@ export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
 
         {/* Context Actions (Settings, Back, etc.) */}
         {leftActions && (
-          <div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-700 shrink-0">
             {leftActions}
           </div>
         )}
       </div>
 
       {/* --- CENTER SECTION --- */}
-      <div className="flex-1 basis-2/4 flex justify-center min-w-0">
+      <div className="relative z-10 flex-1 basis-2/4 flex justify-center min-w-0">
         {centerContent}
       </div>
 
       {/* --- RIGHT SECTION --- */}
-      <div className="flex items-center justify-end gap-3 flex-1 basis-1/4">
+      <div className="relative z-20 flex items-center justify-end gap-3 flex-1 basis-1/4 min-w-0">
         <ThemeToggle />
 
         {user && (

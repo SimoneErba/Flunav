@@ -270,6 +270,15 @@ export const useGraphInteractions = (
             clickStage: ({ event }) => {
                 if (didMoveRef.current) return;
 
+                const suppressUntil = (window as Window & { __suppressNextGraphStageClickUntil?: number }).__suppressNextGraphStageClickUntil;
+                if (suppressUntil && suppressUntil > Date.now()) {
+                    return;
+                }
+
+                if (document.body.dataset.liveInteractionsOpen === "true") {
+                    return;
+                }
+
                 // READ FROM REF TO GET FRESH VALUES
                 const { 
                     selectedEdgeData: currentEdge, 

@@ -1,5 +1,3 @@
-GEMINI_MODEL="gemini-3.0-pro" gemini
-
 ### TODO
 
 TEST:
@@ -7,7 +5,6 @@ TEST:
 check if on amssive graph items become big. check massive graph reformance
 
 stopping conveyour
-add edit of location type
 
 ---
 
@@ -16,8 +13,6 @@ TODO:
 fix pathing. its nodes right now
 attese, ricircoli
 for analytics, count items exite not deleted
-simualte into the future. just skip events form clickhouse
-fast forward fromt he present (create a simulation)
 backwards mode (need ot add a revert actio to some event)
 
 see other simulations (with a name, be able to switch to them)

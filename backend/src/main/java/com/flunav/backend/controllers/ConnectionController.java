@@ -179,8 +179,14 @@ public class ConnectionController {
                 }
             }
 
-            // Note: If you have events for renaming or changing active status, add them
-            // here similarly.
+            if (updates.containsKey("active")) {
+                Object value = updates.get("active");
+                if (!(value instanceof Boolean)) {
+                    logger.warn("Validation failed for conveyor {}: 'active' must be a boolean.", id);
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+                events.add((Boolean) value ? new ConnectionActivatedEvent(id) : new ConnectionDeactivatedEvent(id));
+            }
 
         } catch (Exception e) {
             logger.error("An unexpected error occurred during payload validation for conveyor {}", id, e);
@@ -208,6 +214,24 @@ public class ConnectionController {
                     logger.error("Error processing event batch for conveyor {}.", id, ex.getCause());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build();
                 });
+    }
+
+    @BlockInDemo
+    @PutMapping("/{id}/activate")
+    @Operation(summary = "Activate a conveyor")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> activateConveyor(@PathVariable String id) {
+        var event = new ConnectionActivatedEvent(id);
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(ResponseEntity::ok);
+    }
+
+    @BlockInDemo
+    @PutMapping("/{id}/deactivate")
+    @Operation(summary = "Deactivate a conveyor")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> deactivateConveyor(@PathVariable String id) {
+        var event = new ConnectionDeactivatedEvent(id);
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(ResponseEntity::ok);
     }
 
     @BlockInDemo

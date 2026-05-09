@@ -6,9 +6,11 @@ import { RuleRow } from "./editors/RuleRow";
 import { v4 as uuidv4 } from 'uuid';
 import { ComponentAnalytics } from "./analytics/ComponentAnalytics";
 import { PathAnalytics } from "./analytics/PathAnalytics";
+import { useAuth } from "../context/auth.context";
+import { AdminCommands } from "./admin/AdminCommands";
 
 type ExtendedDisplayRule = DisplayRule & { _localId: string };
-type TabType = 'settings' | 'charts';
+type TabType = 'settings' | 'charts' | 'commands';
 type DockSide = 'left' | 'right' | 'bottom';
 type IconProps = React.SVGProps<SVGSVGElement>;
 
@@ -43,6 +45,7 @@ interface SettingsPanelProps {
 }
 
 const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
+  const { user } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
   const [dockSide, setDockSide] = useState<DockSide>('bottom');
   const [rules, setRules] = useState<ExtendedDisplayRule[]>([]);
@@ -52,6 +55,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   const [activeTab, setActiveTab] = useState<TabType>('settings');
 
   const { displayRuleApi } = useApi();
+  const canAccessCommands = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
 
   // --- Panel ref for click-outside ---
   const panelRef = useRef<HTMLDivElement>(null);
@@ -68,6 +72,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
 
     const handleClickOutside = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        (window as Window & { __suppressNextGraphStageClickUntil?: number }).__suppressNextGraphStageClickUntil = Date.now() + 300;
         e.stopPropagation();
         e.preventDefault();
         setIsExpanded(false);
@@ -85,6 +90,14 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
       document.removeEventListener('mousedown', handleClickOutside, true);
       document.removeEventListener('click', handleClickOutside, true);
       document.removeEventListener('pointerdown', handleClickOutside, true);
+    };
+  }, [isExpanded]);
+
+  useEffect(() => {
+    document.body.dataset.liveInteractionsOpen = isExpanded ? 'true' : 'false';
+
+    return () => {
+      delete document.body.dataset.liveInteractionsOpen;
     };
   }, [isExpanded]);
 
@@ -196,7 +209,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
         onClick={() => setIsExpanded(true)}
         className="fixed bottom-4 left-4 z-[1000] bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white px-4 py-2 rounded-lg shadow-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
       >
-        ⚙️ Settings
+        ⚙️ Live interactions
       </button>
     );
   }
@@ -223,6 +236,11 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   }
 
   const isSide = dockSide === 'left' || dockSide === 'right';
+  const panelTitle = activeTab === 'settings'
+    ? 'Display Rules'
+    : activeTab === 'charts'
+      ? 'Analytics'
+      : 'Commands';
 
   return (
     // 👇 panelRef goes on the outermost div — the one with sideStyles
@@ -242,7 +260,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
           <div className="border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-black/20 shrink-0">
             {/* Row 1: Title + Close */}
             <div className="flex justify-between items-center px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-              <strong className="text-base">Display Rules</strong>
+              <strong className="text-base">{panelTitle}</strong>
               <button
                 onClick={() => setIsExpanded(false)}
                 className="text-gray-500 dark:text-gray-400 hover:text-red-500 w-6 h-6 flex items-center justify-center rounded transition-colors"
@@ -273,6 +291,18 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
                 >
                   Charts
                 </button>
+                {canAccessCommands && (
+                  <button
+                    onClick={() => setActiveTab('commands')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      activeTab === 'commands'
+                        ? 'bg-blue-600 text-white dark:bg-blue-500'
+                        : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Commands
+                  </button>
+                )}
               </div>
               <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
                 <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
@@ -284,7 +314,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
         ) : (
           // --- Bottom panel: single row ---
           <div className="flex justify-between items-center px-4 py-2 border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-black/20 shrink-0">
-            <strong className="text-base">Display Rules</strong>
+            <strong className="text-base">{panelTitle}</strong>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setActiveTab('settings')}
@@ -306,6 +336,18 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
               >
                 Charts
               </button>
+              {canAccessCommands && (
+                <button
+                  onClick={() => setActiveTab('commands')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    activeTab === 'commands'
+                      ? 'bg-blue-600 text-white dark:bg-blue-500'
+                      : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Commands
+                </button>
+              )}
               <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
                 <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
                 <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
@@ -369,7 +411,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
               </button>
             </div>
           </div>
-        ) : (
+        ) : activeTab === "charts" ? (
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900">
             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
@@ -378,6 +420,12 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Component Analytics</h3>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
               <ComponentAnalytics />
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+              <AdminCommands embedded dockSide={dockSide} />
             </div>
           </div>
         )}
