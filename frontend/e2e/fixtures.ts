@@ -1,7 +1,7 @@
 import { test as base } from "@playwright/test";
 
 export const test = base.extend({
-  page: async ({ page }, use) => {
+  page: async ({ page }, providePage) => {
     page.on("console", (message) => {
       console.log(`[browser:${message.type()}] ${message.text()}`);
     });
@@ -14,7 +14,7 @@ export const test = base.extend({
       console.warn(`[browser:requestfailed] ${request.method()} ${request.url()} ${request.failure()?.errorText}`);
     });
 
-    await use(page);
+    await providePage(page);
   },
 });
 
