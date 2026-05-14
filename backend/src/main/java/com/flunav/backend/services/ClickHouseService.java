@@ -352,9 +352,9 @@ public class ClickHouseService {
 
                         metrics.add(new ThroughputMetric(
                                 ts,
-                                ((Number) row.get("entered")).longValue(),
-                                ((Number) row.get("exited")).longValue(),
-                                ((Number) row.get("segments")).longValue()));
+                                asLong(row.get("entered")),
+                                asLong(row.get("exited")),
+                                asLong(row.get("segments"))));
                     }
                 }
             } catch (Exception e) {
@@ -363,6 +363,13 @@ public class ClickHouseService {
             }
             return metrics;
         });
+    }
+
+    private long asLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.parseLong(String.valueOf(value));
     }
 
     public ThroughputMetric getLatestThroughput() {
