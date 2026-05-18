@@ -14,12 +14,25 @@ public class ItemCreatedEvent extends EntityEvent {
     private final String locationId;
     private final flunav.types.PositionType positionType;
     private final Double progress;
+    private final String destinationId;
 
     private final Map<String, Object> properties;
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
             flunav.types.PositionType positionType, Double progress, Map<String, Object> properties) {
-        this(itemId, name, speed, active, locationId, positionType, progress, properties, null);
+        this(itemId, name, speed, active, locationId, positionType, progress, null, properties, null);
+    }
+
+    public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
+            flunav.types.PositionType positionType, Double progress, Map<String, Object> properties,
+            Instant timestamp) {
+        this(itemId, name, speed, active, locationId, positionType, progress, null, properties, timestamp);
+    }
+
+    public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
+            flunav.types.PositionType positionType, Double progress, String destinationId,
+            Map<String, Object> properties) {
+        this(itemId, name, speed, active, locationId, positionType, progress, destinationId, properties, null);
     }
 
     @JsonCreator
@@ -31,6 +44,7 @@ public class ItemCreatedEvent extends EntityEvent {
             @JsonProperty("locationId") String locationId,
             @JsonProperty("positionType") flunav.types.PositionType positionType,
             @JsonProperty("progress") Double progress,
+            @JsonProperty("destinationId") String destinationId,
             @JsonProperty("properties") Map<String, Object> properties,
             @JsonProperty("timestamp") Instant timestamp) {
         super(itemId, "ITEM_CREATED", timestamp);
@@ -39,6 +53,7 @@ public class ItemCreatedEvent extends EntityEvent {
         this.active = active;
         this.locationId = locationId;
         this.positionType = positionType;
+        this.destinationId = destinationId;
         this.properties = properties;
         this.progress = progress;
     }

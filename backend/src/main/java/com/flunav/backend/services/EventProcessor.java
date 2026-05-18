@@ -60,6 +60,7 @@ public class EventProcessor {
     private final boolean manageLogic;
     private final LocationService locationService;
     private final ItemMovementProcessor itemMovementProcessor;
+    private final DestinationMappingService destinationMappingService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -84,6 +85,7 @@ public class EventProcessor {
             TimeService timeService,
             TopologyProvider topologyProvider,
             ItemMovementProcessor itemMovementProcessor,
+            DestinationMappingService destinationMappingService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -102,6 +104,7 @@ public class EventProcessor {
         this.timeService = timeService;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
+        this.destinationMappingService = destinationMappingService;
         this.manageLogic = manageLogic;
     }
 
@@ -223,6 +226,7 @@ public class EventProcessor {
                 case ItemCreatedEvent e -> {
                     try {
                         var item = new ItemInput(e);
+                        applyDestinationToCreatedItem(item, e.getTimestamp());
                         itemService.createItem(item);
 
                         if (item.getLocationId() != null) {
@@ -251,6 +255,11 @@ public class EventProcessor {
                                 e.getEntityId());
                         yield Map.of("status", "IGNORED_DUPLICATE", "itemId", e.getEntityId());
                     }
+                }
+
+                case MapDestinationsEvent e -> {
+                    destinationMappingService.saveMapDestinations(e);
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY", "fieldName", e.getFieldName());
                 }
 
                 case ItemPositionChangedEvent e -> {
@@ -645,5 +654,49 @@ public class EventProcessor {
 
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
+    }
+
+    private void applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
+        String explicitDestinationId = normalizeDestination(item.getDestinationId());
+        boolean explicitDestination = explicitDestinationId != null;
+        String destinationId = explicitDestination
+                ? explicitDestinationId
+                : destinationMappingService.resolveDestination(item.getProperties(), timestamp).orElse(null);
+
+        if (destinationId == null) {
+            return;
+        }
+
+        if (topologyProvider.getLocationById(destinationId) == null) {
+            logger.warn("Mapped destination does not exist destination={}", destinationId);
+            if (explicitDestination) {
+                item.setDestinationId(destinationId);
+            }
+            return;
+        }
+
+        item.setDestinationId(destinationId);
+
+        if (item.getLocationId() == null) {
+            logger.warn("Cannot calculate destination path for item {} because locationId is missing", item.getId());
+            return;
+        }
+
+        PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
+        List<String> calculatedPath = pathfindingService.calculateShortestPath(
+                item.getLocationId(),
+                positionType,
+                destinationId);
+
+        if (!calculatedPath.isEmpty()) {
+            item.setPath(calculatedPath);
+        }
+    }
+
+    private String normalizeDestination(String destinationId) {
+        if (destinationId == null || destinationId.isBlank()) {
+            return null;
+        }
+        return destinationId.trim();
     }
 }

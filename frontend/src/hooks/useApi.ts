@@ -8,6 +8,7 @@ import {
     ConveyorsApi,
     Configuration,
     DisplayRulesControllerApi,
+    DestinationMappingControllerApi,
     AuthControllerApi,
     UserControllerApi,
     AnalyticsControllerApi
@@ -41,6 +42,7 @@ export const useApi = () => {
     const simulationApi = useMemo(() => new SimulationsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const conveyorsApi = useMemo(() => new ConveyorsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const destinationMappingApi = useMemo(() => new DestinationMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const analyticsApi = useMemo(() => new AnalyticsControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
@@ -53,6 +55,7 @@ export const useApi = () => {
         simulationApi,
         conveyorsApi,
         displayRuleApi,
+        destinationMappingApi,
         authApi,
         userApi,
         analyticsApi,

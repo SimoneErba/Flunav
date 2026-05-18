@@ -8,6 +8,7 @@ import { PlaybackControls } from './components/PlaybackControls';
 import LiveAnalysisPanel from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { UserManagement } from './components/admin/UserManagement';
+import { DestinationMappingManagement } from './components/admin/DestinationMappingManagement';
 import { AppHeader } from './components/AppHeader';
 
 // --- HOOKS & UTILS ---
@@ -266,6 +267,15 @@ function LiveWorkspace() {
 
       <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
 
+      {(user?.role === 'ADMIN' || user?.role === 'SUPERADMIN') && (
+        <div
+          onClick={() => navigate('/admin/destination-mappings')}
+          className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+        >
+          Mappings
+        </div>
+      )}
+
       {user?.role === 'SUPERADMIN' && (
         <div
           onClick={() => navigate('/admin')}
@@ -311,14 +321,18 @@ function LiveWorkspace() {
 const AdminWorkspace = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const canAccessUsers = user?.role === 'SUPERADMIN';
+    const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+    const isDestinationMappings = location.pathname === '/admin/destination-mappings';
+    const title = isDestinationMappings ? 'Destination Mappings' : 'User Management';
     
     // 1. Center: Title
     const centerContent = (
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
             <span className="font-semibold text-gray-900 dark:text-white">Admin Portal</span>
             <span>/</span>
-            <span>User Management</span>
+            <span>{title}</span>
         </div>
     );
 
@@ -332,6 +346,22 @@ const AdminWorkspace = () => {
         </div>
     );
 
+    const content = isDestinationMappings ? (
+        canAccessDestinationMappings ? (
+            <DestinationMappingManagement />
+        ) : (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
+                You do not have permission to manage destination mappings.
+            </div>
+        )
+    ) : canAccessUsers ? (
+        <UserManagement />
+    ) : (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
+            You do not have permission to manage users.
+        </div>
+    );
+
     return (
         <div className="flex flex-col h-screen bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-white transition-colors duration-300">
             
@@ -340,13 +370,7 @@ const AdminWorkspace = () => {
 
             <div className="flex-1 overflow-y-auto p-8">
                 <div className="max-w-6xl mx-auto space-y-8">
-                    {canAccessUsers ? (
-                        <UserManagement />
-                    ) : (
-                        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
-                            You do not have permission to manage users.
-                        </div>
-                    )}
+                    {content}
                 </div>
             </div>
         </div>
@@ -379,6 +403,7 @@ function App() {
                   
                   {/* Admin View (Tables/Forms) */}
                   <Route path="/admin" element={<AdminWorkspace />} />
+                  <Route path="/admin/destination-mappings" element={<AdminWorkspace />} />
                 </Route>
 
                 {/* Catch All */}

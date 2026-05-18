@@ -106,6 +106,27 @@ public class LiveItemRepository {
         redis.opsForHash().put(itemKey, "n", name);
     }
 
+    public void updateDestinationAndPath(String itemId, String destinationId, List<String> path) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        Map<String, String> updates = new HashMap<>();
+
+        if (destinationId != null) {
+            updates.put("d", destinationId);
+        }
+
+        if (path != null && !path.isEmpty()) {
+            try {
+                updates.put("p", objectMapper.writeValueAsString(path));
+            } catch (Exception e) {
+                logger.warn("Failed to serialize path for item {}: {}", itemId, path);
+            }
+        }
+
+        if (!updates.isEmpty()) {
+            redis.opsForHash().putAll(itemKey, updates);
+        }
+    }
+
     public void deleteItems(List<String> itemIds) {
         if (itemIds == null || itemIds.isEmpty())
             return;

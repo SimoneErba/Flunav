@@ -463,6 +463,56 @@ export type DisplayRuleOperatorEnum = typeof DisplayRuleOperatorEnum[keyof typeo
 /**
  * 
  * @export
+ * @interface DestinationMappingRecord
+ */
+export interface DestinationMappingRecord {
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'fieldName'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'dataType'?: DisplayRuleDataTypeEnum;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'operator'?: DisplayRuleOperatorEnum;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'value'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'destination'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'validFrom'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'validTo'?: string;
+}
+
+/**
+ * 
+ * @export
  * @interface DisplayRuleColorResult
  */
 export interface DisplayRuleColorResult {
@@ -4762,5 +4812,41 @@ export class UserControllerApi extends BaseAPI {
     }
 }
 
+/**
+ * DestinationMappingControllerApi - object-oriented interface
+ * @export
+ * @class DestinationMappingControllerApi
+ * @extends {BaseAPI}
+ */
+export class DestinationMappingControllerApi extends BaseAPI {
+    public getDestinationMappings(options?: RawAxiosRequestConfig) {
+        return this.axios.get<Array<DestinationMappingRecord>>(`${this.basePath}/api/destination-mappings`, {
+            ...this.configuration?.baseOptions,
+            ...options,
+            headers: {
+                ...(this.configuration?.baseOptions?.headers || {}),
+                ...(options?.headers || {}),
+            },
+        });
+    }
+
+    public updateDestinationMappings(
+        destinationMappingRecord: Array<DestinationMappingRecord>,
+        options?: RawAxiosRequestConfig,
+    ) {
+        return this.axios.put<Array<DestinationMappingRecord>>(
+            `${this.basePath}/api/destination-mappings`,
+            destinationMappingRecord,
+            {
+                ...this.configuration?.baseOptions,
+                ...options,
+                headers: {
+                    ...(this.configuration?.baseOptions?.headers || {}),
+                    ...(options?.headers || {}),
+                },
+            },
+        );
+    }
+}
 
 

@@ -66,6 +66,7 @@ public class ItemController {
                 item.getLocationId(),
                 item.getPositionType(),
                 item.getProgress(),
+                item.getDestinationId(),
                 item.getProperties(),
                 item.getTimestamp() != null ? item.getTimestamp() : timeService.now());
         return eventProcessorHelper.processAndLogEvent(event)

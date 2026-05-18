@@ -90,6 +90,7 @@ public class ItemService {
                 Double dist = state.getAccumulatedDistance();
                 item.updatePosition(posId, type, time, dist);
                 item.setDestinationId(state.getDestinationId());
+                item.setPath(state.getPath());
             }
         }
 
@@ -120,6 +121,7 @@ public class ItemService {
             item.updatePosition(redisState.getPositionId(), type, time, dist);
 
             item.setDestinationId(redisState.getDestinationId());
+            item.setPath(redisState.getPath());
         }
 
         return item;
@@ -166,8 +168,8 @@ public class ItemService {
                         entryTime,
                         initialDistance,
                         itemInput.getName(),
-                        null,
-                        null);
+                        itemInput.getDestinationId(),
+                        itemInput.getPath());
             });
         } catch (DuplicateItemException e) {
             // We know exactly what this is, so just re-throw it for the processor to
@@ -186,6 +188,10 @@ public class ItemService {
     public void updateItemPosition(String itemId, String positionId, PositionType type, Instant timestamp,
             Double offset, List<String> path) {
         redisRepository.updatePosition(itemId, positionId, type, timestamp, offset, path);
+    }
+
+    public void updateItemDestinationAndPath(String itemId, String destinationId, List<String> path) {
+        redisRepository.updateDestinationAndPath(itemId, destinationId, path);
     }
 
     public Item updateItem(UpdateModel model) {
