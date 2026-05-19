@@ -2,6 +2,15 @@ import { defineConfig, devices } from "@playwright/test";
 
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://127.0.0.1:18080";
 const frontendUrl = process.env.E2E_FRONTEND_URL ?? "http://localhost:5173";
+const reuseServers = process.env.E2E_REUSE_SERVERS === "true";
+const allowNonIsolatedBackend = process.env.E2E_ALLOW_NON_ISOLATED_BACKEND === "true";
+
+if (!allowNonIsolatedBackend && /^https?:\/\/(localhost|127\.0\.0\.1):8080\b/.test(backendUrl)) {
+  throw new Error(
+    "Refusing to run E2E tests against the default live backend on port 8080. " +
+      "Use the isolated default backend on 18080 or set E2E_ALLOW_NON_ISOLATED_BACKEND=true.",
+  );
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -25,7 +34,7 @@ export default defineConfig({
       cwd: "../backend",
       url: `${backendUrl}/api-docs`,
       timeout: 240_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: reuseServers,
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -34,7 +43,7 @@ export default defineConfig({
       cwd: ".",
       url: frontendUrl,
       timeout: 120_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: reuseServers,
       stdout: "pipe",
       stderr: "pipe",
       env: {

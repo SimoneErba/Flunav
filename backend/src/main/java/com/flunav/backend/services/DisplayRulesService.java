@@ -19,7 +19,6 @@ import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -54,51 +53,11 @@ public class DisplayRulesService {
     }
 
     public boolean applies(Map<String, Object> properties, DisplayRule rule) {
-        Object propValue = properties.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(rule.getFieldName()))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
-        if (propValue == null || rule.getOperator() == null) {
+        if (rule == null) {
             return false;
         }
-
-        Object ruleValue = rule.getValue();
-
-        try {
-            switch (rule.getDataType()) {
-                case STRING:
-                    return propValue.toString().equals(ruleValue.toString());
-
-                case BOOLEAN:
-                    return Boolean.parseBoolean(propValue.toString()) == Boolean.parseBoolean(ruleValue.toString());
-
-                case NUMBER:
-                    double propNum = Double.parseDouble(propValue.toString());
-                    double ruleNum = Double.parseDouble(ruleValue.toString());
-
-                    return switch (rule.getOperator()) {
-                        case EQUAL -> propNum == ruleNum;
-                        case GREATER -> propNum > ruleNum;
-                        case LESSER -> propNum < ruleNum;
-                    };
-
-                case DATETIME:
-                    Instant propTime = Instant.parse(propValue.toString());
-                    Instant ruleTime = Instant.parse(ruleValue.toString());
-
-                    return switch (rule.getOperator()) {
-                        case EQUAL -> propTime.equals(ruleTime);
-                        case GREATER -> propTime.isAfter(ruleTime);
-                        case LESSER -> propTime.isBefore(ruleTime);
-                    };
-
-                default:
-                    return false;
-            }
-        } catch (Exception e) {
-            return false;
-        }
+        return RuleActivationEvaluator.isActive(properties, rule.getFieldName(), rule.getDataType(),
+                rule.getOperator(), rule.getValue());
     }
 
     public String applyDisplayRules(

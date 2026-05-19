@@ -49,6 +49,8 @@ function LiveWorkspace() {
    const { user } = useAuth();
    const navigate = useNavigate();
    const { activeSimulation, setActiveSimulation } = useSimulationContext();
+   const canAccessUsers = user?.role === 'SUPERADMIN';
+   const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
 
    // --- Simulation State ---
    const [selectedDate, setSelectedDate] = useState(new Date());
@@ -256,35 +258,35 @@ function LiveWorkspace() {
     </div>
   );
 
-   // 2. left Actions (Exit Sim, Live Analysis Toggle)
+   const navButton = (label: string, path: string, active: boolean, enabled: boolean) => (
+      <button
+         type="button"
+         onClick={() => navigate(path)}
+         disabled={!enabled}
+         className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            active
+               ? 'bg-blue-600 text-white'
+               : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800'
+         }`}
+      >
+         {label}
+      </button>
+   );
+
+   // 2. left Actions (Exit Sim, navigation, import/export)
    const leftActions = (
-      <>
+      <div className="flex items-center gap-2">
          {activeSimulation && (
             <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                Exit Sim
             </button>
          )}
 
-      <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
-
-      {(user?.role === 'ADMIN' || user?.role === 'SUPERADMIN') && (
-        <div
-          onClick={() => navigate('/admin/destination-mappings')}
-          className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
-        >
-          Mappings
-        </div>
-      )}
-
-      {user?.role === 'SUPERADMIN' && (
-        <div
-          onClick={() => navigate('/admin')}
-          className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
-        >
-          Users
-        </div>
-      )}
-      </>
+         {navButton('Live', '/live', true, true)}
+         {navButton('Users', '/admin', false, canAccessUsers)}
+         {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
+         <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
+      </div>
    );
 
   return (
@@ -326,6 +328,20 @@ const AdminWorkspace = () => {
     const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
     const isDestinationMappings = location.pathname === '/admin/destination-mappings';
     const title = isDestinationMappings ? 'Destination Mappings' : 'User Management';
+    const adminNavButton = (label: string, path: string, active: boolean, enabled: boolean) => (
+        <button
+            type="button"
+            onClick={() => navigate(path)}
+            disabled={!enabled}
+            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                active
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800'
+            }`}
+        >
+            {label}
+        </button>
+    );
     
     // 1. Center: Title
     const centerContent = (
@@ -336,13 +352,18 @@ const AdminWorkspace = () => {
         </div>
     );
 
-    // 2. left: Back Button
+    // 2. left: Back Button and admin navigation
     const leftActions = (
-        <div
-            onClick={() => navigate('/live')}
-            className="text-sm font-medium transition-colors cursor-pointer text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
-        >
-            Live
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={() => navigate('/live')}
+                className="px-3 py-1.5 rounded-md text-sm font-semibold transition-colors text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800"
+            >
+                Live
+            </button>
+            {adminNavButton('Users', '/admin', !isDestinationMappings, canAccessUsers)}
+            {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
         </div>
     );
 
@@ -369,7 +390,7 @@ const AdminWorkspace = () => {
             <AppHeader centerContent={centerContent} leftActions={leftActions} />
 
             <div className="flex-1 overflow-y-auto p-8">
-                <div className="max-w-6xl mx-auto space-y-8">
+                <div className={`${isDestinationMappings ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto space-y-8`}>
                     {content}
                 </div>
             </div>

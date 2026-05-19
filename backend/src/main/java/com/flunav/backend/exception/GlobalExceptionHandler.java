@@ -36,9 +36,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Object> handleIllegalArgumentException(IllegalArgumentException ex) {
-        logger.warn("Illegal argument exception: {}", ex.getMessage()); // Warn level is often sufficient for client
-                                                                        // errors
-        return buildErrorResponse(ex, "Invalid input provided.", HttpStatus.BAD_REQUEST);
+        logger.warn("Illegal argument exception: {}", ex.getMessage());
+        String message = (ex.getMessage() != null && !ex.getMessage().isBlank())
+                ? ex.getMessage()
+                : "Invalid input provided.";
+        return buildErrorResponse(ex, message, HttpStatus.BAD_REQUEST);
     }
 
     /**

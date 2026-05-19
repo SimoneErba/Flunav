@@ -26,8 +26,18 @@ public enum OperatorType {
         if (value == null || value.isBlank()) {
             return EQUAL;
         }
+        String normalized = value.trim().replace('-', '_').toUpperCase();
+        if ("EQUALS".equals(normalized) || "EQ".equals(normalized)) {
+            return EQUAL;
+        }
+        if ("GREATER_THAN".equals(normalized) || "GT".equals(normalized)) {
+            return GREATER;
+        }
+        if ("LESS_THAN".equals(normalized) || "LESSER_THAN".equals(normalized) || "LT".equals(normalized)) {
+            return LESSER;
+        }
         return Stream.of(OperatorType.values())
-                .filter(type -> type.value.equalsIgnoreCase(value))
+                .filter(type -> type.value.equalsIgnoreCase(value.trim()))
                 .findFirst()
                 .orElse(EQUAL);
     }

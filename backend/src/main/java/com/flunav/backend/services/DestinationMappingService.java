@@ -22,7 +22,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class DestinationMappingService {
@@ -33,12 +32,10 @@ public class DestinationMappingService {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
-    private final LocationService locationService;
 
-    public DestinationMappingService(StringRedisTemplate redis, ObjectMapper objectMapper, LocationService locationService) {
+    public DestinationMappingService(StringRedisTemplate redis, ObjectMapper objectMapper) {
         this.redis = redis;
         this.objectMapper = objectMapper;
-        this.locationService = locationService;
     }
 
     public void saveMapDestinations(MapDestinationsEvent event) {
@@ -112,13 +109,8 @@ public class DestinationMappingService {
 
         String resolvedDestination = null;
         for (DestinationMappingValue mapping : mappings) {
-            Object rawValue = findProperty(properties, mapping.fieldName());
-            if (rawValue == null) {
-                continue;
-            }
-
             if (effectiveNow.isBefore(mapping.validFrom()) || effectiveNow.isAfter(mapping.validTo())
-                    || !applies(rawValue, mapping)) {
+                    || !applies(properties, mapping)) {
                 continue;
             }
 
@@ -147,9 +139,6 @@ public class DestinationMappingService {
         if (event.getMappings() == null) {
             throw new IllegalArgumentException("mappings are required");
         }
-        Set<String> destinationIds = locationService.getAllLocations().stream()
-                .map(location -> location.getId())
-                .collect(Collectors.toSet());
         Set<String> logicalRows = new HashSet<>();
         List<DestinationMappingRecord> normalized = new ArrayList<>();
         for (DestinationMappingRecord record : event.getMappings()) {
@@ -167,9 +156,6 @@ public class DestinationMappingService {
             }
             if (isBlank(record.getDestination())) {
                 throw new IllegalArgumentException("mapping destination is required");
-            }
-            if (!destinationIds.contains(record.getDestination().trim())) {
-                throw new IllegalArgumentException("unknown destination location: " + record.getDestination());
             }
             if (record.getValidFrom() == null || record.getValidTo() == null) {
                 throw new IllegalArgumentException("mapping validFrom and validTo are required");
@@ -224,45 +210,9 @@ public class DestinationMappingService {
         redis.delete(List.of(tableKey(), indexKey()));
     }
 
-    private boolean applies(Object rawValue, DestinationMappingValue mapping) {
-        try {
-            return switch (mapping.dataType()) {
-                case STRING -> rawValue.toString().equals(mapping.value());
-                case BOOLEAN -> Boolean.parseBoolean(rawValue.toString()) == Boolean.parseBoolean(mapping.value());
-                case NUMBER -> compareNumbers(rawValue, mapping);
-                case DATETIME -> compareInstants(rawValue, mapping);
-            };
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean compareNumbers(Object rawValue, DestinationMappingValue mapping) {
-        double propNum = Double.parseDouble(rawValue.toString());
-        double ruleNum = Double.parseDouble(mapping.value());
-        return switch (mapping.operator()) {
-            case EQUAL -> propNum == ruleNum;
-            case GREATER -> propNum > ruleNum;
-            case LESSER -> propNum < ruleNum;
-        };
-    }
-
-    private boolean compareInstants(Object rawValue, DestinationMappingValue mapping) {
-        Instant propTime = Instant.parse(rawValue.toString());
-        Instant ruleTime = Instant.parse(mapping.value());
-        return switch (mapping.operator()) {
-            case EQUAL -> propTime.equals(ruleTime);
-            case GREATER -> propTime.isAfter(ruleTime);
-            case LESSER -> propTime.isBefore(ruleTime);
-        };
-    }
-
-    private Object findProperty(Map<String, Object> properties, String fieldName) {
-        return properties.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(fieldName))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
+    private boolean applies(Map<String, Object> properties, DestinationMappingValue mapping) {
+        return RuleActivationEvaluator.isActive(properties, mapping.fieldName(), mapping.dataType(),
+                mapping.operator(), mapping.value());
     }
 
     private void validateOperator(DataType dataType, OperatorType operator) {

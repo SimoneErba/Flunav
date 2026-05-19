@@ -20,6 +20,44 @@ const operatorsForType = (dataType?: DisplayRuleDataTypeEnum) => {
   return [DisplayRuleOperatorEnum.Equal];
 };
 
+const normalizeDataType = (value?: string): DisplayRuleDataTypeEnum => {
+  const normalized = value?.trim().toUpperCase();
+  if (normalized && dataTypes.includes(normalized as DisplayRuleDataTypeEnum)) {
+    return normalized as DisplayRuleDataTypeEnum;
+  }
+  return DisplayRuleDataTypeEnum.String;
+};
+
+const normalizeOperator = (value?: string): DisplayRuleOperatorEnum => {
+  const normalized = value?.trim().replace(/-/g, "_").toUpperCase();
+  if (normalized === "GREATER") {
+    return DisplayRuleOperatorEnum.Greater;
+  }
+  if (normalized === "GREATER_THAN" || normalized === "GT") {
+    return DisplayRuleOperatorEnum.Greater;
+  }
+  if (normalized === "LESSER" || normalized === "LESS") {
+    return DisplayRuleOperatorEnum.Lesser;
+  }
+  if (normalized === "LESS_THAN" || normalized === "LESSER_THAN" || normalized === "LT") {
+    return DisplayRuleOperatorEnum.Lesser;
+  }
+  return DisplayRuleOperatorEnum.Equal;
+};
+
+const normalizeRow = (mapping: DestinationMappingRecord, localId: string): EditableDestinationMapping => {
+  const dataType = normalizeDataType(mapping.dataType);
+  const operator = normalizeOperator(mapping.operator);
+  const availableOperators = operatorsForType(dataType);
+
+  return {
+    ...mapping,
+    _localId: localId,
+    dataType,
+    operator: availableOperators.includes(operator) ? operator : DisplayRuleOperatorEnum.Equal,
+  };
+};
+
 const toInputDateTime = (value?: string) => {
   if (!value) return "";
   const date = new Date(value);
@@ -107,12 +145,10 @@ export const DestinationMappingManagement = () => {
         destinationMappingApi.getDestinationMappings(),
         locationApi.getAllLocations(),
       ]);
-      setRows(mappingResponse.data.map((mapping, index) => ({
-        ...mapping,
-        _localId: `mapping_${index}_${crypto.randomUUID?.() || Date.now()}`,
-        dataType: mapping.dataType || DisplayRuleDataTypeEnum.String,
-        operator: mapping.operator || DisplayRuleOperatorEnum.Equal,
-      })));
+      setRows(mappingResponse.data.map((mapping, index) => normalizeRow(
+        mapping,
+        `mapping_${index}_${crypto.randomUUID?.() || Date.now()}`,
+      )));
       setLocationIds(locationResponse.data.map(location => location.id).filter((id): id is string => Boolean(id)));
     } catch (error) {
       console.error("Failed to load destination mappings", error);
@@ -129,7 +165,12 @@ export const DestinationMappingManagement = () => {
   const updateRow = (localId: string, patch: Partial<DestinationMappingRecord>) => {
     setRows(current => current.map(row => {
       if (row._localId !== localId) return row;
-      const next = { ...row, ...patch };
+      const next = {
+        ...row,
+        ...patch,
+        dataType: patch.dataType !== undefined ? normalizeDataType(patch.dataType) : row.dataType,
+        operator: patch.operator !== undefined ? normalizeOperator(patch.operator) : row.operator,
+      };
       const availableOperators = operatorsForType(next.dataType);
       if (next.operator && !availableOperators.includes(next.operator)) {
         next.operator = DisplayRuleOperatorEnum.Equal;
@@ -143,18 +184,18 @@ export const DestinationMappingManagement = () => {
     try {
       const payload = rows.map(row => ({
         fieldName: row.fieldName?.trim(),
-        dataType: row.dataType,
-        operator: row.operator,
+        dataType: normalizeDataType(row.dataType),
+        operator: normalizeOperator(row.operator),
         value: row.value?.trim(),
         destination: row.destination?.trim(),
         validFrom: row.validFrom,
         validTo: row.validTo,
       }));
       const response = await destinationMappingApi.updateDestinationMappings(payload);
-      setRows(response.data.map((mapping, index) => ({
-        ...mapping,
-        _localId: `mapping_${index}_${crypto.randomUUID?.() || Date.now()}`,
-      })));
+      setRows(response.data.map((mapping, index) => normalizeRow(
+        mapping,
+        `mapping_${index}_${crypto.randomUUID?.() || Date.now()}`,
+      )));
       toast.success("Destination mappings saved");
     } catch (error) {
       const axiosError = error as AxiosError<{ message?: string }>;
@@ -176,16 +217,15 @@ export const DestinationMappingManagement = () => {
         return;
       }
 
-      setRows(dataRows.map((cells, index) => ({
-        _localId: `import_${index}_${crypto.randomUUID?.() || Date.now()}`,
+      setRows(dataRows.map((cells, index) => normalizeRow({
         fieldName: cells[0]?.trim() || "",
-        dataType: (cells[1]?.trim() || DisplayRuleDataTypeEnum.String) as DisplayRuleDataTypeEnum,
-        operator: (cells[2]?.trim() || DisplayRuleOperatorEnum.Equal) as DisplayRuleOperatorEnum,
+        dataType: normalizeDataType(cells[1]),
+        operator: normalizeOperator(cells[2]),
         value: cells[3]?.trim() || "",
         destination: cells[4]?.trim() || "",
         validFrom: normalizeImportedDate(cells[5] || ""),
         validTo: normalizeImportedDate(cells[6] || ""),
-      })));
+      }, `import_${index}_${crypto.randomUUID?.() || Date.now()}`)));
       toast.success("CSV imported. Review and save to persist.");
     };
     reader.readAsText(file);
@@ -225,7 +265,17 @@ export const DestinationMappingManagement = () => {
       <datalist id="destination-mapping-locations">{destinationOptions}</datalist>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left min-w-[1100px]">
+        <table className="w-full table-fixed text-sm text-left min-w-[1320px]">
+          <colgroup>
+            <col className="w-[220px]" />
+            <col className="w-[150px]" />
+            <col className="w-[100px]" />
+            <col className="w-[170px]" />
+            <col className="w-[220px]" />
+            <col className="w-[190px]" />
+            <col className="w-[190px]" />
+            <col className="w-[80px]" />
+          </colgroup>
           <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700/50">
             <tr>
               <th className="px-3 py-3">Field</th>
@@ -250,7 +300,7 @@ export const DestinationMappingManagement = () => {
                   </select>
                 </td>
                 <td className="px-3 py-3">
-                  <select value={row.operator || DisplayRuleOperatorEnum.Equal} onChange={event => updateRow(row._localId, { operator: event.target.value as DisplayRuleOperatorEnum })} className="w-20 p-2 rounded border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500">
+                  <select value={row.operator || DisplayRuleOperatorEnum.Equal} onChange={event => updateRow(row._localId, { operator: event.target.value as DisplayRuleOperatorEnum })} className="w-full p-2 rounded border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500">
                     {operatorsForType(row.dataType).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}
                   </select>
                 </td>

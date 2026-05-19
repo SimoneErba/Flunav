@@ -271,10 +271,18 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 new MapDestinationsEvent(null, List.of(
                         new DestinationMappingRecord("flight", DataType.STRING, OperatorType.EQUAL, "KL123",
                                 "valid-destination", now.plusSeconds(3600), now.minusSeconds(60))))));
+    }
 
-        assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
+    @Test
+    void destinationMappingsCanReferenceDestinationsThatDoNotExistYet() {
+        Instant now = Instant.now();
+
+        destinationMappingService.saveMapDestinations(
                 new MapDestinationsEvent(null, List.of(
-                        mapping("flight", DataType.STRING, OperatorType.EQUAL, "KL123", "missing-location", now)))));
+                        mapping("flight", DataType.STRING, OperatorType.EQUAL, "KL123", "missing-location", now))));
+
+        assertEquals("missing-location",
+                destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).orElseThrow());
     }
 
     @Test
@@ -298,6 +306,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals("operator-destination-c",
                 destinationMappingService.resolveDestination(Map.of("fragile", "true"), now).orElseThrow());
         assertTrue(destinationMappingService.resolveDestination(Map.of("weight", "9"), now).isEmpty());
+    }
+
+    @Test
+    void destinationMappingOperatorAliasesMatchCanonicalOperators() {
+        assertEquals(OperatorType.EQUAL, OperatorType.fromString("EQUALS"));
+        assertEquals(OperatorType.GREATER, OperatorType.fromString("GREATER_THAN"));
+        assertEquals(OperatorType.LESSER, OperatorType.fromString("LESS_THAN"));
     }
 
     @Test
