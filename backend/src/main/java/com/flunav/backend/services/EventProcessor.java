@@ -55,6 +55,7 @@ public class EventProcessor {
     private final DisplayRulesService displayRulesService;
     private final AmqpTemplate amqpTemplate;
     private final String itemEventsRoutingKey;
+    private final String commandsQueue;
     private final TimeService timeService;
     private final TopologyProvider topologyProvider;
     private final boolean manageLogic;
@@ -82,6 +83,7 @@ public class EventProcessor {
             LocationService locationService,
             AmqpTemplate amqpTemplate,
             @Value("${rabbitmq.routing-key.item-events}") String itemEventsRoutingKey,
+            @Value("${rabbitmq.queue.commands}") String commandsQueue,
             TimeService timeService,
             TopologyProvider topologyProvider,
             ItemMovementProcessor itemMovementProcessor,
@@ -101,6 +103,7 @@ public class EventProcessor {
         this.displayRulesService = displayRulesService;
         this.amqpTemplate = amqpTemplate;
         this.itemEventsRoutingKey = itemEventsRoutingKey;
+        this.commandsQueue = commandsQueue;
         this.timeService = timeService;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
@@ -226,8 +229,9 @@ public class EventProcessor {
                 case ItemCreatedEvent e -> {
                     try {
                         var item = new ItemInput(e);
-                        applyDestinationToCreatedItem(item, e.getTimestamp());
+                        AppliedDestination appliedDestination = applyDestinationToCreatedItem(item, e.getTimestamp());
                         itemService.createItem(item);
+                        publishDestinationCommandIfNeeded(e, item, appliedDestination, shouldBroadcast);
 
                         if (item.getLocationId() != null) {
                             var positionType = topologyProvider.getPositionType(item.getLocationId());
@@ -656,7 +660,7 @@ public class EventProcessor {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
     }
 
-    private void applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
+    private AppliedDestination applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
         String explicitDestinationId = normalizeDestination(item.getDestinationId());
         boolean explicitDestination = explicitDestinationId != null;
         String destinationId = explicitDestination
@@ -664,22 +668,23 @@ public class EventProcessor {
                 : destinationMappingService.resolveDestination(item.getProperties(), timestamp).orElse(null);
 
         if (destinationId == null) {
-            return;
+            return AppliedDestination.none();
         }
 
         if (topologyProvider.getLocationById(destinationId) == null) {
             logger.warn("Mapped destination does not exist destination={}", destinationId);
             if (explicitDestination) {
                 item.setDestinationId(destinationId);
+                return new AppliedDestination(destinationId, false, true);
             }
-            return;
+            return AppliedDestination.none();
         }
 
         item.setDestinationId(destinationId);
 
         if (item.getLocationId() == null) {
             logger.warn("Cannot calculate destination path for item {} because locationId is missing", item.getId());
-            return;
+            return new AppliedDestination(destinationId, !explicitDestination, true);
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
@@ -691,6 +696,29 @@ public class EventProcessor {
         if (!calculatedPath.isEmpty()) {
             item.setPath(calculatedPath);
         }
+
+        return new AppliedDestination(destinationId, !explicitDestination, true);
+    }
+
+    private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
+            AppliedDestination appliedDestination, boolean shouldBroadcast) {
+        if (!manageLogic || !shouldBroadcast || DatabaseContextHolder.getSimulationId() != null) {
+            return;
+        }
+        if (!appliedDestination.fromMapping() || !appliedDestination.applied()) {
+            return;
+        }
+        if (!Objects.equals(item.getDestinationId(), appliedDestination.destinationId())) {
+            return;
+        }
+
+        try {
+            amqpTemplate.convertAndSend(commandsQueue,
+                    new ItemDestinationEvent(event.getEntityId(), appliedDestination.destinationId(),
+                            event.getTimestamp()));
+        } catch (Exception e) {
+            logger.error("Failed to publish destination command for item {}", event.getEntityId(), e);
+        }
     }
 
     private String normalizeDestination(String destinationId) {
@@ -698,5 +726,11 @@ public class EventProcessor {
             return null;
         }
         return destinationId.trim();
+    }
+
+    private record AppliedDestination(String destinationId, boolean fromMapping, boolean applied) {
+        private static AppliedDestination none() {
+            return new AppliedDestination(null, false, false);
+        }
     }
 }

@@ -181,7 +181,9 @@ export const useGraphLiveEvents = (
                 hidden: isHidden, // Start invisible if location unknown
                 properties: item.properties,
                 isActive: item.active,
-                customColor: item.customColor
+                customColor: item.customColor,
+                destinationId: item.destinationId,
+                path: item.path
             });
 
             const edgeKey = item.locationId
@@ -200,7 +202,10 @@ export const useGraphLiveEvents = (
                 currentEdgeId: isConveyor ? item.locationId : undefined,
                 entryTimestamp: new Date(timestamp).toISOString(), 
                 progress: item.progress || 0,
-                customColor: item.customColor
+                customColor: item.customColor,
+                destinationId: item.destinationId,
+                path: item.path,
+                properties: item.properties
             });
         }, simulationId));
 

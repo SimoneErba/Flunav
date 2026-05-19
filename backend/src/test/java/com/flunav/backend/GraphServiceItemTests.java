@@ -14,6 +14,7 @@ import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.StaleItemCleanupService;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemDestinationEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.types.DataType;
 import flunav.types.LocationType;
@@ -26,6 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -37,6 +40,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
@@ -82,14 +90,21 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     @MockBean
     private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
 
+    @MockBean
+    private SimpMessagingTemplate messagingTemplate;
+
     @BeforeEach
     void setup() {
         resetState();
+        reset(amqpTemplate);
+        reset(messagingTemplate);
     }
 
     @AfterEach
     void cleanup() {
         resetState();
+        reset(amqpTemplate);
+        reset(messagingTemplate);
     }
 
     @Test
@@ -200,6 +215,141 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNotNull(item);
         assertEquals("explicit-exit-b", item.getDestinationId());
         assertEquals(List.of("explicit-start", "explicit-exit-b"), item.getPath());
+    }
+
+    @Test
+    void liveMappedItemCreationBroadcastsDestinationAndPath() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("broadcast-start", "broadcast-exit");
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "broadcast-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
+        eventProcessor.processEvent(new ItemCreatedEvent("item-broadcast", "Broadcast Item", 1.0, true,
+                "broadcast-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
+
+        var item = itemService.getItemById("item-broadcast");
+        assertNotNull(item);
+        assertEquals("broadcast-exit", item.getDestinationId());
+        assertEquals(List.of("broadcast-start", "broadcast-exit"), item.getPath());
+
+        var websocketPayload = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/items"), websocketPayload.capture());
+
+        Object envelope = websocketPayload.getValue();
+        assertEquals(now.toEpochMilli(), ReflectionTestUtils.getField(envelope, "timestamp"));
+
+        Object entityMessage = ReflectionTestUtils.getField(envelope, "payload");
+        assertEquals("CREATED", String.valueOf(ReflectionTestUtils.getField(entityMessage, "operation")));
+
+        Object response = ReflectionTestUtils.getField(entityMessage, "data");
+        assertEquals("item-broadcast", ReflectionTestUtils.getField(response, "id"));
+        assertEquals("broadcast-exit", ReflectionTestUtils.getField(response, "destinationId"));
+        assertEquals(List.of("broadcast-start", "broadcast-exit"), ReflectionTestUtils.getField(response, "path"));
+    }
+
+    @Test
+    void liveMappedItemCreationPublishesDestinationCommand() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("command-start", "command-exit");
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "command-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
+        eventProcessor.processEvent(new ItemCreatedEvent("item-command", "Command Item", 1.0, true,
+                "command-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
+
+        var item = itemService.getItemById("item-command");
+        assertNotNull(item);
+        assertEquals("command-exit", item.getDestinationId());
+
+        var destinationCommand = org.mockito.ArgumentCaptor.forClass(ItemDestinationEvent.class);
+        verify(amqpTemplate).convertAndSend(eq("commands"), destinationCommand.capture());
+        assertEquals("ITEM_DESTINATION", destinationCommand.getValue().getEventType());
+        assertEquals("item-command", destinationCommand.getValue().getEntityId());
+        assertEquals("command-exit", destinationCommand.getValue().getLocationId());
+        assertEquals(now, destinationCommand.getValue().getTimestamp());
+    }
+
+    @Test
+    void itemCreationDoesNotPublishDestinationCommandWhenNoMappingMatches() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("no-match-start", "no-match-exit");
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "no-match-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
+        eventProcessor.processEvent(new ItemCreatedEvent("item-no-match", "No Match Item", 1.0, true,
+                "no-match-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "999"), now), true);
+
+        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+    }
+
+    @Test
+    void explicitItemDestinationDoesNotPublishDestinationCommand() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("explicit-command-start", "explicit-command-exit");
+        createLocation("explicit-command-other-exit", "Other Exit");
+        conveyorService.createConveyor("explicit-command-conv-other", "explicit-command-start",
+                "explicit-command-other-exit", "Other Exit Conveyor", 10.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "explicit-command-exit", now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
+        eventProcessor.processEvent(new ItemCreatedEvent("item-explicit-command", "Explicit Command Item", 1.0, true,
+                "explicit-command-start", PositionType.LOCATION, 0.0, "explicit-command-other-exit",
+                Map.of("flight_number", "123"), now), true);
+
+        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+    }
+
+    @Test
+    void processEventWithoutBroadcastDoesNotPublishDestinationCommand() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("without-broadcast-start", "without-broadcast-exit");
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "without-broadcast-exit", now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-without-broadcast",
+                "Without Broadcast Item", 1.0, true, "without-broadcast-start", PositionType.LOCATION, 0.0,
+                Map.of("flight_number", "123"), now));
+
+        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+    }
+
+    @Test
+    void simulationItemCreationDoesNotPublishDestinationCommand() {
+        Instant now = Instant.now();
+
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createMappedCommandTopology("sim-command-start", "sim-command-exit");
+            eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                    new DestinationMappingRecord("123", "sim-command-exit", now.minusSeconds(60),
+                            now.plusSeconds(3600)))));
+            eventProcessor.processEvent(new ItemCreatedEvent("item-sim-command", "Simulation Command Item", 1.0, true,
+                    "sim-command-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
+        }
+
+        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+    }
+
+    @Test
+    void manageLogicDisabledDoesNotPublishDestinationCommand() {
+        Instant now = Instant.now();
+        createMappedCommandTopology("manage-disabled-start", "manage-disabled-exit");
+
+        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
+                new DestinationMappingRecord("123", "manage-disabled-exit", now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
+
+        ReflectionTestUtils.setField(eventProcessor, "manageLogic", false);
+        try {
+            eventProcessor.processEvent(new ItemCreatedEvent("item-manage-disabled", "Manage Disabled Item", 1.0, true,
+                    "manage-disabled-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
+        } finally {
+            ReflectionTestUtils.setField(eventProcessor, "manageLogic", true);
+        }
+
+        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
     }
 
     @Test
@@ -340,6 +490,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private void createLocation(String id, String name) {
         locationService.createLocation(new LocationInput(id, name, 0.0, 0.0, null, null, LocationType.GENERIC, 100,
                 true, false, Map.of()));
+    }
+
+    private void createMappedCommandTopology(String startId, String destinationId) {
+        createLocation(startId, "Start");
+        createLocation(destinationId, "Destination");
+        conveyorService.createConveyor(startId + "-to-" + destinationId, startId, destinationId,
+                "Destination Conveyor", 10.0, 1.0, 0.0, true, true);
     }
 
     private void createItem(String id, String name, String locationId, Instant timestamp,

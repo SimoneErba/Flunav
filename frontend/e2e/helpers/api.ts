@@ -35,6 +35,16 @@ export type ItemSeed = {
   properties?: Record<string, unknown>;
 };
 
+export type DestinationMappingSeed = {
+  fieldName: string;
+  dataType: "STRING" | "NUMBER" | "BOOLEAN" | "DATETIME";
+  operator: "EQUAL" | "LESSER" | "GREATER";
+  value: string;
+  destination: string;
+  validFrom: string;
+  validTo: string;
+};
+
 export type SeededMovingItemGraph = {
   sourceId: string;
   targetId: string;
@@ -108,6 +118,19 @@ export const createItem = async (
       properties: item.properties ?? {},
       timestamp: item.timestamp ?? new Date().toISOString(),
     },
+  });
+  expect(response.ok()).toBeTruthy();
+};
+
+export const updateDestinationMappings = async (
+  request: APIRequestContext,
+  baseUrl: string,
+  session: AuthSession,
+  mappings: DestinationMappingSeed[],
+) => {
+  const response = await request.put(`${baseUrl}/api/destination-mappings`, {
+    headers: authHeaders(session),
+    data: mappings,
   });
   expect(response.ok()).toBeTruthy();
 };

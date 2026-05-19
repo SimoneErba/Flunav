@@ -15,6 +15,9 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.queue.item-events}")
     private String itemEventsQueue;
 
+    @Value("${rabbitmq.queue.commands}")
+    private String commandsQueue;
+
     @Value("${rabbitmq.exchange.item-events}")
     private String itemEventsExchange;
 
@@ -24,6 +27,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue itemEventsQueue() {
         return new Queue(itemEventsQueue, true);
+    }
+
+    @Bean
+    public Queue commandsQueue() {
+        return new Queue(commandsQueue, true);
     }
 
     @Bean

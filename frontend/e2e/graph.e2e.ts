@@ -8,6 +8,7 @@ import {
   emptyChute,
   seedMovingItemGraph,
   uniqueE2eId,
+  updateDestinationMappings,
   updateConveyorSpeed,
 } from "./helpers/api";
 import { AuthSession, installAuthSession, loginAsSuperadmin } from "./helpers/auth";
@@ -19,6 +20,7 @@ import {
   waitForEdge,
   waitForGraphTestApi,
   waitForItem,
+  waitForItemDestinationAndPath,
   waitForItemToMove,
   waitForItemToMoveFrom,
   waitForNode,
@@ -35,6 +37,10 @@ test.beforeAll(async ({ request }) => {
 
 test.beforeEach(async ({ page }) => {
   await installAuthSession(page, session);
+});
+
+test.afterEach(async ({ request }) => {
+  await updateDestinationMappings(request, backendUrl, session, []);
 });
 
 test("websocket-created graph entities appear and animate without reload", async ({ page, request }) => {
@@ -81,6 +87,67 @@ test("websocket-created graph entities appear and animate without reload", async
   });
   await waitForItem(page, itemId);
   await waitForItemToMove(page, itemId);
+});
+
+test("websocket-created mapped item exposes destination and path without reload", async ({ page, request }) => {
+  const id = uniqueE2eId("ws-destination");
+  const sourceId = `${id}-source`;
+  const destinationId = `${id}-destination`;
+  const conveyorId = `${id}-conveyor`;
+  const itemId = `${id}-item`;
+  const flightNumber = `${id}-flight`;
+  const now = Date.now();
+
+  await page.goto("/live");
+  await waitForGraphTestApi(page);
+
+  await createLocation(request, backendUrl, session, {
+    id: sourceId,
+    name: "Mapped Source",
+    latitude: 0,
+    longitude: 0,
+  });
+  await waitForNode(page, sourceId);
+
+  await createLocation(request, backendUrl, session, {
+    id: destinationId,
+    name: "Mapped Destination",
+    latitude: 100,
+    longitude: 0,
+  });
+  await waitForNode(page, destinationId);
+
+  await createConveyor(request, backendUrl, session, {
+    id: conveyorId,
+    sourceId,
+    targetId: destinationId,
+    length: 100,
+    speed: 20,
+  });
+  await waitForEdge(page, conveyorId);
+
+  await updateDestinationMappings(request, backendUrl, session, [
+    {
+      fieldName: "flight_number",
+      dataType: "STRING",
+      operator: "EQUAL",
+      value: flightNumber,
+      destination: destinationId,
+      validFrom: new Date(now - 60_000).toISOString(),
+      validTo: new Date(now + 3_600_000).toISOString(),
+    },
+  ]);
+
+  await createItem(request, backendUrl, session, {
+    id: itemId,
+    name: "Mapped WebSocket Item",
+    locationId: sourceId,
+    positionType: "LOCATION",
+    properties: { flight_number: flightNumber },
+  });
+
+  await waitForItem(page, itemId);
+  await waitForItemDestinationAndPath(page, itemId, destinationId, [sourceId, destinationId]);
 });
 
 test("stop condition freezes moving item", async ({ page, request }) => {

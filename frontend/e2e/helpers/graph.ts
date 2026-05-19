@@ -29,6 +29,32 @@ export const waitForItem = async (page: Page, itemId: string) => {
     .toBe(true);
 };
 
+export const waitForItemDestinationAndPath = async (
+  page: Page,
+  itemId: string,
+  expectedDestinationId: string,
+  expectedPath: string[],
+) => {
+  await expect
+    .poll(async () =>
+      page.evaluate((id) => {
+        const item = window.__graphTestApi!.getItem(id);
+        return {
+          graphDestinationId: item.graphNode?.attributes.destinationId,
+          graphPath: item.graphNode?.attributes.path,
+          activeDestinationId: item.activeItem?.destinationId,
+          activePath: item.activeItem?.path,
+        };
+      }, itemId),
+    )
+    .toEqual({
+      graphDestinationId: expectedDestinationId,
+      graphPath: expectedPath,
+      activeDestinationId: expectedDestinationId,
+      activePath: expectedPath,
+    });
+};
+
 export const waitForItemToMove = async (page: Page, itemId: string) => {
   const before = await getItemPosition(page, itemId);
 
