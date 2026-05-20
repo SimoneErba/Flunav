@@ -159,11 +159,7 @@ public class ConveyorService {
 
             for (OEdge edge : source.getEdges(ODirection.OUT, "Conveyor")) {
                 if (edge.getTo().equals(target)) {
-                    String conveyorId = edge.getProperty("customId");
                     edge.delete();
-                    if (conveyorId != null) {
-                        liveConveyorRepository.deleteConveyor(conveyorId);
-                    }
                     return;
                 }
             }

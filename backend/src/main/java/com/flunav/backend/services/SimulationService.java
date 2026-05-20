@@ -317,8 +317,7 @@ public class SimulationService {
                 state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
             }
 
-            try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId);
-                    var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+            try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
                 eventProcessor.processEventWithoutBroadcast(event);
             }
         }
