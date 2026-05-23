@@ -6,7 +6,8 @@ public class App {
 
     public static void main(String[] args) {
         if (args.length == 0) {
-            SimulatorUtils.logger.severe("Please specify a simulation to run. Usage: java App <line|loop|multi|large|perf>");
+            SimulatorUtils.logger.severe(
+                    "Please specify a simulation to run. Usage: java App <line|loop|multi|large|perf|future|long|future-long>");
             return;
         }
 
@@ -45,6 +46,12 @@ public class App {
                     SimulatorUtils.logger.info("--- Selected: PERFORMANCE STRESS Simulation ---");
                     SimulatorUtils.quietEventLogs = true;
                     simulation = new PerformanceStressSimulation();
+                    break;
+                case "future":
+                case "long":
+                case "future-long":
+                    SimulatorUtils.logger.info("--- Selected: FUTURE LONG CONVEYOR Simulation ---");
+                    simulation = new FutureLongConveyorSimulation();
                     break;
                 default:
                     SimulatorUtils.logger.severe("Unknown simulation type: " + simulationType);

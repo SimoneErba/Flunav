@@ -110,6 +110,33 @@ class SimulationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void checkpointedConveyorItemEntryTimestampMatchesGraphProgress() {
+        DatabaseContextHolder.enterSimulationContext("test-sim");
+        Instant start = Instant.parse("2026-02-07T10:40:00Z");
+        Instant checkpoint = start.plusSeconds(5);
+        sim.startAt(start);
+
+        sim.stubLocation("checkpoint-start", "Start", LocationType.GENERIC);
+        sim.stubLocation("checkpoint-end", "End", LocationType.GENERIC);
+        sim.stubConveyor("checkpoint-conveyor", "checkpoint-start", "checkpoint-end", 100.0, 1.0, false);
+
+        sim.applyEvent(new ItemCreatedEvent("checkpoint-item", "Box", 1.0, true, "checkpoint-start",
+                PositionType.LOCATION, 0.0, new HashMap<>(), start));
+
+        sim.advanceTo(checkpoint);
+
+        var item = sim.getItem("checkpoint-item").orElseThrow();
+        assertEquals("checkpoint-conveyor", item.getCurrentEdgeId());
+        assertEquals(0.05, item.getProgress(), 0.001, "Item should have checkpointed conveyor progress");
+        assertEquals(start, item.getEntryTimestamp(), "Entry timestamp should describe the same conveyor position");
+
+        double frontendDerivedProgress = (Duration.between(item.getEntryTimestamp(), checkpoint).toMillis() / 1000.0)
+                / 100.0;
+        assertEquals(item.getProgress(), frontendDerivedProgress, 0.001,
+                "Frontend-derived progress should match backend progress");
+    }
+
+    @Test
     void testItemReachesChuteAndDisappears() {
         DatabaseContextHolder.enterSimulationContext("test-sim");
         Instant start = Instant.parse("2026-02-07T10:00:00Z");

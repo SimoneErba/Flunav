@@ -5,6 +5,7 @@ import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
+import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.services.ClickHouseService.Snapshot;
@@ -13,7 +14,6 @@ import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OVertex;
 import flunav.events.DomainEvent;
-import flunav.events.EntityEvent;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +21,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,22 +72,17 @@ public class HistoricalGraphBuilder {
 
             // 2. Replay Events (The Delta)
             List<DomainEvent> eventsToReplay = eventsAfterTimestamp.isBefore(realEventReplayEnd)
-                    ? clickHouseService.getEventsBetween(eventsAfterTimestamp, realEventReplayEnd)
+                    ? new ArrayList<>(clickHouseService.getEventsBetween(eventsAfterTimestamp, realEventReplayEnd))
                     : List.of();
+            eventsToReplay.sort(Comparator.comparing(DomainEvent::getTimestamp));
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
-            orientDBService.withSession(session -> {
-                for (DomainEvent event : eventsToReplay) {
-                    try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
-                        eventProcessor.processEventWithoutBroadcast(event);
-                    } catch (Exception e) {
-                        logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
-                                event.getEventType(), e.getMessage());
-                    }
-                }
-            });
+            replayEventsAndInternalQueue(simulationId, eventsToReplay, realEventReplayEnd);
+            simulationService.checkpointSimulationAt(simulationId, realEventReplayEnd);
 
-            simulationService.processEventsUntil(simulationId, restorePoint);
+            if (restorePoint.isAfter(realEventReplayEnd)) {
+                simulationService.processEventsUntil(simulationId, restorePoint);
+            }
             logger.info("Historical graph build complete for simulation: {}", simulationId);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, restorePoint);
 
@@ -96,6 +93,55 @@ public class HistoricalGraphBuilder {
             buildPermits.release();
             logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());
             simulationService.processWaitingQueue();
+        }
+    }
+
+    private void replayEventsAndInternalQueue(String simulationId, List<DomainEvent> externalEvents,
+            Instant replayEnd) {
+        SimulationState state = simulationService.getSimulationState(simulationId);
+
+        orientDBService.withSession(session -> {
+            int externalIndex = 0;
+
+            while (externalIndex < externalEvents.size() || hasInternalEventDueAtOrBefore(state, replayEnd)) {
+                DomainEvent nextExternal = externalIndex < externalEvents.size() ? externalEvents.get(externalIndex)
+                        : null;
+                DomainEvent nextInternal = state.getInternalEventQueue().peek();
+
+                if (nextExternal != null && shouldProcessExternalBeforeInternal(nextExternal, nextInternal,
+                        replayEnd)) {
+                    processExternalEvent(nextExternal);
+                    externalIndex++;
+                    continue;
+                }
+
+                DomainEvent processedInternal = simulationService.processNextInternalEvent(simulationId);
+                if (processedInternal == null) {
+                    break;
+                }
+            }
+        });
+    }
+
+    private boolean hasInternalEventDueAtOrBefore(SimulationState state, Instant timestamp) {
+        DomainEvent event = state.getInternalEventQueue().peek();
+        return event != null && !event.getTimestamp().isAfter(timestamp);
+    }
+
+    private boolean shouldProcessExternalBeforeInternal(DomainEvent externalEvent, DomainEvent internalEvent,
+            Instant replayEnd) {
+        if (internalEvent == null || internalEvent.getTimestamp().isAfter(replayEnd)) {
+            return true;
+        }
+        return !externalEvent.getTimestamp().isAfter(internalEvent.getTimestamp());
+    }
+
+    private void processExternalEvent(DomainEvent event) {
+        try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+            eventProcessor.processEventWithoutBroadcast(event);
+        } catch (Exception e) {
+            logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
+                    event.getEventType(), e.getMessage());
         }
     }
 

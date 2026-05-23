@@ -15,6 +15,7 @@ import com.flunav.backend.models.simulation.SimulationStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Future;
 
@@ -70,37 +71,18 @@ public class HistoricalEventPlayer {
 
                 logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime,
                         windowEndTime);
-                List<DomainEvent> eventChunk = new ArrayList<>();
+                List<DomainEvent> externalEvents = new ArrayList<>();
                 Instant physicalNow = timeService.physicalNow();
                 Instant externalWindowEnd = windowEndTime.isAfter(physicalNow) ? physicalNow : windowEndTime;
                 if (windowStartTime.isBefore(externalWindowEnd)) {
-                    eventChunk.addAll(clickHouseService.getEventsBetween(windowStartTime, externalWindowEnd));
+                    externalEvents.addAll(clickHouseService.getEventsBetween(windowStartTime, externalWindowEnd));
                 }
 
-                // --- Process Internal Events ---
-                List<DomainEvent> overdueInternalEvents = new ArrayList<>();
-                while (!state.getInternalEventQueue().isEmpty() &&
-                        !state.getInternalEventQueue().peek().getTimestamp().isAfter(windowEndTime)) {
-                    DomainEvent internalEvent = state.getInternalEventQueue().poll();
-                    if (internalEvent != null) {
-                        simulationService.markInternalEventProcessed(internalEvent);
-                        if (internalEvent.getTimestamp().isBefore(windowStartTime)) {
-                            overdueInternalEvents.add(internalEvent);
-                        } else {
-                            eventChunk.add(internalEvent);
-                        }
-                    }
-                }
+                externalEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
+                Instant lastEventTimestamp = playWindow(simulationId, externalEvents, state, windowStartTime,
+                        windowEndTime);
 
-                overdueInternalEvents.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
-                processOverdueInternalEvents(simulationId, overdueInternalEvents);
-
-                // Sort the combined chunk by timestamp to ensure correct order
-                eventChunk.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
-
-                if (!eventChunk.isEmpty()) {
-                    playChunk(simulationId, eventChunk, state);
-                    Instant lastEventTimestamp = eventChunk.get(eventChunk.size() - 1).getTimestamp();
+                if (lastEventTimestamp != null) {
                     currentSimulationTime = lastEventTimestamp.isAfter(currentSimulationTime)
                             ? lastEventTimestamp
                             : currentSimulationTime;
@@ -165,83 +147,94 @@ public class HistoricalEventPlayer {
     }
 
     /**
-     * Plays back a list of events in a time-synchronized manner with high
-     * precision.
-     * This method uses an efficient, interruptible wait pattern that allows for
-     * immediate changes to the playback speed.
-     *
-     * @param simulationId The ID of the simulation being played.
-     * @param eventChunk   The list of DomainEvents to play.
-     * @param state        The shared SimulationState object, which holds the
-     *                     current speedFactor.
-     * @throws InterruptedException If the playback is cancelled while waiting.
+     * Plays one polling window while leaving future internal events in the queue
+     * until they are due. ClickHouse events win timestamp ties so real history can
+     * cancel or replace a queued internal event before it fires.
      */
-    private void playChunk(String simulationId, List<DomainEvent> eventChunk, SimulationState state)
+    private Instant playWindow(String simulationId, List<DomainEvent> externalEvents, SimulationState state,
+            Instant windowStartTime, Instant windowEndTime)
             throws InterruptedException {
-        if (eventChunk.isEmpty()) {
-            return;
+        final long windowWallClockStartNs = System.nanoTime();
+        int externalIndex = 0;
+        Instant lastEventTimestamp = null;
+
+        while (externalIndex < externalEvents.size() || hasInternalEventDueAtOrBefore(state, windowEndTime)) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Playback cancelled during window processing.");
+            }
+
+            DomainEvent nextExternal = externalIndex < externalEvents.size() ? externalEvents.get(externalIndex)
+                    : null;
+            DomainEvent nextInternal = state.getInternalEventQueue().peek();
+
+            if (nextExternal != null && shouldProcessExternalBeforeInternal(nextExternal, nextInternal,
+                    windowEndTime)) {
+                playEventAtScheduledTime(nextExternal, state, windowWallClockStartNs, windowStartTime);
+                processEvent(simulationId, nextExternal);
+                lastEventTimestamp = nextExternal.getTimestamp();
+                externalIndex++;
+                continue;
+            }
+
+            DomainEvent internalEvent = state.getInternalEventQueue().poll();
+            if (internalEvent == null) {
+                break;
+            }
+
+            simulationService.markInternalEventProcessed(internalEvent);
+            if (!internalEvent.getTimestamp().isBefore(windowStartTime)) {
+                playEventAtScheduledTime(internalEvent, state, windowWallClockStartNs, windowStartTime);
+            }
+            processEvent(simulationId, internalEvent);
+            lastEventTimestamp = internalEvent.getTimestamp();
         }
 
-        // 1. Set the time anchors for this chunk.
-        final long chunkWallClockStartNs = System.nanoTime();
-        final Instant chunkSimulationStartTime = eventChunk.get(0).getTimestamp();
+        return lastEventTimestamp;
+    }
 
-        for (DomainEvent event : eventChunk) {
-            // Check for cancellation at the start of each event loop.
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Playback cancelled during chunk processing.");
+    private boolean hasInternalEventDueAtOrBefore(SimulationState state, Instant timestamp) {
+        DomainEvent event = state.getInternalEventQueue().peek();
+        return event != null && !event.getTimestamp().isAfter(timestamp);
+    }
+
+    private boolean shouldProcessExternalBeforeInternal(DomainEvent externalEvent, DomainEvent internalEvent,
+            Instant windowEndTime) {
+        if (internalEvent == null || internalEvent.getTimestamp().isAfter(windowEndTime)) {
+            return true;
+        }
+        return !externalEvent.getTimestamp().isAfter(internalEvent.getTimestamp());
+    }
+
+    private void playEventAtScheduledTime(DomainEvent event, SimulationState state, long windowWallClockStartNs,
+            Instant windowStartTime)
+            throws InterruptedException {
+        double currentSpeedFactor = state.getSpeedFactor();
+        Duration simulationTimeElapsed = Duration.between(windowStartTime, event.getTimestamp());
+        long scheduledWallClockOffsetNs = (long) (simulationTimeElapsed.toNanos() / currentSpeedFactor);
+        long actualWallClockOffsetNs = System.nanoTime() - windowWallClockStartNs;
+        long waitNanos = scheduledWallClockOffsetNs - actualWallClockOffsetNs;
+
+        if (waitNanos > 0) {
+            long waitMillis = waitNanos / 1_000_000;
+            int waitNanosRemainder = (int) (waitNanos % 1_000_000);
+
+            synchronized (state.getTimingLock()) {
+                state.getTimingLock().wait(waitMillis, waitNanosRemainder);
             }
+        }
 
-            // We re-read the speed factor on every loop to allow for dynamic changes.
-            double currentSpeedFactor = state.getSpeedFactor();
-
-            // 2. Calculate the target wall-clock time for this event.
-            Duration simulationTimeElapsed = Duration.between(chunkSimulationStartTime, event.getTimestamp());
-            long scheduledWallClockOffsetNs = (long) (simulationTimeElapsed.toNanos() / currentSpeedFactor);
-
-            // 3. Calculate how long we need to wait from this moment.
-            long actualWallClockOffsetNs = System.nanoTime() - chunkWallClockStartNs;
-            long waitNanos = scheduledWallClockOffsetNs - actualWallClockOffsetNs;
-
-            // 4. Perform the efficient, interruptible wait if needed.
-            if (waitNanos > 0) {
-                long waitMillis = waitNanos / 1_000_000;
-                int waitNanosRemainder = (int) (waitNanos % 1_000_000);
-
-                // Wait on the shared lock object. This thread will consume zero CPU
-                // until the time expires OR until another thread calls notifyAll() on the lock.
-                synchronized (state.getTimingLock()) {
-                    state.getTimingLock().wait(waitMillis, waitNanosRemainder);
-                }
-            }
-
-            // After waking up, the thread might still be slightly ahead of schedule.
-            // A final, brief "spin-wait" ensures nanosecond precision. This loop
-            // will be very short and consumes minimal CPU.
-            while ((System.nanoTime() - chunkWallClockStartNs) < scheduledWallClockOffsetNs) {
-                // In Java 9+, Thread.onSpinWait() is a hint to the CPU that we're in a tight
-                // loop.
-                // For Java 8, this empty loop is sufficient.
-                Thread.onSpinWait();
-            }
-
-            try {
-                try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
-                    eventProcessor.processEvent(event);
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to process event {}", event, e);
-            }
+        while ((System.nanoTime() - windowWallClockStartNs) < scheduledWallClockOffsetNs) {
+            Thread.onSpinWait();
         }
     }
 
-    private void processOverdueInternalEvents(String simulationId, List<DomainEvent> overdueInternalEvents) {
-        for (DomainEvent event : overdueInternalEvents) {
+    private void processEvent(String simulationId, DomainEvent event) {
+        try {
             try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
                 eventProcessor.processEvent(event);
-            } catch (Exception e) {
-                logger.warn("Failed to process overdue internal event {} for simulation {}", event, simulationId, e);
             }
+        } catch (Exception e) {
+            logger.warn("Failed to process event {} for simulation {}", event, simulationId, e);
         }
     }
 }

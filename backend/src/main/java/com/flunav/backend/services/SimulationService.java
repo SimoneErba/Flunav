@@ -296,6 +296,9 @@ public class SimulationService {
         return null;
     }
 
+    /**
+     * Projects queued internal simulation events up to a future target time.
+     */
     public void processEventsUntil(String simulationId, Instant targetTime) {
         SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state == null)
@@ -307,24 +310,51 @@ public class SimulationService {
                 break;
             }
 
-            state.getInternalEventQueue().poll();
+            processNextInternalEvent(simulationId);
+        }
 
-            checkpointAllItems(simulationId, event.getTimestamp());
-            state.setLastProcessedTimestamp(event.getTimestamp());
-            persistState(state);
+        checkpointSimulationAt(simulationId, targetTime);
+    }
 
-            if (event instanceof flunav.events.EntityEvent ee) {
-                state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
-            }
+    public DomainEvent processNextInternalEvent(String simulationId) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null) {
+            return null;
+        }
 
-            try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
-                eventProcessor.processEventWithoutBroadcast(event);
-            }
+        DomainEvent event = state.getInternalEventQueue().poll();
+        if (event == null) {
+            return null;
+        }
+
+        processInternalEvent(simulationId, state, event);
+        return event;
+    }
+
+    public void checkpointSimulationAt(String simulationId, Instant targetTime) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null) {
+            return;
         }
 
         checkpointAllItems(simulationId, targetTime);
         state.setLastProcessedTimestamp(targetTime);
         persistState(state);
+    }
+
+    private void processInternalEvent(String simulationId, SimulationState state, DomainEvent event) {
+        checkpointAllItems(simulationId, event.getTimestamp());
+        state.setLastProcessedTimestamp(event.getTimestamp());
+        persistState(state);
+
+        if (event instanceof flunav.events.EntityEvent ee) {
+            state.getScheduledEventsByItem().remove(ee.getEntityId(), event);
+        }
+
+        try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId);
+                var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+            eventProcessor.processEventWithoutBroadcast(event);
+        }
     }
 
     public void updateLastProcessedTimestamp(String simulationId, Instant timestamp) {

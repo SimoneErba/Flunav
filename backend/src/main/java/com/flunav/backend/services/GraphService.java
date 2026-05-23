@@ -296,8 +296,10 @@ public class GraphService {
             // CHECK: Is item still on this edge?
             if (timeElapsed.compareTo(traversalDuration) < 0) {
                 double distTraveled = (timeElapsed.toMillis() / 1000.0) * speed;
-                double progress = (startOffset + distTraveled) / length;
-                return createItemResponse(itemId, currentEdge.getId(), null, now.minus(timeElapsed), progress);
+                double distanceOnCurrentEdge = startOffset + distTraveled;
+                double progress = distanceOnCurrentEdge / length;
+                Instant currentEdgeEntryTime = now.minusMillis((long) ((distanceOnCurrentEdge / speed) * 1000));
+                return createItemResponse(itemId, currentEdge.getId(), null, currentEdgeEntryTime, progress);
             }
 
             // NO: Item finished this edge.
