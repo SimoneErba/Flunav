@@ -1,224 +1,195 @@
-# AGENTS.md - Agent Coding Guidelines
+# AGENTS.md - Flumen Agent Guidelines
 
-This file provides build commands and code style guidelines for agentic coding agents working in the Flunav repository.
+This repository is a real-time digital twin for conveyor and sorting systems. Treat it as an event-driven simulation platform, not as a CRUD app. The important design constraint is that the system must be able to derive live state, historical state, and future simulation state from the same event model without letting those states leak into each other.
 
-## Build, Lint, and Test Commands
+## Working Principles
 
-### Frontend (React + TypeScript + Vite)
-```bash
-cd frontend
-pnpm install                    # Install dependencies
-pnpm dev                       # Start development server
-pnpm build                     # Build for production
-pnpm lint                      # Run ESLint
-pnpm generate-client            # Generate API client from live backend (http://localhost:8080/api-docs)
-pnpm generate-client-local      # Generate API client from local ./openapi.json
+- Read the local code before changing behavior. The backend has several context-sensitive services where a small call-site change can affect live mode, replay mode, and simulation mode differently.
+- Keep changes scoped to the behavior being requested. Avoid opportunistic rewrites, broad formatting churn, dependency changes, or cleanup outside the touched path.
+- Preserve event replayability. New behavior that changes state should normally be represented as an event in `commons/src/main/java/flunav/events/`, processed through `EventProcessor`, and persisted for replay when it belongs to domain history.
+- Do not add prompt-related comments such as "this was already correct" or "fixed per request." Comments should explain code intent only where the logic is non-obvious.
+- When showing code to the user, provide complete files or complete relevant methods. Do not omit lines for brevity in generated code examples.
+- Check `GEMINI.md` and `TODO.md` when the task touches architecture, simulation, analytics, anomaly detection, or roadmap-level behavior.
+
+## Architecture
+
+### Backend Shape
+
+The backend follows Spring Boot layering, but the real architecture is event sourcing plus polyglot persistence:
+
+- Controllers validate requests, create domain events, publish or process those events, and return HTTP responses.
+- `EventProcessor` is the central reducer for domain events. It applies event effects to OrientDB and Redis, emits WebSocket updates, and records live events in ClickHouse.
+- RabbitMQ decouples ingestion from processing for live external events.
+- ClickHouse is the immutable event store and analytics store. It is the source for replay, snapshots, metrics, and historical queries.
+- OrientDB stores graph topology and relatively durable graph entities: locations, conveyors, item metadata, display rules, and users.
+- Redis stores hot operational state: active item positions, conveyor occupancy, location occupancy, simulation metadata, and namespaced simulation state.
+- WebSocket broadcasts keep the frontend graph synchronized after event processing.
+
+Do not bypass this flow casually. Direct database writes are acceptable only when the existing code is explicitly maintaining derived state, restoring snapshots, or cleaning isolated runtime state.
+
+### Event Sourcing And Replay
+
+Live events are append-only history. `ClickHouseService.saveEventAsync` stores live events, and replay code reads them back to reconstruct past state. Event classes in `commons` must stay immutable data carriers with Jackson-compatible constructors and stable field names.
+
+When adding or changing events:
+
+- Put shared event DTOs in `commons/src/main/java/flunav/events/`.
+- Use `@JsonCreator` and `@JsonProperty` for deserialization.
+- Keep event names and payload semantics stable; old ClickHouse rows must remain replayable.
+- Prefer additive event evolution. If a breaking schema change is unavoidable, add explicit upcasting or compatibility handling before relying on the new shape.
+- Do not put business logic in event classes.
+
+`HistoricalGraphBuilder` restores simulations by loading the most recent ClickHouse snapshot before the restore point, replaying ClickHouse events after the snapshot, and then projecting internal events when the requested restore point is in the future. This means event processing must be deterministic with respect to timestamp, simulation context, and topology state.
+
+### Simulation Context
+
+Simulation isolation is based on `DatabaseContextHolder`, which uses `ThreadLocal` state for the active simulation id and transactional OrientDB session. `OrientDBService.getSession()` checks that context to decide whether to use the live database or an in-memory simulation database. Redis repositories apply the same idea by prefixing simulation keys with `sim:<simulationId>:` through `DatabaseContextHolder.getSimulationId()`.
+
+Design rules for simulation-safe code:
+
+- Any code that should operate on a simulation must run inside `DatabaseContextHolder.enterSimulationContext(simulationId)` and must close that context reliably with try-with-resources.
+- Never cache a simulation id in a singleton service field. Read it from `DatabaseContextHolder` at the point of use.
+- When work crosses async boundaries, explicitly re-enter the simulation context and virtual time context in the worker thread.
+- Always clear or close thread-local context in `finally` or try-with-resources. Leaked simulation context can route live writes into simulation storage or simulation writes into live storage.
+- Repository methods should use the context-aware helpers instead of manually composing live or simulation keys unless they already accept an explicit simulation id for cleanup or cross-context access.
+- Simulation cleanup must remove both the in-memory OrientDB database/pool and all Redis keys for the simulation namespace.
+
+### Internal Events And Virtual Time
+
+The platform schedules domain events for item motion. In live mode, scheduled internal events go through `LiveSystemScheduler`; in simulation mode, they are held in `SimulationState` and processed by `SimulationService`.
+
+Important design decisions:
+
+- `TimeService` separates physical wall-clock time from virtual simulation time. Use `timeService.now()` for domain time and `physicalNow()` only when comparing with the real world.
+- Future simulations must not read ClickHouse events beyond physical now. After that boundary, simulations advance by projected internal events.
+- Internal and external events are merged by timestamp during replay. ClickHouse events win ties so real history can cancel or replace scheduled projections before they fire.
+- Before processing a future internal event, simulation code checkpoints item physics to the event timestamp so accumulated conveyor distance remains consistent.
+- Playback speed changes affect scheduling delay, not event timestamps.
+
+### Event Ordering And Concurrency
+
+`EventProcessor` uses virtual threads and a per-entity future chain to keep events for the same entity ordered while allowing unrelated entities to process concurrently. Do not replace this with broad synchronization unless there is a specific race that requires it.
+
+When modifying processing code:
+
+- Preserve ordering for `EntityEvent` instances with the same entity id.
+- Be careful with calls that write both OrientDB and Redis. OrientDB holds durable topology/entity data; Redis holds derived hot state that replay and cleanup code may rebuild.
+- Leave retry handling for OrientDB concurrent modification errors in the processing path unless the replacement handles the same conflict class.
+- Broadcast only after state changes are successfully applied.
+- Do not persist simulation replay events to ClickHouse as live history.
+
+### Persistence Responsibilities
+
+- OrientDB: graph structure, entity metadata, users, display rules, and simulation graph clones.
+- Redis: active item state, conveyor and location occupancy, scheduled/hot simulation metadata, transient caches, and namespaced simulation runtime state.
+- ClickHouse: immutable domain events, graph snapshots, analytics aggregates, throughput and item history queries.
+- RabbitMQ: live event transport and command/event decoupling.
+
+Keep these boundaries intact. For example, item position in motion belongs in Redis for live speed, but replay needs enough event history and snapshot data to reconstruct it.
+
+### Frontend Shape
+
+The frontend is a React 18, Vite, TypeScript, Tailwind app centered on the graph visualization.
+
+- Use functional components and hooks only.
+- Keep graph interaction logic in hooks such as `useGraphInteractions` instead of spreading graph behavior through view components.
+- Use generated API client types where available.
+- WebSocket handlers should parse defensively, filter local echoes by sender/client id, and inject envelope timestamps into payload handling where the existing pattern does so.
+- Preserve dark mode and responsive behavior in Tailwind classes.
+- Avoid `any` unless an existing generic integration boundary requires it. If a handler has to accept unknown payloads, narrow the type before use.
+
+## Testing Policy
+
+Tests in this project should exercise real integrations. Do not add Mockito, `@Mock`, `@MockBean`, fake repositories, fake services, in-memory substitutes, or hand-written stubs for infrastructure behavior. Use Testcontainers for Redis, ClickHouse, OrientDB, RabbitMQ, and any other external dependency the test path needs.
+
+Existing tests may contain legacy mocks. Do not copy that pattern. If you modify a mocked test, prefer converting the touched path to the Testcontainers-backed integration style instead of adding more mocks.
+
+Allowed test tools:
+
+- Testcontainers-backed Spring integration tests.
+- Real repositories and services wired by Spring.
+- Real ClickHouse schemas initialized from `backend/src/test/resources/init-clickhouse/`.
+- Real OrientDB initialized from test resources.
+- Real Redis state with explicit cleanup between tests.
+- HTTP test clients such as MockMvc only as request/response drivers; do not mock Spring beans behind them.
+
+Verification guidance:
+
+- Tests are slow. Run the narrowest relevant test class or method for the change.
+- Do not run the full backend suite by default unless the change touches shared event processing, persistence configuration, replay semantics, or cross-module contracts.
+- For frontend changes, run the relevant lint/build or focused browser check for the touched surface.
+- If a useful verification step cannot be run because Docker, Testcontainers, network, or credentials are unavailable, report that clearly.
+- Clean up test state deterministically: Redis keys, ClickHouse rows, OrientDB databases/pools, simulation ThreadLocals, and virtual time contexts.
+
+## Java Guidelines
+
+### Packages And Layers
+
+Use the existing package structure:
+
+```text
+com.flunav.backend.{controllers|services|repositories|domain|entities|models|utils|exception|config|context|messaging}
 ```
 
-### Backend (Java + Spring Boot)
-```bash
-cd backend
-./mvnw clean install           # Build backend (including commons module dependency)
-./mvnw clean install -DskipTests  # Build without tests
-./mvnw test                    # Run all tests
-./mvnw test -Dtest=BackendApplicationTests  # Run single test class
-./mvnw test -Dtest=ClassName#methodName      # Run single test method
-./mvnw jib:dockerBuild         # Build Docker image
-```
+Layering should remain Controller -> Service/EventProcessor -> Repository -> Storage. Controllers should not contain database orchestration or replay logic.
 
-### Commons Module (Java - Shared Events)
-```bash
-cd commons
-./mvnw clean install           # Build and install to local Maven repo
-```
+### Naming
 
-### OPC Gateway & Simulator (Java)
-```bash
-cd opc-gateway
-./mvnw clean install           # Build OPC gateway
+- Classes: PascalCase.
+- Methods and variables: camelCase.
+- Constants: UPPER_SNAKE_CASE.
+- Events: end with `Event`.
+- Tests: end with `Tests`.
+- DTOs: place request/input models under `models/input` and response models under `models/response` unless an existing package is a better fit.
 
-cd simulator
-./mvnw clean install           # Build simulator
-```
+### Spring And Lombok
 
-### Docker Full Stack
-```bash
-docker-compose up -d           # Start all services (frontend, backend, databases, etc.)
-docker-compose down            # Stop all services
-```
+- Use constructor injection for required dependencies.
+- Use `@Service`, `@Repository`, `@RestController`, `@ControllerAdvice`, and `@Component` according to responsibility.
+- Use Lombok consistently with nearby classes for DTOs and domain objects.
+- Keep exception handling centralized in `GlobalExceptionHandler` where practical.
 
-## Java Code Style Guidelines
+### Type Safety And Error Handling
 
-### Package Structure
-```
-com.flunav.backend.{domain|controllers|services|repositories|entities|models|utils|exception|config}
-```
-Follow standard Spring Boot layering: Controller → Service → Repository → Database
+- Avoid raw types. Prefer `Map<String, Object>`, typed DTOs, and enums.
+- Use `Optional` for absent return values when it improves call-site clarity.
+- Validate controller inputs before creating events or invoking services.
+- Use HTTP statuses deliberately: bad input, not found, conflict, accepted async work, and unexpected server failures should not collapse into generic 500s.
+- Log with entity ids, simulation ids, timestamps, and event types when relevant.
 
-### Naming Conventions
-- Classes: PascalCase (e.g., `ItemController`, `ItemService`)
-- Methods/Variables: camelCase (e.g., `getAllItems`, `updatePosition`)
-- Constants: UPPER_SNAKE_CASE (e.g., `PATH_TTL_MINUTES`)
-- Event classes: End with `Event` (e.g., `ItemCreatedEvent`)
-- Test classes: End with `Tests` (e.g., `BackendApplicationTests`)
+### Imports And Formatting
 
-### Annotations & Lombok
-- Use `@Getter`/`@Setter` for DTOs and domain objects
-- Use `@Service` for business logic, `@Repository` for data access, `@RestController` for endpoints
-- Use `@ControllerAdvice` for global exception handling
-- Use `@Component` for utility classes and helpers
-- Use `@JsonCreator` and `@JsonProperty` on event DTOs in commons module
+Organize imports into standard Java/Jakarta, third-party, and internal project imports. Match the surrounding file's formatting and avoid broad reformatting.
 
-### Event Sourcing Pattern (Commons Module)
-- Events are immutable and defined in `commons/src/main/java/flunav/events/`
-- Use `@JsonCreator` for constructors to support Jackson deserialization
-- Events extend base classes and include `entityId` and `eventType`
-- No business logic in event classes - they are data carriers
+### Comments
 
-### Error Handling
-- Centralize exception handling in `GlobalExceptionHandler`
-- Use appropriate HTTP status codes: BAD_REQUEST, NOT_FOUND, INTERNAL_SERVER_ERROR
-- Log errors with SLF4J: `logger.error()` for errors, `logger.warn()` for client issues
-- Return standardized error response with timestamp, status, message, and exception type
+Comments should explain why a decision is necessary, especially around replay ordering, simulation context, virtual time, and persistence boundaries. Do not comment every line, do not add examples in comments, and remove stale comments when changing behavior.
 
-### Logging
-- SLF4J Logger: `private static final Logger logger = LoggerFactory.getLogger(ClassName.class);`
-- Use appropriate levels: error (exceptions), warn (client issues), info (normal flow), debug (diagnostic)
-- Log with context: include IDs and relevant data in log messages
+## TypeScript Guidelines
 
-### Imports
-Organize in three groups:
-1. Standard Java/JavaX imports
-2. Third-party imports (Spring, Lombok, Jackson, OrientDB, etc.)
-3. Internal `flunav` package imports
+- Components use PascalCase filenames and names.
+- Utility files use lowercase or established local naming.
+- Custom hooks start with `use`.
+- Keep global state in Context only when multiple distant components need it.
+- Use `useMemo` and `useCallback` for expensive graph computations or callbacks passed deeply.
+- Keep API, WebSocket, and graph interaction types explicit.
+- Use Tailwind utilities and existing layout patterns. Inline styles are acceptable for dynamic graph or canvas values.
+- Use `react-hot-toast` for user-visible failures where the existing UI does so.
 
-### Type Safety & Null Handling
-- Use ternary operators for null checks: `(value != null) ? value : defaultValue`
-- Avoid raw types, use generics: `Map<String, Object>` instead of `Map`
-- Validate input in controllers before processing
-- Use Optional for methods that may not return a value
+## API And Contracts
 
-### Comments Style
-- Minimal comments - only explain "why", not "what"
-- Add comments only at method beginnings or in complex logic sections
-- Avoid line-by-line comments
-- NEVER add examples in comments
-- Avoid "this was already correct" or similar prompt-related comments
+- Keep REST endpoints in `*Controller` classes.
+- Return DTOs, not OrientDB records or Redis hashes.
+- Preserve OpenAPI compatibility when changing request or response models.
+- When changing generated client inputs or outputs, update frontend call sites together with backend DTOs.
+- WebSocket payloads should stay timestamp-aware and sender-aware.
 
-## TypeScript/Frontend Code Style Guidelines
+## Common Risk Areas
 
-### Component Architecture
-- Use functional components with hooks only (no class components)
-- Component files use PascalCase: `UserMenu.tsx`, `DisplayGraph.tsx`
-- Utility files use lowercase: `hash.ts`, `useApi.ts`
-- Organize in directories: `components/`, `hooks/`, `context/`, `utils/`, `types/`
-
-### Naming Conventions
-- Components: PascalCase (e.g., `ThemeToggle`, `PlaybackControls`)
-- Custom hooks: `use` prefix + PascalCase (e.g., `useApi`, `useGraph`, `useWebSocketConnection`)
-- Variables/functions: camelCase (e.g., `clientId`, `subscribe`)
-- Constants: UPPER_SNAKE_CASE (e.g., `CLIENT_ID`)
-- Types/Interfaces: PascalCase (e.g., `SocketEnvelope`, `PositionUpdate`)
-
-### State Management
-- Use Context API for global state (auth, simulation, theme)
-- Use `useState` for component-local state
-- Use `useMemo` for expensive computations
-- Use `useCallback` for event handlers passed to children
-- Avoid prop drilling - create context when needed
-
-### Hooks Pattern
-- Custom hooks use `use` prefix
-- Encapsulate complex logic and side effects
-- Return consistent interfaces (e.g., `{ connected, subscribe }` from `useWebSocketConnection`)
-- Use dependency arrays correctly in `useEffect` and `useCallback`
-
-### TypeScript & Types
-- Strong typing everywhere - avoid `any`
-- Use interfaces for objects, enums for constants
-- Import types from auto-generated `api-client` package
-- Type WebSocket messages with interfaces in `types/WebsocketTypes.ts`
-- Use generic handlers: `type GenericHandler = (data: any) => void`
-
-### Imports
-Organize by type:
-1. React imports (`import React, { useState, useEffect } from 'react'`)
-2. Third-party libraries (`import { Client } from '@stomp/stompjs'`)
-3. Internal components/hooks (`import { useApi } from '../hooks/useApi'`)
-4. Types (`import type { SocketEnvelope } from '../types/WebsocketTypes'`)
-
-### Styling
-- Use Tailwind CSS utility classes
-- Conditional class names with template literals
-- Dark mode support: `dark:bg-gray-700 dark:text-white`
-- Responsive design: `md:flex`, `lg:w-64`
-- Animation/transitions: `transition-all duration-200`
-- Inline styles only when necessary (e.g., dynamic values)
-
-### WebSocket Integration
-- Use `@stomp/stompjs` with `useWebSocketConnection` hook
-- Subscribe pattern: `subscribe(topic, handler)` returns unsubscribe function
-- Filter echoes: check `senderId !== clientId` before processing
-- Inject timestamp from envelope into payload
-- Manage subscriptions in a Map to support multiple handlers per topic
-
-### Error Handling
-- Use `react-hot-toast` for user notifications
-- Try-catch around JSON parsing in WebSocket handlers
-- Graceful degradation when APIs are unavailable
-- Log errors to console with context
-
-### Comments Style
-- Minimal comments focused on complex logic
-- No line-by-line explanations
-- No examples in comments
-- Describe intent at function level only
-
-## Architecture Patterns
-
-### Event Sourcing (Backend)
-- Source of truth is immutable event log in ClickHouse
-- Events are published to RabbitMQ for async processing
-- Current state derived from events in OrientDB and Redis
-- Never mutate event data - append-only pattern
-
-### Polyglot Persistence
-- OrientDB: Graph database for topology (nodes, edges)
-- Redis: Real-time state (item positions, active items)
-- ClickHouse: Event store (immutable log of all events)
-- Context-aware sessions support live vs simulation views
-
-### Asynchronous Processing
-- Controllers publish events and return `202 Accepted`
-- Event listeners consume from RabbitMQ
-- `EventProcessor` maintains ordering guarantees
-- Use `CompletableFuture` for async operations
-
-### Simulation Support
-- `DatabaseContextHolder` provides context for multi-tenancy
-- Redis uses namespacing: `sim:<simulationId>:<key>` to isolate data
-- In-memory OrientDB clones created for simulation workloads
-- "Golden template" pattern for fast schema initialization
-
-### API Design
-- RESTful endpoints in `*Controller` classes
-- Use `ResponseEntity` for proper HTTP status codes
-- DTOs separate from domain models in `models/response/` and `models/input/`
-- Auto-generated OpenAPI docs available at `/api-docs`
-
-### Important Patterns
-- **Service Layer**: Business logic, dependency injection via constructor
-- **Repository Layer**: Data access, handle Redis/OrientDB/ClickHouse
-- **Controller Layer**: REST endpoints, validation, async event publishing
-- **DTO Mapping**: Convert domain objects to response DTOs before sending to client
-- **Path Caching**: Cache Dijkstra results in Redis with TTL for performance
-
-## Development Notes
-
-- Avoid examples in comments - be concise and direct
-- Always provide full code files - don't omit lines for brevity
-- Run `pnpm lint` and `mvn test` after making changes
-- Check GEMINI.md and TODO.md for project context
-- Backend uses Java 21, Spring Boot 3.3.5
-- Frontend uses React 18, Vite 5, TypeScript 5.5
-- Database connections require environment variables from `.env` file
+- Thread-local leakage between live and simulation requests.
+- Replaying events with nondeterministic `Instant.now()` behavior instead of `TimeService`.
+- Writing replayed simulation events back to ClickHouse.
+- Updating Redis without maintaining the matching active set, conveyor set, or location occupancy set.
+- Dropping or changing event fields that old ClickHouse rows need.
+- Assuming live Redis state exists during historical restore.
+- Running broad tests unnecessarily and losing time, or adding mocks that hide integration bugs.

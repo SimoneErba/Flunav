@@ -20,3 +20,8 @@ SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClas
 
 SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="stress"
 SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="stress"
+
+SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="future"
+SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="future"
+
+Aliases: future, long, future-long
