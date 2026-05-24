@@ -5,9 +5,10 @@ import { useAuth } from ".././context/auth.context";
 interface AppHeaderProps {
   centerContent?: React.ReactNode;
   leftActions?: React.ReactNode;
+  rightActions?: React.ReactNode;
 }
 
-export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
+export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeaderProps) => {
   const { user, logout } = useAuth();
 
   return (
@@ -31,16 +32,6 @@ export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
             alt="Logo" 
             className="h-12 w-auto object-contain" 
           />
-          
-          {/* Vertical Divider */}
-          <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 hidden lg:block"></div>
-          
-          {/* Badge */}
-          <div className="hidden lg:flex flex-col justify-center">
-            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest mt-0.5">
-              Enterprise
-            </span>
-          </div>
         </div>
 
         {/* Context Actions (Settings, Back, etc.) */}
@@ -58,6 +49,12 @@ export const AppHeader = ({ centerContent, leftActions }: AppHeaderProps) => {
 
       {/* --- RIGHT SECTION --- */}
       <div className="relative z-20 flex items-center justify-end gap-3 flex-1 basis-1/4 min-w-0">
+        {rightActions && (
+          <div className="flex items-center gap-2 pr-1 shrink-0">
+            {rightActions}
+          </div>
+        )}
+
         <ThemeToggle />
 
         {user && (

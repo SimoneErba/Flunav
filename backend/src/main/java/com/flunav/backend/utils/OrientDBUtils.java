@@ -1,5 +1,6 @@
 package com.flunav.backend.utils;
 
+import java.util.Locale;
 import java.util.NoSuchElementException;
 
 import com.orientechnologies.orient.core.db.ODatabaseSession;
@@ -23,9 +24,10 @@ public class OrientDBUtils {
 	 * @throws IllegalArgumentException if the element is not a valid vertex
 	 */
 	public static OVertex loadAndValidateVertexByCustomId(ODatabaseSession db, String id) {
-		if (db == null) return null;
-		String statement = "SELECT * FROM V WHERE customId = ?";
-		OResultSet rs = db.query(statement, id);
+		if (db == null)
+			return null;
+		String statement = "SELECT * FROM V WHERE customId.toLowerCase() = ?";
+		OResultSet rs = db.query(statement, id.toLowerCase(Locale.ROOT));
 		if (rs.hasNext()) {
 			OResult row = rs.next();
 			OElement element = row.toElement();
@@ -41,9 +43,10 @@ public class OrientDBUtils {
 	}
 
 	public static boolean checkIfAlreadyExists(ODatabaseSession db, String name) {
-		if (db == null) return false;
-		String statement = "SELECT * FROM V WHERE customId = ?";
-		try (OResultSet rs = db.query(statement, name)) {
+		if (db == null)
+			return false;
+		String statement = "SELECT * FROM V WHERE customId.toLowerCase() = ?";
+		try (OResultSet rs = db.query(statement, name.toLowerCase(Locale.ROOT))) {
 			return rs != null && rs.hasNext();
 		}
 	}

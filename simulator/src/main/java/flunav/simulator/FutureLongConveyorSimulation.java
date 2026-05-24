@@ -72,9 +72,6 @@ class FutureLongConveyorSimulation implements Simulation {
         logger.info("--- Starting slow FutureBox injection at FutureEntry ---");
 
         while (true) {
-            long delay = 30_000L + random.nextInt(30_001);
-            Thread.sleep(delay);
-
             String itemId = "FutureBox-" + itemCounter.incrementAndGet();
             logger.info("Injecting " + itemId + " into 30 minute route at " + ENTRY);
 
@@ -90,6 +87,9 @@ class FutureLongConveyorSimulation implements Simulation {
 
             sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, ENTRY,
                     flunav.types.PositionType.LOCATION, 0.0, attributes), "POST");
+
+            long delay = 30_000L + random.nextInt(30_001);
+            Thread.sleep(delay);
         }
     }
 }

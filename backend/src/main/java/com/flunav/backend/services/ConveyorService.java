@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -56,8 +57,8 @@ public class ConveyorService {
     public Conveyor getConveyorById(String id) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             // We use a parameterized query to find the edge by customId
-            String query = "SELECT FROM Conveyor WHERE customId = ?";
-            try (OResultSet rs = db.query(query, id)) {
+            String query = "SELECT FROM Conveyor WHERE customId.toLowerCase() = ?";
+            try (OResultSet rs = db.query(query, id.toLowerCase(Locale.ROOT))) {
                 if (rs.hasNext()) {
                     OResult res = rs.next();
                     return res.getEdge().map(this::edgeToConveyor)
@@ -125,8 +126,8 @@ public class ConveyorService {
      */
     public void updateConveyor(Conveyor conveyor) {
         try (ODatabaseSession db = orientDBService.getSession()) {
-            String query = "SELECT FROM Conveyor WHERE customId = ?";
-            try (OResultSet rs = db.query(query, conveyor.getId())) {
+            String query = "SELECT FROM Conveyor WHERE customId.toLowerCase() = ?";
+            try (OResultSet rs = db.query(query, conveyor.getId().toLowerCase(Locale.ROOT))) {
                 if (rs.hasNext()) {
                     OResult res = rs.next();
                     res.getEdge().ifPresent(edge -> {

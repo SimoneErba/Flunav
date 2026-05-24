@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class LocationService {
@@ -95,8 +96,9 @@ public class LocationService {
         try (ODatabaseSession db = orientDBService.getSession()) {
 
             // 1. Check if ID exists in Location (Vertex)
-            String locationQuery = "SELECT count(*) as count FROM Location WHERE customId = ?";
-            try (OResultSet rs = db.query(locationQuery, id)) {
+            String locationQuery = "SELECT count(*) as count FROM Location WHERE customId.toLowerCase() = ?";
+            String lowerId = id.toLowerCase(Locale.ROOT);
+            try (OResultSet rs = db.query(locationQuery, lowerId)) {
                 if (rs.hasNext()) {
                     Long count = rs.next().getProperty("count");
                     if (count != null && count > 0) {
@@ -106,8 +108,8 @@ public class LocationService {
             }
 
             // 2. Check if ID exists in Conveyor (Edge)
-            String conveyorQuery = "SELECT count(*) as count FROM Conveyor WHERE customId = ?";
-            try (OResultSet rs = db.query(conveyorQuery, id)) {
+            String conveyorQuery = "SELECT count(*) as count FROM Conveyor WHERE customId.toLowerCase() = ?";
+            try (OResultSet rs = db.query(conveyorQuery, lowerId)) {
                 if (rs.hasNext()) {
                     Long count = rs.next().getProperty("count");
                     if (count != null && count > 0) {

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -39,14 +40,14 @@ public class PathfindingService {
         String sourceLetClause;
         if (type == PositionType.CONVEYOR) {
             // If on a conveyor, start from its target node (in)
-            sourceLetClause = "$src = (SELECT expand(in) FROM Conveyor WHERE customId = :source)";
+            sourceLetClause = "$src = (SELECT expand(in) FROM Conveyor WHERE customId.toLowerCase() = :source)";
         } else {
             // If at a location, start from that location
-            sourceLetClause = "$src = (SELECT FROM Location WHERE customId = :source)";
+            sourceLetClause = "$src = (SELECT FROM Location WHERE customId.toLowerCase() = :source)";
         }
 
         // 2. Define the Destination LET clause
-        String destLetClause = "$dst = (SELECT FROM Location WHERE customId = :dest)";
+        String destLetClause = "$dst = (SELECT FROM Location WHERE customId.toLowerCase() = :dest)";
 
         // 2. Define the Weight Function (JavaScript)
         String weightFunction = "function(edge) {" +
@@ -68,8 +69,10 @@ public class PathfindingService {
                 "LET " + sourceLetClause + ", " + destLetClause + ", $path = dijkstra($src, $dst, :weightFunc, 'OUT')";
 
         try (ODatabaseSession db = orientDBService.getSession()) {
-            OResultSet rs = db.query(query, Map.of("source", sourceId, "dest", destinationNodeId, "weightFunc",
-                    weightFunction));
+            OResultSet rs = db.query(query, Map.of(
+                    "source", sourceId.toLowerCase(Locale.ROOT),
+                    "dest", destinationNodeId.toLowerCase(Locale.ROOT),
+                    "weightFunc", weightFunction));
 
             if (rs.hasNext()) {
                 OResult result = rs.next();
@@ -153,9 +156,10 @@ public class PathfindingService {
         }
 
         String direction = useOutgoingLocationForConveyor ? "out" : "in";
-        String query = "SELECT expand(" + direction + ") AS location FROM Conveyor WHERE customId = :positionId";
+        String query = "SELECT expand(" + direction
+                + ") AS location FROM Conveyor WHERE customId.toLowerCase() = :positionId";
 
-        try (OResultSet rs = db.query(query, Map.of("positionId", positionId))) {
+        try (OResultSet rs = db.query(query, Map.of("positionId", positionId.toLowerCase(Locale.ROOT)))) {
             if (!rs.hasNext()) {
                 return null;
             }

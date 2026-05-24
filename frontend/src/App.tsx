@@ -96,6 +96,11 @@ function LiveWorkspace() {
       setSelectedDate(new Date());
   };
 
+  const handleChangeSimulationTimeClick = () => {
+      setIsSelectingDate(true);
+      setSelectedDate(new Date(simTime));
+  };
+
   const handleConfirmRestore = async () => {
     setIsSelectingDate(false);
     if (isRestoring) return;
@@ -104,8 +109,11 @@ function LiveWorkspace() {
     setIsRestoring(true);
     setPlaybackSpeed(1.0);
 
-    if (activeSimulation) {
-        try { await simulationApi.destroySimulation(activeSimulation.id); } 
+    const simulationToDestroy = activeSimulation;
+    if (simulationToDestroy) {
+        activeSimulationIdRef.current = null;
+        setActiveSimulation(null);
+        try { await simulationApi.destroySimulation(simulationToDestroy.id); } 
         catch (e) { console.warn(e); }
     }
 
@@ -165,6 +173,7 @@ function LiveWorkspace() {
     if (!connected || !simId) return;
     
     const handleStatusUpdate = (update: SimulationStatusUpdate & { timestamp: number }) => {
+        if (activeSimulationIdRef.current !== simId) return;
         setActiveSimulation(prev => {
             if (prev?.id !== simId) return prev;
             return { ...prev, status: update.status };
@@ -228,32 +237,38 @@ function LiveWorkspace() {
 
   // --- HEADER CONTENT CONFIGURATION ---
 
+  const restoreConfirmLabel = activeSimulation ? 'Change' : 'Start';
+
   // 1. Center Content (Playback or Time Travel)
   const centerContent = (
     <div className="flex items-center gap-4">
-        {activeSimulation && !isRestoring ? (
-            <PlaybackControls
-                simulation={activeSimulation}
-                simTime={simTime}
-                currentSpeed={playbackSpeed}
-                onTogglePlay={handleTogglePlayback}
-                onSetSpeed={handleSetSpeed}
-            />
+        {isSelectingDate ? (
+            <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700 animate-pop-in">
+                <input type="datetime-local" value={dateTimeLocal} onChange={handleDateChange} className="p-1.5 border rounded text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:[color-scheme:dark]" />
+                <button onClick={handleConfirmRestore} disabled={isLoading} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded font-bold text-sm transition-colors">{restoreConfirmLabel}</button>
+                <button onClick={() => setIsSelectingDate(false)} className="px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded font-medium text-sm transition-colors">Cancel</button>
+            </div>
+        ) : activeSimulation && !isRestoring ? (
+            <>
+                <PlaybackControls
+                    simulation={activeSimulation}
+                    simTime={simTime}
+                    currentSpeed={playbackSpeed}
+                    onTogglePlay={handleTogglePlayback}
+                    onSetSpeed={handleSetSpeed}
+                />
+                <button onClick={handleChangeSimulationTimeClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Change Time
+                </button>
+            </>
         ) : (
-            !isSelectingDate && (
+            !isRestoring && (
                 <button onClick={handleStartSimulationClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Time Travel
                 </button>
             )
-        )}
-
-        {isSelectingDate && (
-            <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700 animate-pop-in">
-                <input type="datetime-local" value={dateTimeLocal} onChange={handleDateChange} className="p-1.5 border rounded text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:[color-scheme:dark]" />
-                <button onClick={handleConfirmRestore} disabled={isLoading} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded font-bold text-sm transition-colors">Start</button>
-                <button onClick={() => setIsSelectingDate(false)} className="px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded font-medium text-sm transition-colors">Cancel</button>
-            </div>
         )}
     </div>
   );
@@ -273,7 +288,7 @@ function LiveWorkspace() {
       </button>
    );
 
-   // 2. left Actions (Exit Sim, navigation, import/export)
+   // 2. left Actions (Exit Sim, navigation)
    const leftActions = (
       <div className="flex items-center gap-2">
          {activeSimulation && (
@@ -285,15 +300,18 @@ function LiveWorkspace() {
          {navButton('Live', '/live', true, true)}
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
-         <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
       </div>
+   );
+
+   const rightActions = (
+      <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
    );
 
   return (
     <div className="flex flex-col h-screen bg-[#f0f2f5] dark:bg-[#1a1a1a] text-gray-800 dark:text-white transition-colors duration-300">
       
       {/* UNIFIED HEADER */}
-      <AppHeader centerContent={centerContent} leftActions={leftActions} />
+      <AppHeader centerContent={centerContent} leftActions={leftActions} rightActions={rightActions} />
 
       <main className="flex-1 relative overflow-hidden">
         {isLoading ? (
