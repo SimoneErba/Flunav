@@ -56,13 +56,13 @@ export const useGraphAnimation = (
                         const targetNode = graph.getNodeAttributes(targetId);
 
                         const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
-                        const entryTime = Date.now();
-                        let timeElapsed = simTime - entryTime;
+                        const entryTime = new Date(item.entryTimestamp).getTime();
+                        let timeElapsed = 0;
 
                         // FIX: Clamp small negative values (sync jitter)
-                        if (timeElapsed < 0 && timeElapsed > -500) {
-                             timeElapsed = 0;
-                        }
+                        // if (timeElapsed < 0 && timeElapsed > -500) {
+                        //      timeElapsed = 0;
+                        // }
 
                         // DEBUG LOG (Enable if needed)
                         // if (activeItemsRef.current.keys().next().value === itemId) {
