@@ -1,0 +1,1 @@
+sudo bash ./purge-all.sh
