@@ -56,7 +56,7 @@ export const useGraphAnimation = (
                         const targetNode = graph.getNodeAttributes(targetId);
 
                         const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
-                        const entryTime = new Date(item.entryTimestamp).getTime();
+                        const entryTime = Date.now();
                         let timeElapsed = simTime - entryTime;
 
                         // FIX: Clamp small negative values (sync jitter)

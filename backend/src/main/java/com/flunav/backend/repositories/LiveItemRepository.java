@@ -71,8 +71,8 @@ public class LiveItemRepository {
                 .path(path)
                 .build();
 
-        String itemKey = getNamespacedKey("item:" + itemId);
-        String activeSetKey = getNamespacedKey("active_items");
+        String itemKey = "item:" + itemId;
+        String activeSetKey = "active_items";
 
         redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
         redis.expire(itemKey, Duration.ofHours(1));
