@@ -159,10 +159,7 @@ function LiveWorkspace() {
     setPlaybackSpeed(speed);
     if (activeSimulation?.status === SimulationStateResponseStatusEnum.Playing) {
         try {
-            await simulationApi.startPlayback(activeSimulation.id, { 
-                speedFactor: speed,
-                startTimestamp: new Date(simTime).toISOString()
-            });
+            await simulationApi.updateSpeed(activeSimulation.id, speed);
         } catch (e) { console.error(e); }
     }
   };
