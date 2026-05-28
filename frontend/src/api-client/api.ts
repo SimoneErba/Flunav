@@ -1137,6 +1137,18 @@ export interface SimulationStateResponse {
      * @memberof SimulationStateResponse
      */
     'timestamp'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'lastProcessedTimestamp'?: string;
+    /**
+     * 
+     * @type {number}
+     * @memberof SimulationStateResponse
+     */
+    'speedFactor'?: number;
 }
 
 export const SimulationStateResponseStatusEnum = {
@@ -4848,5 +4860,4 @@ export class DestinationMappingControllerApi extends BaseAPI {
         );
     }
 }
-
 

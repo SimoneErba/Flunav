@@ -26,9 +26,9 @@ class LineSimulation implements Simulation {
     public void setup() throws Exception {
         logger.info("--- Setting up a line of " + NUM_LOCATIONS + " locations ---");
         for (int i = 0; i < NUM_LOCATIONS; i++) {
-            String locationName = "LineLoc-" + i;
+            String locationName = locationId(i);
             createLocation(locationName, 0.0, i * 15.0,
-                    i == NUM_LOCATIONS ? LocationType.CHUTE : LocationType.JUNCTION);
+                    i == NUM_LOCATIONS - 1 ? LocationType.CHUTE : LocationType.JUNCTION);
             locations.add(locationName);
         }
 
@@ -45,13 +45,14 @@ class LineSimulation implements Simulation {
     public void destroy() throws Exception {
         logger.info("--- Destroying Line Simulation ---");
         for (int i = 0; i < NUM_LOCATIONS - 1; i++) {
-            deleteConveyor(locations.get(i), locations.get(i + 1));
+            deleteConveyor(locationId(i), locationId(i + 1));
         }
         for (int i = 0; i < NUM_LOCATIONS; i++) {
-            deleteLocation("LineLoc-" + i);
+            deleteLocation(locationId(i));
         }
         logger.info("Cleaning up potential items...");
-        for (int i = 0; i < 2000; i++) {
+        int cleanupItemCount = Integer.parseInt(System.getenv().getOrDefault("SIMULATOR_CLEANUP_ITEMS", "2000"));
+        for (int i = 0; i < cleanupItemCount; i++) {
             try {
                 sendEvent(new ItemDeletedEvent("Item-" + i), "DELETE");
             } catch (Exception e) {
@@ -79,5 +80,9 @@ class LineSimulation implements Simulation {
             sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint,
                     flunav.types.PositionType.LOCATION, 0.0, new HashMap<>()), "POST");
         }
+    }
+
+    private static String locationId(int index) {
+        return "LineLoc-" + index;
     }
 }

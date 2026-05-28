@@ -16,8 +16,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class HistoricalEventPlayer {
@@ -29,8 +31,9 @@ public class HistoricalEventPlayer {
     private final WebSocketService webSocketService;
     private final TimeService timeService;
 
-    // Define the polling interval as a constant for easy configuration
-    private static final Duration POLLING_INTERVAL = Duration.ofSeconds(5);
+    private static final Duration PLAYBACK_WINDOW = Duration.ofSeconds(5);
+    private static final Duration EXTERNAL_LOOKAHEAD_WALL_TIME = Duration.ofSeconds(1);
+    private static final Duration MAX_EXTERNAL_LOOKAHEAD_WINDOW = Duration.ofMinutes(1);
 
     public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService,
             @Lazy SimulationService simulationService, WebSocketService webSocketService, TimeService timeService) {
@@ -60,38 +63,39 @@ public class HistoricalEventPlayer {
             webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
 
             Instant currentSimulationTime = simulationStartTime;
+            Instant externalEventsLoadedThrough = simulationStartTime;
+            List<DomainEvent> bufferedExternalEvents = new ArrayList<>();
 
             // --- Main Playback Loop ---
             while (!Thread.currentThread().isInterrupted()) {
                 long loopWallClockStartNs = System.nanoTime();
+                double currentSpeedFactor = state.getSpeedFactor();
 
                 Instant windowStartTime = currentSimulationTime;
-                Instant windowEndTime = windowStartTime.plus(POLLING_INTERVAL);
+                Instant windowEndTime = windowStartTime.plus(PLAYBACK_WINDOW);
 
                 logger.debug("Polling for events for {} in window [{}, {})", simulationId, windowStartTime,
                         windowEndTime);
-                List<DomainEvent> externalEvents = new ArrayList<>();
                 Instant physicalNow = timeService.physicalNow();
-                Instant externalWindowEnd = windowEndTime.isAfter(physicalNow) ? physicalNow : windowEndTime;
-                if (windowStartTime.isBefore(externalWindowEnd)) {
-                    externalEvents.addAll(clickHouseService.getEventsBetween(windowStartTime, externalWindowEnd));
-                }
+                externalEventsLoadedThrough = loadExternalEventsIntoBuffer(bufferedExternalEvents,
+                        externalEventsLoadedThrough, windowStartTime, windowEndTime, physicalNow, currentSpeedFactor);
 
+                List<DomainEvent> externalEvents = drainBufferedEventsThrough(bufferedExternalEvents, windowEndTime);
                 externalEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
                 playWindow(simulationId, externalEvents, state, windowStartTime, windowEndTime);
                 currentSimulationTime = windowEndTime;
 
                 // CRITICAL: Persistently save the progress after every chunk.
                 simulationService.checkpointSimulationAt(simulationId, currentSimulationTime);
+                webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), currentSimulationTime);
 
                 // --- Dynamic Sleep Calculation ---
-                double currentSpeedFactor = state.getSpeedFactor();
                 long elapsedNs = System.nanoTime() - loopWallClockStartNs;
-                long targetLoopDurationNs = (long) (POLLING_INTERVAL.toNanos() / currentSpeedFactor);
+                long targetLoopDurationNs = (long) (PLAYBACK_WINDOW.toNanos() / currentSpeedFactor);
                 long sleepNanos = targetLoopDurationNs - elapsedNs;
 
                 if (sleepNanos > 0) {
-                    Thread.sleep(sleepNanos / 1_000_000);
+                    TimeUnit.NANOSECONDS.sleep(sleepNanos);
                 }
             }
         } catch (InterruptedException e) {
@@ -125,6 +129,60 @@ public class HistoricalEventPlayer {
 
         logger.info("Playback thread for simulation {} is terminating.", simulationId);
         return new AsyncResult<>(null);
+    }
+
+    /**
+     * Prefetches ClickHouse events far enough ahead that high-speed playback is not
+     * forced to wait on one database query for every small wall-clock tick. Events
+     * remain buffered until their simulation timestamp reaches the active playback
+     * window.
+     */
+    private Instant loadExternalEventsIntoBuffer(List<DomainEvent> bufferedExternalEvents, Instant loadedThrough,
+            Instant windowStartTime, Instant windowEndTime, Instant physicalNow, double speedFactor) {
+        Instant targetEnd = windowStartTime.plus(externalLookaheadWindow(speedFactor));
+        if (targetEnd.isBefore(windowEndTime)) {
+            targetEnd = windowEndTime;
+        }
+        if (targetEnd.isAfter(physicalNow)) {
+            targetEnd = physicalNow;
+        }
+
+        if (!loadedThrough.isBefore(targetEnd)) {
+            return loadedThrough;
+        }
+
+        bufferedExternalEvents.addAll(clickHouseService.getEventsBetween(loadedThrough, targetEnd));
+        bufferedExternalEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
+        return targetEnd;
+    }
+
+    /**
+     * Converts the current speed factor into a simulation-time prefetch window while
+     * capping the query range so fast playback cannot request unbounded history.
+     */
+    private Duration externalLookaheadWindow(double speedFactor) {
+        double lookaheadNanos = EXTERNAL_LOOKAHEAD_WALL_TIME.toNanos() * Math.max(1.0, speedFactor);
+        long cappedLookaheadNanos = (long) Math.min(MAX_EXTERNAL_LOOKAHEAD_WINDOW.toNanos(), lookaheadNanos);
+        return Duration.ofNanos(Math.max(PLAYBACK_WINDOW.toNanos(), cappedLookaheadNanos));
+    }
+
+    /**
+     * Moves only events due in the current playback window out of the prefetch
+     * buffer. Later events stay buffered so replay ordering remains timestamp based.
+     */
+    private List<DomainEvent> drainBufferedEventsThrough(List<DomainEvent> bufferedExternalEvents,
+            Instant windowEndTime) {
+        List<DomainEvent> externalEvents = new ArrayList<>();
+        Iterator<DomainEvent> iterator = bufferedExternalEvents.iterator();
+        while (iterator.hasNext()) {
+            DomainEvent event = iterator.next();
+            if (event.getTimestamp().isAfter(windowEndTime)) {
+                break;
+            }
+            externalEvents.add(event);
+            iterator.remove();
+        }
+        return externalEvents;
     }
 
     /**

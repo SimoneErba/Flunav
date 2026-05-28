@@ -72,7 +72,7 @@ function LiveWorkspace() {
     : false;
 
   const simTime = useSimulationClock(
-      activeSimulation?.timestamp, 
+      activeSimulation?.lastProcessedTimestamp ?? activeSimulation?.timestamp, 
       playbackSpeed, 
       isPaused
   );
@@ -147,8 +147,7 @@ function LiveWorkspace() {
         setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Paused } : null);
       } else {
         await simulationApi.startPlayback(activeSimulation.id, { 
-            speedFactor: playbackSpeed,
-            startTimestamp: new Date(simTime).toISOString() 
+            speedFactor: playbackSpeed
         });
         setActiveSimulation(prev => prev ? { ...prev, status: SimulationStateResponseStatusEnum.Playing } : null);
       }
@@ -173,7 +172,7 @@ function LiveWorkspace() {
         if (activeSimulationIdRef.current !== simId) return;
         setActiveSimulation(prev => {
             if (prev?.id !== simId) return prev;
-            return { ...prev, status: update.status };
+            return { ...prev, status: update.status, lastProcessedTimestamp: new Date(update.timestamp).toISOString() };
         });
         if (update.status === SimulationStateResponseStatusEnum.Ready) {
             refetchGraphData(simId);
@@ -187,7 +186,7 @@ function LiveWorkspace() {
     simulationApi.getSimulationStatus(simId).then(response => {
         if (activeSimulationIdRef.current === simId) {
             const status = response.data.status;
-            setActiveSimulation(prev => prev ? { ...prev, status } : null);
+            setActiveSimulation(prev => prev ? { ...prev, ...response.data, status } : response.data);
             if (status === SimulationStateResponseStatusEnum.Ready) {
                 refetchGraphData(simId);
                 setIsRestoring(false);

@@ -17,7 +17,7 @@ public class SimulationState {
     private volatile SimulationStatus status;
     private Instant lastHeartbeatTimestamp;
     private volatile Instant lastProcessedTimestamp;
-    private double speedFactor = 1.0;
+    private volatile double speedFactor = 1.0;
     private final Object timingLock = new Object();
     private final PriorityQueue<DomainEvent> internalEventQueue = new PriorityQueue<>(
             Comparator.comparing(DomainEvent::getTimestamp).thenComparing(DomainEvent::getEventId));

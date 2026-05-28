@@ -22,9 +22,11 @@ import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
@@ -32,6 +34,7 @@ import java.util.logging.Logger;
 
 public final class SimulatorUtils {
     private static final String BASE_URL = System.getenv().getOrDefault("BASE_URL", "http://localhost:8080/api");
+    private static final String AUTH_TOKEN = System.getenv("AUTH_TOKEN");
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     public static final Logger logger = Logger.getLogger(App.class.getName());
 
@@ -80,8 +83,8 @@ public final class SimulatorUtils {
     }
 
     public static void sendEvent(DomainEvent event, String httpMethod) throws Exception {
-        String json = objectMapper.writeValueAsString(event);
         if (MODE.equalsIgnoreCase("rabbit")) {
+            String json = objectMapper.writeValueAsString(event);
             String hashKey = event instanceof EntityEvent ? ((EntityEvent) event).getEntityId() : "domainEvent";
             rabbitChannel.basicPublish(RABBIT_EXCHANGE, hashKey, null, json.getBytes());
             if (!quietEventLogs) {
@@ -94,17 +97,70 @@ public final class SimulatorUtils {
                 return;
             }
 
-            HttpRequest request = HttpRequest.newBuilder()
+            String json = objectMapper.writeValueAsString(toApiPayload(event));
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(new URI(BASE_URL + endpoint))
                     .header("Content-Type", "application/json")
-                    .method(httpMethod, HttpRequest.BodyPublishers.ofString(json))
-                    .build();
+                    .method(httpMethod, HttpRequest.BodyPublishers.ofString(json));
+
+            if (AUTH_TOKEN != null && !AUTH_TOKEN.isBlank()) {
+                requestBuilder.header("Authorization", "Bearer " + AUTH_TOKEN);
+            }
+
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 300) {
                 logger.warning(() -> "Failed to send event to API: " + response.statusCode() + " " + response.body());
             }
         }
+    }
+
+    private static Object toApiPayload(DomainEvent event) {
+        if (event instanceof LocationCreatedEvent e) {
+            HashMap<String, Object> payload = new HashMap<>();
+            payload.put("id", e.getEntityId());
+            payload.put("name", e.getName());
+            payload.put("active", e.getActive());
+            payload.put("latitude", e.getLatitude());
+            payload.put("longitude", e.getLongitude());
+            payload.put("type", e.getType());
+            payload.put("capacity", e.getCapacity());
+            payload.put("properties", e.getProperties());
+            return payload;
+        }
+        if (event instanceof ItemCreatedEvent e) {
+            HashMap<String, Object> payload = new HashMap<>();
+            payload.put("id", e.getEntityId());
+            payload.put("name", e.getName());
+            payload.put("speed", e.getSpeed());
+            payload.put("active", e.isActive());
+            payload.put("locationId", e.getLocationId());
+            payload.put("positionType", e.getPositionType());
+            payload.put("progress", e.getProgress());
+            payload.put("destinationId", e.getDestinationId());
+            payload.put("properties", e.getProperties());
+            payload.put("timestamp", e.getTimestamp());
+            return payload;
+        }
+        if (event instanceof ConnectionCreatedEvent e) {
+            HashMap<String, Object> payload = new HashMap<>();
+            payload.put("connectionId", e.getConnectionId());
+            payload.put("sourceId", e.getSourceId());
+            payload.put("targetId", e.getTargetId());
+            payload.put("name", e.getName());
+            payload.put("length", e.getLength());
+            payload.put("speed", e.getSpeed());
+            payload.put("minDistance", e.getMinDistance());
+            payload.put("timeToTraverseMs", e.getTimeToTraverseMs());
+            payload.put("mainPath", e.getMainPath());
+            payload.put("isActive", e.getIsActive());
+            payload.put("type", e.getType());
+            payload.put("capacity", e.getCapacity());
+            payload.put("properties", e.getProperties());
+            return payload;
+        }
+        return event;
     }
 
     private static String getEndpointForEvent(DomainEvent event) {
@@ -140,10 +196,16 @@ public final class SimulatorUtils {
             return "/locations/" + ((EntityEvent) event).getEntityId();
         }
         if (event instanceof ConnectionDeletedEvent) {
-            return "/conveyors";
+            ConnectionDeletedEvent deletedEvent = (ConnectionDeletedEvent) event;
+            return "/conveyors?sourceId=" + urlEncode(deletedEvent.getSourceLocationId())
+                    + "&targetId=" + urlEncode(deletedEvent.getTargetLocationId());
         }
 
         return null;
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     public static void createLocation(String id, double lat, double lon, LocationType type) throws Exception {

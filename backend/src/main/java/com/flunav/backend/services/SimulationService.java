@@ -96,6 +96,7 @@ public class SimulationService {
     }
 
     public void startPlayback(String simulationId, double speedFactor) {
+        validateSpeedFactor(speedFactor);
         SimulationState state = getSimulationState(simulationId);
         if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
                 && state.getStatus() != SimulationStatus.PAUSED) {
@@ -142,9 +143,11 @@ public class SimulationService {
     }
 
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
+        validateSpeedFactor(newSpeedFactor);
         SimulationState state = getSimulationState(simulationId);
         state.setSpeedFactor(newSpeedFactor);
         persistState(state);
+        webSocketService.broadcastSpeedUpdate(simulationId, newSpeedFactor, getSimulationClock(state));
     }
 
     public void destroySimulation(String simulationId) {
@@ -402,6 +405,15 @@ public class SimulationService {
                 state.getLastHeartbeatTimestamp(),
                 state.getLastProcessedTimestamp(),
                 state.getSpeedFactor()));
+    }
+
+    /**
+     * Rejects speed factors that would break playback timing calculations.
+     */
+    private void validateSpeedFactor(double speedFactor) {
+        if (!Double.isFinite(speedFactor) || speedFactor <= 0) {
+            throw new IllegalArgumentException("Playback speed factor must be greater than zero.");
+        }
     }
 
     private void checkpointAllItems(String simulationId, Instant now) {

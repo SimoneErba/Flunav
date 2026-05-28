@@ -41,13 +41,14 @@ export const useGraphLiveEvents = (
     simTimeRef.current = simTime;
 
     // Helper to adjust items when speed changes to prevent teleporting
-    const adjustItemsForSpeedChange = useCallback((edgeId: string, newSpeed: number) => {
+    const adjustItemsForSpeedChange = useCallback((edgeId: string, newSpeed: number, effectiveTime?: number) => {
         const graph = sigma.getGraph();
         if (!graph.hasEdge(edgeId)) return;
 
         const attrs = graph.getEdgeAttributes(edgeId);
         const oldSpeed = attrs.speed;
         const length = attrs.length;
+        const anchorTime = effectiveTime ?? simTimeRef.current;
 
         if (oldSpeed === 0 || newSpeed === 0) return;
 
@@ -55,13 +56,13 @@ export const useGraphLiveEvents = (
             if (item.currentEdgeId === attrs.id) {
                 const oldDuration = (length / oldSpeed) * 1000;
                 const currentEntryTime = new Date(item.entryTimestamp).getTime();
-                const timeElapsed = simTimeRef.current - currentEntryTime;
+                const timeElapsed = anchorTime - currentEntryTime;
                 
                 const progress = Math.min(1, Math.max(0, timeElapsed / oldDuration));
 
                 const newDuration = (length / newSpeed) * 1000;
                 const newTimeElapsed = progress * newDuration;
-                const newEntryTimestamp = new Date(simTimeRef.current - newTimeElapsed).toISOString();
+                const newEntryTimestamp = new Date(anchorTime - newTimeElapsed).toISOString();
                 
                 activeItemsRef.current.set(itemId, { ...item, entryTimestamp: newEntryTimestamp });
             }
@@ -110,9 +111,9 @@ export const useGraphLiveEvents = (
 
             if (currentItem) {
                 let entryTimestamp = new Date(update.timestamp).toISOString();
+                const eventTime = update.timestamp;
                 
-                // If we are on a conveyor, we use the progress to adjust the entry timestamp
-                // so the animation starts at the correct position relative to the current simulation time.
+                // Conveyor updates describe progress at the event timestamp, not at websocket arrival time.
                 if (isConveyor && update.edgeId) {
                     const edgeKey = graph.findEdge((_edge, attrs) => attrs.id === update.edgeId);
                     if (edgeKey) {
@@ -122,8 +123,7 @@ export const useGraphLiveEvents = (
                             const progress = update.progress || 0;
                             const offset = progress * totalDuration;
                             
-                            // Align the item's entry time with the current simulation clock
-                            const adjustedEntryTime = simTimeRef.current - offset;
+                            const adjustedEntryTime = eventTime - offset;
                             entryTimestamp = new Date(adjustedEntryTime).toISOString();
                         }
                     }
@@ -224,6 +224,17 @@ export const useGraphLiveEvents = (
                     : graph.findEdge((_edge, attrs) => attrs.id === item.locationId)
                 : undefined;
             const isConveyor = item.positionType === 'CONVEYOR' || Boolean(edgeKey);
+            let entryTimestamp = new Date(timestamp).toISOString();
+            if (isConveyor && edgeKey) {
+                const edgeAttrs = graph.getEdgeAttributes(edgeKey);
+                const speed = Number(edgeAttrs.speed);
+                const length = Number(edgeAttrs.length);
+                if (speed > 0 && length > 0) {
+                    const totalDuration = (length / speed) * 1000;
+                    const progress = item.progress || 0;
+                    entryTimestamp = new Date(timestamp - progress * totalDuration).toISOString();
+                }
+            }
             
             // Update Logic State
             activeItemsRef.current.set(item.id!, {
@@ -232,7 +243,7 @@ export const useGraphLiveEvents = (
                 active: item.active,
                 locationId: isConveyor ? null : item.locationId, 
                 currentEdgeId: isConveyor ? item.locationId : undefined,
-                entryTimestamp: new Date(timestamp).toISOString(), 
+                entryTimestamp, 
                 progress: item.progress || 0,
                 customColor: item.customColor,
                 destinationId: item.destinationId,
@@ -355,16 +366,16 @@ export const useGraphLiveEvents = (
                     graph.setEdgeAttribute(edge, 'originalSpeed', graph.getEdgeAttribute(edge, 'speed'));
                     graph.setEdgeAttribute(edge, 'speed', 0);
 
-                    adjustItemsForSpeedChange(edge, 0);
+                    adjustItemsForSpeedChange(edge, 0, update.timestamp);
                 } else if (update.properties.active === true) {
                     // Edge activated - restore color and speed
                     const originalColor = graph.getEdgeAttribute(edge, 'originalColor') as string || '#808080';
                     const originalSpeed = graph.getEdgeAttribute(edge, 'originalSpeed') as number || 1.0;
                     graph.setEdgeAttribute(edge, 'color', originalColor);
                     graph.setEdgeAttribute(edge, 'speed', originalSpeed);
-                    adjustItemsForSpeedChange(edge, originalSpeed);
+                    adjustItemsForSpeedChange(edge, originalSpeed, update.timestamp);
                 } else if (update.properties.speed !== undefined) {
-                    adjustItemsForSpeedChange(edge, Number(update.properties.speed));
+                    adjustItemsForSpeedChange(edge, Number(update.properties.speed), update.timestamp);
                 }
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];

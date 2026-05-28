@@ -51,7 +51,7 @@ public class SimulationController {
         SimulationState state = simulationService.createSimulation(request.timestamp());
         logger.info("--------------------------- Created simulation {}, {} ", state.getId(), state.getTimestamp());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(new SimulationStateResponse(state.getId(), state.getStatus(), state.getTimestamp()));
+                .body(new SimulationStateResponse(state));
     }
 
     @GetMapping("/{simulationId}")
@@ -61,7 +61,7 @@ public class SimulationController {
     public ResponseEntity<SimulationStateResponse> getSimulationStatus(
             @Parameter(description = "The unique ID of the simulation") @PathVariable String simulationId) {
         var state = simulationService.getSimulationState(simulationId);
-        return ResponseEntity.ok(new SimulationStateResponse(state.getId(), state.getStatus(), state.getTimestamp()));
+        return ResponseEntity.ok(new SimulationStateResponse(state));
     }
 
     @GetMapping("/{simulationId}/graph")
@@ -110,6 +110,8 @@ public class SimulationController {
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 
@@ -153,8 +155,11 @@ public class SimulationController {
             @PathVariable String simulationId,
             @RequestBody double speedFactor) {
 
-        simulationService.updatePlaybackSpeed(simulationId, speedFactor);
-
-        return ResponseEntity.accepted().build();
+        try {
+            simulationService.updatePlaybackSpeed(simulationId, speedFactor);
+            return ResponseEntity.accepted().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 }
