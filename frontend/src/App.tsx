@@ -45,6 +45,12 @@ const RequireAuth = () => {
 // ============================================================================
 // 2. LIVE WORKSPACE
 // ============================================================================
+const alignToMinute = (date: Date) => {
+  const aligned = new Date(date);
+  aligned.setSeconds(0, 0);
+  return aligned;
+};
+
 function LiveWorkspace() {
    const { user } = useAuth();
    const navigate = useNavigate();
@@ -88,17 +94,17 @@ function LiveWorkspace() {
   // --- Handlers ---
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
-    setSelectedDate(new Date(e.target.value));
+    setSelectedDate(alignToMinute(new Date(e.target.value)));
   };
 
   const handleStartSimulationClick = () => {
       setIsSelectingDate(true);
-      setSelectedDate(new Date());
+      setSelectedDate(alignToMinute(new Date()));
   };
 
   const handleChangeSimulationTimeClick = () => {
       setIsSelectingDate(true);
-      setSelectedDate(new Date(simTime));
+      setSelectedDate(alignToMinute(new Date(simTime)));
   };
 
   const handleConfirmRestore = async () => {
@@ -118,7 +124,8 @@ function LiveWorkspace() {
     }
 
     try {
-      const result = await simulationApi.createSimulation({timestamp: selectedDate.toISOString()});
+      const restoreTimestamp = alignToMinute(selectedDate);
+      const result = await simulationApi.createSimulation({timestamp: restoreTimestamp.toISOString()});
       setActiveSimulation(result.data);
     } catch (error) {
       toast.error(`Error: ${error}`);
