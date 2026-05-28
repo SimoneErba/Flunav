@@ -3,6 +3,7 @@ import { useSigma } from "@react-sigma/core";
 import { ItemPositionTypeEnum, ItemResponse } from "../../../api-client/api";
 import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents";
 import { hashToNumber } from "../utils/graphUtils";
+import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
 
 const asNumber = (value: unknown): number | null => {
@@ -84,9 +85,30 @@ export const useGraphLiveEvents = (
             }
 
             const currentItem = activeItemsRef.current.get(update.itemId);
+            const isConveyor = update.type === ItemPositionTypeEnum.Conveyor;
+
+            if (
+                !isConveyor &&
+                update.edgeId &&
+                graph.hasNode(update.edgeId) &&
+                graph.getNodeAttribute(update.edgeId, "locationType") === "CHUTE"
+            ) {
+                if (currentItem) {
+                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, update.edgeId, {
+                        ...currentItem,
+                        currentEdgeId: null,
+                        locationId: update.edgeId,
+                        entryTimestamp: new Date(update.timestamp).toISOString(),
+                        progress: update.progress || 1,
+                    });
+                } else {
+                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, update.edgeId);
+                }
+                sigma.refresh();
+                return;
+            }
+
             if (currentItem) {
-                const isConveyor = update.type === ItemPositionTypeEnum.Conveyor;
-                
                 let entryTimestamp = new Date(update.timestamp).toISOString();
                 
                 // If we are on a conveyor, we use the progress to adjust the entry timestamp

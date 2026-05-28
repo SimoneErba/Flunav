@@ -3,6 +3,7 @@ import { useSigma } from "@react-sigma/core";
 import { ItemResponse } from "../../../api-client/api";
 import type { Attributes } from "graphology-types";
 import { findNextEdge } from "../utils/graphUtils";
+import { dischargeItemToChute } from "../utils/chuteUtils";
 
 export const useGraphAnimation = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
@@ -76,34 +77,8 @@ export const useGraphAnimation = (
                             
                             // 1. CHECK FOR CHUTE (Discharge)
                             if (targetNode.locationType === "CHUTE") {
-                                const itemData = activeItemsRef.current.get(itemId);
-                                
-                                graph.dropNode(itemId);
-                                activeItemsRef.current.delete(itemId);
+                                dischargeItemToChute(graph, activeItemsRef.current, itemId, targetId);
                                 needsRefresh = true;
-
-                                if (itemData) {
-                                    const itemsInChute: ItemResponse[] = targetNode.itemsInChute ?? [];
-                                    const capacity = targetNode.capacity;
-                                    const updated = [...itemsInChute, itemData];
-                                    const baseName = targetNode.label?.split(" (")[0];
-
-                                    graph.setNodeAttribute(targetId, "itemsInChute", updated);
-
-                                    if (capacity) {
-                                        if (updated.length <= capacity) {
-                                            graph.setNodeAttribute(targetId, "label", `${baseName} (${updated.length}/${capacity})`);
-                                        } else {
-                                            graph.setNodeAttribute(targetId, "color", "red");
-                                            graph.setNodeAttribute(targetId, "label", `${baseName} (${updated.length}/${capacity})`); // still show count even when over
-                                        }
-                                    } else {
-                                        // No capacity defined — just show count
-                                        graph.setNodeAttribute(targetId, "label", `${baseName} (${updated.length})`);
-                                    }
-
-                                    console.log(`[Anim] chute ${targetId}: ${updated.length}${capacity ? `/${capacity}` : ""}`);
-                                }
                                 return;
                             }
 

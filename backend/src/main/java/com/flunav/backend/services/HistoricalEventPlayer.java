@@ -65,7 +65,6 @@ public class HistoricalEventPlayer {
             while (!Thread.currentThread().isInterrupted()) {
                 long loopWallClockStartNs = System.nanoTime();
 
-                double currentSpeedFactor = state.getSpeedFactor();
                 Instant windowStartTime = currentSimulationTime;
                 Instant windowEndTime = windowStartTime.plus(POLLING_INTERVAL);
 
@@ -79,32 +78,14 @@ public class HistoricalEventPlayer {
                 }
 
                 externalEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
-                Instant lastEventTimestamp = playWindow(simulationId, externalEvents, state, windowStartTime,
-                        windowEndTime);
-
-                if (lastEventTimestamp != null) {
-                    currentSimulationTime = lastEventTimestamp.isAfter(currentSimulationTime)
-                            ? lastEventTimestamp
-                            : currentSimulationTime;
-                } else {
-                    // No events found, advance the clock to avoid getting stuck.
-                    currentSimulationTime = windowEndTime;
-                    // OPTIONAL: Add logic here to detect natural completion.
-                    // For example, if (windowEndTime >
-                    // simulationService.getSimulationEndTime(simulationId)) {
-                    // state.setStatus(SimulationStatus.COMPLETED);
-                    // simulationService.broadcastStatusUpdate(simulationId,
-                    // SimulationStatus.COMPLETED);
-                    // logger.info("Simulation {} completed naturally.", simulationId);
-                    // break; // Exit the loop
-                    // }
-                }
+                playWindow(simulationId, externalEvents, state, windowStartTime, windowEndTime);
+                currentSimulationTime = windowEndTime;
 
                 // CRITICAL: Persistently save the progress after every chunk.
-                state.setLastProcessedTimestamp(currentSimulationTime);
-                simulationService.updateLastProcessedTimestamp(simulationId, currentSimulationTime);
+                simulationService.checkpointSimulationAt(simulationId, currentSimulationTime);
 
                 // --- Dynamic Sleep Calculation ---
+                double currentSpeedFactor = state.getSpeedFactor();
                 long elapsedNs = System.nanoTime() - loopWallClockStartNs;
                 long targetLoopDurationNs = (long) (POLLING_INTERVAL.toNanos() / currentSpeedFactor);
                 long sleepNanos = targetLoopDurationNs - elapsedNs;
@@ -151,12 +132,11 @@ public class HistoricalEventPlayer {
      * until they are due. ClickHouse events win timestamp ties so real history can
      * cancel or replace a queued internal event before it fires.
      */
-    private Instant playWindow(String simulationId, List<DomainEvent> externalEvents, SimulationState state,
+    private void playWindow(String simulationId, List<DomainEvent> externalEvents, SimulationState state,
             Instant windowStartTime, Instant windowEndTime)
             throws InterruptedException {
         final long windowWallClockStartNs = System.nanoTime();
         int externalIndex = 0;
-        Instant lastEventTimestamp = null;
 
         while (externalIndex < externalEvents.size() || hasInternalEventDueAtOrBefore(state, windowEndTime)) {
             if (Thread.currentThread().isInterrupted()) {
@@ -171,7 +151,6 @@ public class HistoricalEventPlayer {
                     windowEndTime)) {
                 playEventAtScheduledTime(nextExternal, state, windowWallClockStartNs, windowStartTime);
                 processEvent(simulationId, nextExternal);
-                lastEventTimestamp = nextExternal.getTimestamp();
                 externalIndex++;
                 continue;
             }
@@ -186,10 +165,7 @@ public class HistoricalEventPlayer {
                 playEventAtScheduledTime(internalEvent, state, windowWallClockStartNs, windowStartTime);
             }
             processEvent(simulationId, internalEvent);
-            lastEventTimestamp = internalEvent.getTimestamp();
         }
-
-        return lastEventTimestamp;
     }
 
     private boolean hasInternalEventDueAtOrBefore(SimulationState state, Instant timestamp) {
@@ -208,23 +184,24 @@ public class HistoricalEventPlayer {
     private void playEventAtScheduledTime(DomainEvent event, SimulationState state, long windowWallClockStartNs,
             Instant windowStartTime)
             throws InterruptedException {
-        double currentSpeedFactor = state.getSpeedFactor();
         Duration simulationTimeElapsed = Duration.between(windowStartTime, event.getTimestamp());
-        long scheduledWallClockOffsetNs = (long) (simulationTimeElapsed.toNanos() / currentSpeedFactor);
-        long actualWallClockOffsetNs = System.nanoTime() - windowWallClockStartNs;
-        long waitNanos = scheduledWallClockOffsetNs - actualWallClockOffsetNs;
 
-        if (waitNanos > 0) {
+        while (true) {
+            double currentSpeedFactor = state.getSpeedFactor();
+            long scheduledWallClockOffsetNs = (long) (simulationTimeElapsed.toNanos() / currentSpeedFactor);
+            long actualWallClockOffsetNs = System.nanoTime() - windowWallClockStartNs;
+            long waitNanos = scheduledWallClockOffsetNs - actualWallClockOffsetNs;
+
+            if (waitNanos <= 0) {
+                return;
+            }
+
             long waitMillis = waitNanos / 1_000_000;
             int waitNanosRemainder = (int) (waitNanos % 1_000_000);
 
             synchronized (state.getTimingLock()) {
                 state.getTimingLock().wait(waitMillis, waitNanosRemainder);
             }
-        }
-
-        while ((System.nanoTime() - windowWallClockStartNs) < scheduledWallClockOffsetNs) {
-            Thread.onSpinWait();
         }
     }
 
