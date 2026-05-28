@@ -1,10 +1,17 @@
 package com.flunav.backend.services;
 
-import com.flunav.backend.context.DatabaseContextHolder;
-import com.flunav.backend.models.simulation.SimulationState;
-import com.flunav.backend.models.simulation.SimulationStatus;
-import com.flunav.backend.repositories.LiveSimulationRepository;
-import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -15,16 +22,12 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
-import java.util.Queue;
-import java.util.UUID;
-import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.models.simulation.SimulationState;
+import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
 
 import flunav.events.DomainEvent;
 import flunav.types.PositionType;
@@ -41,6 +44,7 @@ public class SimulationService {
     private final LiveItemRepository liveItemRepository;
     private final LiveSimulationRepository liveSimulationRepository;
     private final TopologyProvider topologyProvider;
+    private final ItemMovementProcessor itemMovementProcessor;
 
     @org.springframework.beans.factory.annotation.Autowired
     @Lazy
@@ -51,6 +55,7 @@ public class SimulationService {
 
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
     private final Map<String, Future<?>> activePlaybacks = new ConcurrentHashMap<>();
+    private final Map<String, PlaybackCancellationReason> playbackCancellationReasons = new ConcurrentHashMap<>();
     private final Semaphore buildPermits = new Semaphore(2);
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
@@ -59,7 +64,8 @@ public class SimulationService {
             @Lazy HistoricalGraphBuilder historicalGraphBuilder,
             LiveItemRepository liveItemRepository,
             LiveSimulationRepository liveSimulationRepository,
-            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider) {
+            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
+            @Lazy ItemMovementProcessor itemMovementProcessor) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
@@ -67,6 +73,7 @@ public class SimulationService {
         this.liveItemRepository = liveItemRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.topologyProvider = topologyProvider;
+        this.itemMovementProcessor = itemMovementProcessor;
     }
 
     public SimulationState createSimulation(Instant timestamp) {
@@ -104,6 +111,11 @@ public class SimulationService {
         }
         Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
                 : state.getTimestamp();
+        startPlaybackWorker(simulationId, state, simulationStartTime, speedFactor);
+    }
+
+    private void startPlaybackWorker(String simulationId, SimulationState state, Instant simulationStartTime,
+            double speedFactor) {
         state.setStatus(SimulationStatus.PLAYING);
         state.setSpeedFactor(speedFactor);
         persistState(state);
@@ -113,15 +125,16 @@ public class SimulationService {
 
     public void cancelPlayback(String simulationId) {
         Future<?> playbackFuture = activePlaybacks.get(simulationId);
-        SimulationState state = simulationCache.get(simulationId);
-        if (playbackFuture != null && !playbackFuture.isDone()) {
-            if (state != null) {
-                state.setStatus(SimulationStatus.STOPPED);
-                persistState(state);
-            }
-            playbackFuture.cancel(true);
-            activePlaybacks.remove(simulationId);
+        if (playbackFuture == null || playbackFuture.isDone()) {
+            return;
         }
+
+        SimulationState state = simulationCache.get(simulationId);
+        if (state != null) {
+            state.setStatus(SimulationStatus.STOPPED);
+            persistState(state);
+        }
+        cancelActivePlayback(simulationId, PlaybackCancellationReason.STOP);
     }
 
     public void pauseSimulation(String simulationId) {
@@ -138,8 +151,7 @@ public class SimulationService {
         persistState(state);
         webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
                 state.getLastProcessedTimestamp());
-        playbackTask.cancel(true);
-        activePlaybacks.remove(simulationId);
+        cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
     }
 
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
@@ -148,6 +160,22 @@ public class SimulationService {
         state.setSpeedFactor(newSpeedFactor);
         persistState(state);
         webSocketService.broadcastSpeedUpdate(simulationId, newSpeedFactor, getSimulationClock(state));
+
+        if (state.getStatus() != SimulationStatus.PLAYING) {
+            return;
+        }
+
+        Instant restartTimestamp = getSimulationClock(state);
+        cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
+        state.setStatus(SimulationStatus.PLAYING);
+        state.setLastProcessedTimestamp(restartTimestamp);
+        persistState(state);
+        recalculateMovementSchedules(simulationId, restartTimestamp);
+        startPlaybackWorker(simulationId, state, restartTimestamp, newSpeedFactor);
+    }
+
+    public boolean consumePlaybackRescheduleInterruption(String simulationId) {
+        return playbackCancellationReasons.remove(simulationId) == PlaybackCancellationReason.RESCHEDULE;
     }
 
     public void destroySimulation(String simulationId) {
@@ -418,24 +446,60 @@ public class SimulationService {
 
     private void checkpointAllItems(String simulationId, Instant now) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
-            var items = liveItemRepository.getAllActiveItems();
-            for (var itemData : items) {
-                PositionType type = itemData.getType();
-                Instant lastTs = itemData.getEntryTime();
-                Double accDist = itemData.getAccumulatedDistance();
+            checkpointAllItemsInCurrentContext(now);
+        }
+    }
 
-                if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
-                    var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
-                    if (conveyor != null) {
-                        long elapsed = now.toEpochMilli() - lastTs.toEpochMilli();
-                        if (elapsed > 0) {
-                            double moved = (elapsed / 1000.0) * conveyor.getSpeed();
-                            liveItemRepository.checkpointPhysics(itemData.getId(), now, accDist + moved);
-                        }
+    private void recalculateMovementSchedules(String simulationId, Instant restartTimestamp) {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId);
+                var timeContext = timeService.enterVirtualTime(restartTimestamp)) {
+            checkpointAllItemsInCurrentContext(restartTimestamp);
+
+            Set<String> conveyorIds = new HashSet<>();
+            for (var itemData : liveItemRepository.getAllActiveItems()) {
+                if (itemData.getType() == PositionType.CONVEYOR && itemData.getPositionId() != null) {
+                    conveyorIds.add(itemData.getPositionId());
+                }
+            }
+
+            for (String conveyorId : conveyorIds) {
+                itemMovementProcessor.recalculateConveyorAccumulation(conveyorId);
+            }
+        }
+    }
+
+    private void checkpointAllItemsInCurrentContext(Instant now) {
+        var items = liveItemRepository.getAllActiveItems();
+        for (var itemData : items) {
+            PositionType type = itemData.getType();
+            Instant lastTs = itemData.getEntryTime();
+            Double accDist = itemData.getAccumulatedDistance();
+
+            if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
+                var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
+                if (conveyor != null) {
+                    long elapsed = now.toEpochMilli() - lastTs.toEpochMilli();
+                    if (elapsed > 0) {
+                        double moved = (elapsed / 1000.0) * conveyor.getSpeed();
+                        liveItemRepository.checkpointPhysics(itemData.getId(), now, accDist + moved);
                     }
                 }
             }
         }
+    }
+
+    private void cancelActivePlayback(String simulationId, PlaybackCancellationReason reason) {
+        Future<?> playbackFuture = activePlaybacks.remove(simulationId);
+        if (playbackFuture != null && !playbackFuture.isDone()) {
+            playbackCancellationReasons.put(simulationId, reason);
+            playbackFuture.cancel(true);
+        }
+    }
+
+    private enum PlaybackCancellationReason {
+        STOP,
+        PAUSE,
+        RESCHEDULE
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {

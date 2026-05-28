@@ -105,6 +105,9 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         stopAndDestroy("sim-present-fastforward");
         stopAndDestroy("sim-future-clickhouse");
         stopAndDestroy("sim-clock");
+        stopAndDestroy("sim-reschedule-speed");
+        stopAndDestroy("sim-ready-speed");
+        stopAndDestroy("sim-paused-speed");
         sim.reset();
         truncateClickHouse();
         flushRedis();
@@ -198,6 +201,74 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
 
         ItemResponse fastItem = getSimulationItem("sim-fast", itemStart.plusSeconds(10), "item-speed").orElseThrow();
         assertEquals("end-speed", fastItem.getLocationId(), "Fast playback should already have completed the conveyor");
+    }
+
+    @Test
+    void playbackSpeedChangeReschedulesActivePlayback() throws Exception {
+        Instant itemStart = seedPlaybackScenario("reschedule-speed");
+        createPlaybackSimulation("sim-reschedule-speed", itemStart);
+
+        simulationService.startPlayback("sim-reschedule-speed", 0.25);
+        waitFor(() -> simulationService.getSimulationState("sim-reschedule-speed")
+                .getStatus() == SimulationStatus.PLAYING,
+                Duration.ofSeconds(3), "Playback did not start before speed change");
+
+        Thread.sleep(300);
+        simulationService.updatePlaybackSpeed("sim-reschedule-speed", 10.0);
+
+        SimulationState afterSpeedChange = simulationService.getSimulationState("sim-reschedule-speed");
+        assertEquals(SimulationStatus.PLAYING, afterSpeedChange.getStatus(),
+                "Changing speed during playback must keep the simulation playing");
+        assertEquals(10.0, afterSpeedChange.getSpeedFactor(), 0.001);
+
+        Thread.sleep(500);
+        assertEquals(SimulationStatus.PLAYING,
+                simulationService.getSimulationState("sim-reschedule-speed").getStatus(),
+                "Cancelling the old playback worker for reschedule must not mark the simulation stopped");
+
+        waitFor(() -> {
+            SimulationState state = simulationService.getSimulationState("sim-reschedule-speed");
+            return state.getStatus() == SimulationStatus.PLAYING
+                    && state.getLastProcessedTimestamp() != null
+                    && !state.getLastProcessedTimestamp().isBefore(itemStart.plusSeconds(10));
+        }, Duration.ofSeconds(5), "Playback did not advance at the rescheduled speed");
+
+        ItemResponse item = getSimulationItem("sim-reschedule-speed", itemStart.plusSeconds(10),
+                "item-reschedule-speed").orElseThrow();
+        assertEquals("end-reschedule-speed", item.getLocationId(),
+                "Rescheduled playback should use fresh item movement timing");
+    }
+
+    @Test
+    void playbackSpeedChangeWhileNotPlayingOnlyStoresSpeed() throws Exception {
+        Instant itemStart = seedPlaybackScenario("ready-speed");
+        createPlaybackSimulation("sim-ready-speed", itemStart);
+
+        simulationService.updatePlaybackSpeed("sim-ready-speed", 3.0);
+
+        SimulationState readyState = simulationService.getSimulationState("sim-ready-speed");
+        assertEquals(SimulationStatus.READY, readyState.getStatus());
+        assertEquals(3.0, readyState.getSpeedFactor(), 0.001);
+        assertEquals(itemStart.toEpochMilli(), readyState.getLastProcessedTimestamp().toEpochMilli(),
+                "Updating speed while ready must not start playback");
+
+        Instant pausedStart = seedPlaybackScenario("paused-speed");
+        createPlaybackSimulation("sim-paused-speed", pausedStart);
+        simulationService.startPlayback("sim-paused-speed", 4.0);
+        waitFor(() -> simulationService.getSimulationState("sim-paused-speed")
+                .getStatus() == SimulationStatus.PLAYING,
+                Duration.ofSeconds(3), "Playback did not start before pause");
+        simulationService.pauseSimulation("sim-paused-speed");
+        Instant pausedAt = simulationService.getSimulationState("sim-paused-speed").getLastProcessedTimestamp();
+
+        simulationService.updatePlaybackSpeed("sim-paused-speed", 6.0);
+        Thread.sleep(800);
+
+        SimulationState pausedState = simulationService.getSimulationState("sim-paused-speed");
+        assertEquals(SimulationStatus.PAUSED, pausedState.getStatus());
+        assertEquals(6.0, pausedState.getSpeedFactor(), 0.001);
+        assertEquals(pausedAt, pausedState.getLastProcessedTimestamp(),
+                "Updating speed while paused must not restart playback");
     }
 
     @Test

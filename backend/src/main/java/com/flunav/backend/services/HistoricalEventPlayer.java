@@ -1,6 +1,13 @@
 package com.flunav.backend.services;
 
-import flunav.events.DomainEvent;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.Future;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -12,14 +19,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import flunav.events.DomainEvent;
 
 @Service
 public class HistoricalEventPlayer {
@@ -83,40 +83,23 @@ public class HistoricalEventPlayer {
                 List<DomainEvent> externalEvents = drainBufferedEventsThrough(bufferedExternalEvents, windowEndTime);
                 externalEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
                 playWindow(simulationId, externalEvents, state, windowStartTime, windowEndTime);
-                currentSimulationTime = windowEndTime;
+                waitUntilScheduledSimulationTime(state, loopWallClockStartNs, windowStartTime, windowEndTime);
 
-                // CRITICAL: Persistently save the progress after every chunk.
+                currentSimulationTime = windowEndTime;
                 simulationService.checkpointSimulationAt(simulationId, currentSimulationTime);
                 webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), currentSimulationTime);
-
-                // --- Dynamic Sleep Calculation ---
-                long elapsedNs = System.nanoTime() - loopWallClockStartNs;
-                long targetLoopDurationNs = (long) (PLAYBACK_WINDOW.toNanos() / currentSpeedFactor);
-                long sleepNanos = targetLoopDurationNs - elapsedNs;
-
-                if (sleepNanos > 0) {
-                    TimeUnit.NANOSECONDS.sleep(sleepNanos);
-                }
             }
         } catch (InterruptedException e) {
-            // This block is entered when the thread is interrupted by
-            // playbackTask.cancel(true).
-            SimulationState state = simulationService.getSimulationState(simulationId);
-            // Check the official state to determine if this was a pause or a stop.
-            if (state != null && state.getStatus() == SimulationStatus.PAUSED) {
-                logger.info("Playback for simulation {} paused gracefully at {}.", simulationId,
-                        state.getLastProcessedTimestamp());
-            } else {
-                logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
-                if (state != null) {
-                    state.setStatus(SimulationStatus.STOPPED);
-                    simulationService.updateSimulationStatus(simulationId, SimulationStatus.STOPPED,
-                            state.getLastProcessedTimestamp());
-                }
-            }
-            // Preserve the interrupted status for the thread pool.
+            handlePlaybackInterruption(simulationId);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
+            if (isInterruptedFailure(e)) {
+                Thread.interrupted();
+                handlePlaybackInterruption(simulationId);
+                Thread.currentThread().interrupt();
+                logger.info("Playback thread for simulation {} is terminating.", simulationId);
+                return new AsyncResult<>(null);
+            }
             logger.error("An unhandled error occurred during playback for simulation {}. Setting state to FAILED.",
                     simulationId, e);
             SimulationState state = simulationService.getSimulationState(simulationId);
@@ -129,6 +112,41 @@ public class HistoricalEventPlayer {
 
         logger.info("Playback thread for simulation {} is terminating.", simulationId);
         return new AsyncResult<>(null);
+    }
+
+    private void handlePlaybackInterruption(String simulationId) {
+        SimulationState state = null;
+        try {
+            state = simulationService.getSimulationState(simulationId);
+        } catch (Exception e) {
+            logger.debug("Playback for simulation {} interrupted after state was removed.", simulationId);
+        }
+
+        if (simulationService.consumePlaybackRescheduleInterruption(simulationId)) {
+            logger.info("Playback for simulation {} is being rescheduled at {}.", simulationId,
+                    state != null ? state.getLastProcessedTimestamp() : null);
+        } else if (state != null && state.getStatus() == SimulationStatus.PAUSED) {
+            logger.info("Playback for simulation {} paused gracefully at {}.", simulationId,
+                    state.getLastProcessedTimestamp());
+        } else {
+            logger.warn("Playback for simulation {} was stopped by interruption.", simulationId);
+            if (state != null) {
+                state.setStatus(SimulationStatus.STOPPED);
+                simulationService.updateSimulationStatus(simulationId, SimulationStatus.STOPPED,
+                        state.getLastProcessedTimestamp());
+            }
+        }
+    }
+
+    private boolean isInterruptedFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return Thread.currentThread().isInterrupted();
     }
 
     /**
@@ -242,7 +260,13 @@ public class HistoricalEventPlayer {
     private void playEventAtScheduledTime(DomainEvent event, SimulationState state, long windowWallClockStartNs,
             Instant windowStartTime)
             throws InterruptedException {
-        Duration simulationTimeElapsed = Duration.between(windowStartTime, event.getTimestamp());
+        waitUntilScheduledSimulationTime(state, windowWallClockStartNs, windowStartTime, event.getTimestamp());
+    }
+
+    private void waitUntilScheduledSimulationTime(SimulationState state, long windowWallClockStartNs,
+            Instant windowStartTime, Instant targetSimulationTime)
+            throws InterruptedException {
+        Duration simulationTimeElapsed = Duration.between(windowStartTime, targetSimulationTime);
 
         while (true) {
             double currentSpeedFactor = state.getSpeedFactor();
