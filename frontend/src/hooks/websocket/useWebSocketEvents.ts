@@ -64,8 +64,10 @@ export const useWebSocketEvents = () => {
         });
     }, [subscribe]);
 
-    const subscribeToAllLocationUpdates = useCallback((handler: (update: EntityUpdateMessage & { timestamp: number }) => void, simId?: string | null) => {
-        return subscribe(buildTopic('locations/updates', simId), handler);
+    const subscribeToAllLocationUpdates = useCallback((handler: (update: EntityUpdateMessage) => void, simId?: string | null) => {
+        return subscribe(buildTopic('locations/updates', simId), (msg: EntityUpdateMessage) => {
+            handler(msg);
+        });
     }, [subscribe]);
 
     const subscribeToChuteEmptied = useCallback((handler: (chuteId: string, timestamp: number) => void, simId?: string | null) => {

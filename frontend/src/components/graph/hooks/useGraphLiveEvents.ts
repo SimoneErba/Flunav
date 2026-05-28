@@ -3,6 +3,16 @@ import { useSigma } from "@react-sigma/core";
 import { ItemPositionTypeEnum, ItemResponse } from "../../../api-client/api";
 import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents";
 import { hashToNumber } from "../utils/graphUtils";
+import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
+
+const asNumber = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
 
 export const useGraphLiveEvents = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
@@ -253,8 +263,17 @@ export const useGraphLiveEvents = (
             if (graph.hasNode(id)) graph.dropNode(id);
         }, simulationId));
 
-        unsubscribers.push(subscribeToAllLocationUpdates((update) => {
+        unsubscribers.push(subscribeToAllLocationUpdates((update: EntityUpdateMessage) => {
             if (update.id && graph.hasNode(update.id) && update.properties) {
+                const nextX = asNumber(update.properties.latitude);
+                const nextY = asNumber(update.properties.longitude);
+                if (nextX !== null) {
+                    graph.setNodeAttribute(update.id, "x", nextX);
+                }
+                if (nextY !== null) {
+                    graph.setNodeAttribute(update.id, "y", nextY);
+                }
+
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
                     if (key === 'customColor') {
@@ -262,6 +281,8 @@ export const useGraphLiveEvents = (
                     }
                     graph.setNodeAttribute(update.id, key === 'name' ? 'label' : key, val);
                 });
+
+                sigma.refresh();
             }
         }, simulationId));
 
