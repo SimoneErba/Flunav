@@ -29,6 +29,7 @@ public final class TestContainersEnvironment {
                             "init-clickhouse/003_analytics_count.sql",
                             "init-clickhouse/005_component_analytics.sql",
                             "init-clickhouse/007_item_summary.sql",
+                            "init-clickhouse/010_logs.sql",
                             "init-clickhouse/004_analytics_count_mv.sql"));
 
     private static final OrientDBContainer ORIENTDB_CONTAINER =

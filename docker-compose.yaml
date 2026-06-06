@@ -37,6 +37,29 @@ services:
       - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB}
       - CLICKHOUSE_USERNAME=${CLICKHOUSE_USER}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - LOG_PATH=/var/log/flumen
+      - APPLICATION_NAME=backend
+      - APPLICATION_ENVIRONMENT=docker
+    volumes:
+      - backend-logs:/var/log/flumen
+    networks:
+      - app-network
+
+  vector:
+    image: timberio/vector:0.51.1-alpine
+    container_name: flunav_vector
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+    volumes:
+      - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - backend-logs:/var/log/flumen:ro
+      - vector-data:/var/lib/vector
+    command: ["--config", "/etc/vector/vector.yaml"]
     networks:
       - app-network
 
@@ -198,3 +221,5 @@ volumes:
   redis_data:
   certbot-etc:
   certbot-www:
+  backend-logs:
+  vector-data:

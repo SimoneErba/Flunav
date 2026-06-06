@@ -3,6 +3,7 @@ package com.flunav.backend.context;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
  * Manages thread-local state for database operations.
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 public final class DatabaseContextHolder {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseContextHolder.class);
+    private static final String SIMULATION_ID_MDC_KEY = "simulation_id";
 
     private static final ThreadLocal<String> simulationIdContext = new ThreadLocal<>();
     private static final ThreadLocal<ODatabaseSession> transactionalSessionContext = new ThreadLocal<>();
@@ -24,11 +26,13 @@ public final class DatabaseContextHolder {
      */
     public static class SimulationContext implements AutoCloseable {
         private final String previousSimulationId;
+        private final String previousMdcSimulationId;
 
         private SimulationContext(String simulationId) {
             this.previousSimulationId = simulationIdContext.get();
+            this.previousMdcSimulationId = MDC.get(SIMULATION_ID_MDC_KEY);
             logger.trace("Entering simulation context: {} (previous: {})", simulationId, previousSimulationId);
-            simulationIdContext.set(simulationId);
+            setSimulationId(simulationId);
         }
 
         @Override
@@ -40,6 +44,7 @@ public final class DatabaseContextHolder {
                 logger.trace("Exiting simulation context, restoring previous: {}", previousSimulationId);
                 simulationIdContext.set(previousSimulationId);
             }
+            restoreMdc(previousMdcSimulationId);
         }
     }
 
@@ -57,6 +62,26 @@ public final class DatabaseContextHolder {
 
     public static void clearSimulation() {
         simulationIdContext.remove();
+        restoreMdc(System.getProperty("simulation.id"));
+    }
+
+    private static void setSimulationId(String simulationId) {
+        if (simulationId == null) {
+            simulationIdContext.remove();
+            MDC.remove(SIMULATION_ID_MDC_KEY);
+            return;
+        }
+
+        simulationIdContext.set(simulationId);
+        MDC.put(SIMULATION_ID_MDC_KEY, simulationId);
+    }
+
+    private static void restoreMdc(String simulationId) {
+        if (simulationId == null) {
+            MDC.remove(SIMULATION_ID_MDC_KEY);
+        } else {
+            MDC.put(SIMULATION_ID_MDC_KEY, simulationId);
+        }
     }
 
     public static class TransactionContext implements AutoCloseable {

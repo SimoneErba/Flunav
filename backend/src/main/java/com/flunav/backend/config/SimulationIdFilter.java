@@ -17,18 +17,19 @@ public class SimulationIdFilter implements Filter {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
 
+        DatabaseContextHolder.SimulationContext simulationContext = null;
         try {
             if (request instanceof HttpServletRequest httpRequest) {
                 String simId = httpRequest.getHeader("X-Simulation-ID");
                 if (simId != null && !simId.isBlank()) {
-                    // Store in ThreadLocal
-                    DatabaseContextHolder.enterSimulationContext(simId);
+                    simulationContext = DatabaseContextHolder.enterSimulationContext(simId);
                 }
             }
             chain.doFilter(request, response);
         } finally {
-            // Cleanup
-            DatabaseContextHolder.clearSimulation();
+            if (simulationContext != null) {
+                simulationContext.close();
+            }
         }
     }
 }

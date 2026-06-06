@@ -32,6 +32,7 @@ public abstract class BaseIntegrationTest {
                                         "init-clickhouse/003_analytics_count.sql",
                                         "init-clickhouse/005_component_analytics.sql",
                                         "init-clickhouse/007_item_summary.sql",
+                                        "init-clickhouse/010_logs.sql",
                                         "init-clickhouse/004_analytics_count_mv.sql"));
         static final OrientDBContainer ORIENTDB_CONTAINER = new OrientDBContainer("orientdb:3.2.0-tp3")
                         .withCopyFileToContainer(MountableFile.forClasspathResource("init-orientdb/01-create-db.sh"),

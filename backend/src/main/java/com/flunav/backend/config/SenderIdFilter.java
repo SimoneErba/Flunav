@@ -15,18 +15,21 @@ public class SenderIdFilter implements Filter {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
 
+        UserContextHolder.SenderContext senderContext = null;
         try {
             if (request instanceof HttpServletRequest httpRequest) {
                 String id = httpRequest.getHeader("X-Sender-ID");
                 if (id != null && !id.isBlank()) {
-                    UserContextHolder.setSenderId(id);
+                    senderContext = UserContextHolder.enterSenderContext(id);
                 }
             }
 
             chain.doFilter(request, response);
 
         } finally {
-            UserContextHolder.clear();
+            if (senderContext != null) {
+                senderContext.close();
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Location;
+import com.flunav.backend.context.MdcContext;
 import com.flunav.backend.exception.DuplicateItemException;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
@@ -169,29 +170,58 @@ public class EventProcessor {
 
     private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast, String simulationId,
             String senderId) {
-        String existingSimId = DatabaseContextHolder.getSimulationId();
-        try {
-            if (simulationId != null && !simulationId.equals(existingSimId))
-                DatabaseContextHolder.enterSimulationContext(simulationId);
-            if (senderId != null)
-                UserContextHolder.setSenderId(senderId);
+        String entityId = event instanceof EntityEvent entityEvent ? entityEvent.getEntityId() : null;
+        String mode = simulationId == null ? "LIVE" : "SIMULATION";
+        String effectiveSenderId = event.getSenderId() != null ? event.getSenderId() : senderId;
+        long startedAt = System.nanoTime();
 
-            if (simulationId == null) {
-                clickHouseService.saveEventAsync(event);
+        try (var simulationContext = DatabaseContextHolder.enterSimulationContext(simulationId);
+                var senderContext = UserContextHolder.enterSenderContext(effectiveSenderId);
+                var eventContext = MdcContext.withValues(Map.of(
+                        "event_type", event.getEventType(),
+                        "event_id", event.getEventId(),
+                        "entity_id", entityId == null ? "" : entityId,
+                        "mode", mode))) {
+            logProcessingStarted(shouldBroadcast);
+
+            try {
+                if (simulationId == null) {
+                    clickHouseService.saveEventAsync(event);
+                }
+
+                Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
+                logProcessingCompleted(shouldBroadcast, elapsedMillis(startedAt));
+                return resultMap;
+            } catch (Exception e) {
+                logProcessingFailed(shouldBroadcast, elapsedMillis(startedAt), e);
+                throw new CompletionException(e);
             }
-
-            Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
-            logger.info("Successfully processed event: {}", event.getEventType());
-            return resultMap;
-
-        } catch (Exception e) {
-            logger.error("Error processing event: {}", event.getEventType(), e);
-            throw new CompletionException(e);
-        } finally {
-            if (simulationId != null && !simulationId.equals(existingSimId))
-                DatabaseContextHolder.clearSimulation();
-            UserContextHolder.clear();
         }
+    }
+
+    private void logProcessingStarted(boolean shouldBroadcast) {
+        logger.atDebug()
+                .addKeyValue("broadcast", shouldBroadcast)
+                .log("Event processing started");
+    }
+
+    private void logProcessingCompleted(boolean shouldBroadcast, long durationMillis) {
+        logger.atInfo()
+                .addKeyValue("broadcast", shouldBroadcast)
+                .addKeyValue("duration_ms", durationMillis)
+                .log("Event processing completed");
+    }
+
+    private void logProcessingFailed(boolean shouldBroadcast, long durationMillis, Exception error) {
+        logger.atError()
+                .addKeyValue("broadcast", shouldBroadcast)
+                .addKeyValue("duration_ms", durationMillis)
+                .setCause(error)
+                .log("Event processing failed");
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
     }
 
     private <T> T executeWithRetry(Supplier<T> operation) {

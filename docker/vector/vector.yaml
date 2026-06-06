@@ -1,0 +1,86 @@
+data_dir: /var/lib/vector
+
+sources:
+  backend_logs:
+    type: file
+    include:
+      - /var/log/flumen/*.json
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+transforms:
+  parse_backend_logs:
+    type: remap
+    inputs:
+      - backend_logs
+    source: |
+      . = parse_json!(.message)
+
+      structured_values = {}
+      if exists(.mode) { structured_values.mode = .mode }
+      if exists(.broadcast) { structured_values.broadcast = .broadcast }
+      if exists(.duration_ms) { structured_values.duration_ms = .duration_ms }
+      .values = encode_json(structured_values)
+
+      .application = string!(.application)
+      .environment = string!(.environment)
+      .level = string!(.level)
+      .logger = string!(.logger)
+      .thread = string!(.thread)
+      .message = string!(.message)
+      .message_template = string!(.message_template)
+      .simulation_id = if exists(.simulation_id) { string!(.simulation_id) } else { "" }
+      .sender_id = if exists(.sender_id) { string!(.sender_id) } else { "" }
+      .event_type = if exists(.event_type) { string!(.event_type) } else { "" }
+      .event_id = if exists(.event_id) { string!(.event_id) } else { "" }
+      .entity_id = if exists(.entity_id) { string!(.entity_id) } else { "" }
+      .stack_trace = if exists(.stack_trace) { string!(.stack_trace) } else { "" }
+
+sinks:
+  clickhouse_logs:
+    type: clickhouse
+    inputs:
+      - parse_backend_logs
+    endpoint: http://clickhouse:8123
+    database: ${CLICKHOUSE_DB}
+    table: logs
+    auth:
+      strategy: basic
+      user: ${CLICKHOUSE_USER}
+      password: ${CLICKHOUSE_PASSWORD}
+    format: json_each_row
+    date_time_best_effort: true
+    skip_unknown_fields: true
+    healthcheck:
+      enabled: false
+    acknowledgements:
+      enabled: true
+    encoding:
+      only_fields:
+        - timestamp
+        - level
+        - application
+        - environment
+        - logger
+        - thread
+        - message
+        - message_template
+        - simulation_id
+        - sender_id
+        - event_type
+        - event_id
+        - entity_id
+        - values
+        - stack_trace
+    batch:
+      max_events: 1000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+    request:
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 30
+      timeout_secs: 10
