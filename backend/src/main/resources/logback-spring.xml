@@ -5,41 +5,8 @@
     <property name="APPLICATION_ENVIRONMENT" value="${APPLICATION_ENVIRONMENT:-local}"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
-            <providers>
-                <timestamp>
-                    <fieldName>timestamp</fieldName>
-                    <timeZone>UTC</timeZone>
-                </timestamp>
-                <logLevel>
-                    <fieldName>level</fieldName>
-                </logLevel>
-                <loggerName>
-                    <fieldName>logger</fieldName>
-                </loggerName>
-                <threadName>
-                    <fieldName>thread</fieldName>
-                </threadName>
-                <message>
-                    <fieldName>message</fieldName>
-                </message>
-                <rawMessage>
-                    <fieldName>message_template</fieldName>
-                </rawMessage>
-                <mdc/>
-                <keyValuePairs/>
-                <stackTrace>
-                    <fieldName>stack_trace</fieldName>
-                </stackTrace>
-                <pattern>
-                    <pattern>
-                        {
-                            "application": "${APPLICATION_NAME}",
-                            "environment": "${APPLICATION_ENVIRONMENT}"
-                        }
-                    </pattern>
-                </pattern>
-            </providers>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n%ex</pattern>
         </encoder>
     </appender>
 
@@ -99,7 +66,7 @@
         <appender-ref ref="JSON_FILE"/>
     </appender>
 
-    <root level="WARN">
+    <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_JSON_FILE"/>
     </root>

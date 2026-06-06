@@ -130,7 +130,7 @@ public class ClickHouseService {
                 client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow).get();
             }
 
-            logger.info("Flushed {} events to ClickHouse", batch.size());
+            logger.debug("Flushed {} events to ClickHouse", batch.size());
 
         } catch (Exception e) {
             requeueBatch(batch);

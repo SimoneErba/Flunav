@@ -206,7 +206,7 @@ public class EventProcessor {
     }
 
     private void logProcessingCompleted(boolean shouldBroadcast, long durationMillis) {
-        logger.atInfo()
+        logger.atDebug()
                 .addKeyValue("broadcast", shouldBroadcast)
                 .addKeyValue("duration_ms", durationMillis)
                 .log("Event processing completed");
