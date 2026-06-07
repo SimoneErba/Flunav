@@ -1,5 +1,7 @@
 package com.flunav.backend;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.services.ClickHouseService;
 
@@ -8,14 +10,14 @@ import flunav.events.EntityEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.core.AmqpTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.TestConstructor;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -29,30 +31,26 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = {
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "springwolf.enabled=false",
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
-        "app.demo-mode=true",
+        "app.demo-mode=false",
         "stale-item-cleanup.enabled=false",
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false"
 })
-@AutoConfigureMockMvc
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class AnalyticsThroughputTests extends BaseIntegrationTest {
 
-    @Autowired
-    private ClickHouseService clickHouseService;
+    private final ClickHouseService clickHouseService;
+    private final int serverPort;
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private AmqpTemplate amqpTemplate;
+    AnalyticsThroughputTests(ClickHouseService clickHouseService, @LocalServerPort int serverPort) {
+        this.clickHouseService = clickHouseService;
+        this.serverPort = serverPort;
+    }
 
     @BeforeEach
     void setup() throws Exception {
@@ -149,14 +147,18 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         saveEvent("endpoint-moved", "PATH_TRAVERSED", minute.plusSeconds(3));
         flushEvents();
 
-        MvcResult result = mockMvc.perform(get("/api/analytics/throughput/history").param("hours", "24"))
-                .andReturn();
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/api/analytics/throughput/history?hours=24"))
+                        .header("Authorization", "Bearer " + loginToken())
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
 
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.timestamp == '%s')].itemsEntered", minute.toString()).value(1))
-                .andExpect(jsonPath("$[?(@.timestamp == '%s')].itemsExited", minute.toString()).value(1))
-                .andExpect(jsonPath("$[?(@.timestamp == '%s')].segmentsProcessed", minute.toString()).value(1));
+        assertEquals(200, response.statusCode());
+        JsonNode metric = findMetric(objectMapper.readTree(response.body()), minute.toString());
+        assertEquals(1, metric.get("itemsEntered").asLong());
+        assertEquals(1, metric.get("itemsExited").asLong());
+        assertEquals(1, metric.get("segmentsProcessed").asLong());
     }
 
     private void saveEvent(String entityId, String eventType, Instant timestamp) {
@@ -197,6 +199,31 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         if (secondOfMinute >= 50) {
             Thread.sleep((61 - secondOfMinute) * 1000);
         }
+    }
+
+    private String loginToken() throws Exception {
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/api/auth/login"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(
+                                "{\"username\":\"admin\",\"password\":\"Flun4v!\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        return objectMapper.readTree(response.body()).get("token").asText();
+    }
+
+    private JsonNode findMetric(JsonNode metrics, String timestamp) {
+        for (JsonNode metric : metrics) {
+            if (timestamp.equals(metric.path("timestamp").asText())) {
+                return metric;
+            }
+        }
+        throw new IllegalStateException("Metric not found for " + timestamp);
+    }
+
+    private String baseUrl() {
+        return "http://127.0.0.1:" + serverPort;
     }
 
     private static final class TestEntityEvent extends EntityEvent {

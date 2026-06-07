@@ -14,10 +14,9 @@ import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.TestConstructor;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -28,38 +27,36 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
-        "rabbitmq.routing-key.item-events=test-key",
+        "rabbitmq.routing-key.item-events=1",
         "stale-item-cleanup.enabled=false",
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false",
         "simulation.manage-logic=true"
 })
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class SimulationTests extends BaseIntegrationTest {
 
-    @Autowired
-    private SimulationTestHarness sim;
+    private final SimulationTestHarness sim;
+    private final LiveItemRepository liveItemRepository;
+    private final LiveSimulationRepository liveSimulationRepository;
+    private final SimulationService simulationService;
+    private final StringRedisTemplate redisTemplate;
+    private final OrientDBService orientDBService;
 
-    @Autowired
-    private LiveItemRepository liveItemRepository;
-
-    @Autowired
-    private LiveSimulationRepository liveSimulationRepository;
-
-    @Autowired
-    private SimulationService simulationService;
-
-    @Autowired
-    private StringRedisTemplate redisTemplate;
-
-    @Autowired
-    private OrientDBService orientDBService;
-
-    @MockBean
-    private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
-
-    @Autowired
-    private com.flunav.backend.services.PathfindingService pathfindingService;
+    SimulationTests(
+            SimulationTestHarness sim,
+            LiveItemRepository liveItemRepository,
+            LiveSimulationRepository liveSimulationRepository,
+            SimulationService simulationService,
+            StringRedisTemplate redisTemplate,
+            OrientDBService orientDBService) {
+        this.sim = sim;
+        this.liveItemRepository = liveItemRepository;
+        this.liveSimulationRepository = liveSimulationRepository;
+        this.simulationService = simulationService;
+        this.redisTemplate = redisTemplate;
+        this.orientDBService = orientDBService;
+    }
 
     @BeforeEach
     void setup() {
@@ -230,6 +227,39 @@ class SimulationTests extends BaseIntegrationTest {
                 .orElseThrow();
 
         assertTrue(refreshedHeartbeat.isAfter(oldHeartbeat), "Heartbeat should be refreshed in Redis");
+    }
+
+    @Test
+    void buildProgressIsPersistedMonotonicallyAndCompletedAtReady() {
+        String simulationId = "progress-sim";
+        Instant restoreTimestamp = Instant.parse("2026-06-07T09:00:00Z");
+        liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                simulationId,
+                restoreTimestamp,
+                com.flunav.backend.models.simulation.SimulationStatus.BUILDING,
+                Instant.now(),
+                null,
+                1.0,
+                0.0));
+
+        simulationService.updateBuildProgress(simulationId, 42.0, restoreTimestamp.minusSeconds(30));
+        simulationService.updateBuildProgress(simulationId, 15.0, restoreTimestamp.minusSeconds(20));
+
+        assertEquals(42.0, liveSimulationRepository.getState(simulationId)
+                .map(LiveSimulationRepository.SimulationMetadata::buildProgress)
+                .orElseThrow());
+
+        simulationService.updateBuildProgress(simulationId, 120.0, restoreTimestamp);
+        simulationService.updateSimulationStatus(
+                simulationId,
+                com.flunav.backend.models.simulation.SimulationStatus.READY,
+                restoreTimestamp);
+
+        var completedState = liveSimulationRepository.getState(simulationId).orElseThrow();
+        assertEquals(100.0, completedState.buildProgress());
+        assertEquals(com.flunav.backend.models.simulation.SimulationStatus.READY, completedState.status());
+
+        simulationService.destroySimulation(simulationId);
     }
 
     @AfterEach

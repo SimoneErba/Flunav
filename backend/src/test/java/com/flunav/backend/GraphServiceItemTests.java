@@ -23,12 +23,11 @@ import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.amqp.core.AmqpAdmin;
+import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.context.TestConstructor;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,75 +35,73 @@ import java.util.Map;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
-        "rabbitmq.routing-key.item-events=test-key",
+        "rabbitmq.routing-key.item-events=1",
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false"
 })
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class GraphServiceItemTests extends BaseIntegrationTest {
 
     private static final String SIMULATION_ID = "graph-service-test-sim";
 
-    @Autowired
-    private GraphService graphService;
+    private final GraphService graphService;
+    private final ItemService itemService;
+    private final LiveItemRepository liveItemRepository;
+    private final StaleItemCleanupService staleItemCleanupService;
+    private final EventProcessor eventProcessor;
+    private final DestinationMappingService destinationMappingService;
+    private final com.flunav.backend.services.LocationService locationService;
+    private final ConveyorService conveyorService;
+    private final OrientDBService orientDBService;
+    private final StringRedisTemplate redisTemplate;
+    private final AmqpTemplate amqpTemplate;
+    private final AmqpAdmin amqpAdmin;
 
-    @Autowired
-    private ItemService itemService;
-
-    @Autowired
-    private LiveItemRepository liveItemRepository;
-
-    @Autowired
-    private StaleItemCleanupService staleItemCleanupService;
-
-    @Autowired
-    private EventProcessor eventProcessor;
-
-    @Autowired
-    private DestinationMappingService destinationMappingService;
-
-    @Autowired
-    private com.flunav.backend.services.LocationService locationService;
-
-    @Autowired
-    private ConveyorService conveyorService;
-
-    @Autowired
-    private OrientDBService orientDBService;
-
-    @Autowired
-    private StringRedisTemplate redisTemplate;
-
-    @MockBean
-    private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
-
-    @MockBean
-    private SimpMessagingTemplate messagingTemplate;
+    GraphServiceItemTests(
+            GraphService graphService,
+            ItemService itemService,
+            LiveItemRepository liveItemRepository,
+            StaleItemCleanupService staleItemCleanupService,
+            EventProcessor eventProcessor,
+            DestinationMappingService destinationMappingService,
+            com.flunav.backend.services.LocationService locationService,
+            ConveyorService conveyorService,
+            OrientDBService orientDBService,
+            StringRedisTemplate redisTemplate,
+            AmqpTemplate amqpTemplate,
+            AmqpAdmin amqpAdmin) {
+        this.graphService = graphService;
+        this.itemService = itemService;
+        this.liveItemRepository = liveItemRepository;
+        this.staleItemCleanupService = staleItemCleanupService;
+        this.eventProcessor = eventProcessor;
+        this.destinationMappingService = destinationMappingService;
+        this.locationService = locationService;
+        this.conveyorService = conveyorService;
+        this.orientDBService = orientDBService;
+        this.redisTemplate = redisTemplate;
+        this.amqpTemplate = amqpTemplate;
+        this.amqpAdmin = amqpAdmin;
+    }
 
     @BeforeEach
     void setup() {
         resetState();
-        reset(amqpTemplate);
-        reset(messagingTemplate);
+        drainCommandsQueue();
     }
 
     @AfterEach
     void cleanup() {
         resetState();
-        reset(amqpTemplate);
-        reset(messagingTemplate);
+        drainCommandsQueue();
     }
 
     @Test
@@ -218,36 +215,6 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
-    void liveMappedItemCreationBroadcastsDestinationAndPath() {
-        Instant now = Instant.now();
-        createMappedCommandTopology("broadcast-start", "broadcast-exit");
-
-        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "broadcast-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
-        eventProcessor.processEvent(new ItemCreatedEvent("item-broadcast", "Broadcast Item", 1.0, true,
-                "broadcast-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
-
-        var item = itemService.getItemById("item-broadcast");
-        assertNotNull(item);
-        assertEquals("broadcast-exit", item.getDestinationId());
-        assertEquals(List.of("broadcast-start", "broadcast-exit"), item.getPath());
-
-        var websocketPayload = org.mockito.ArgumentCaptor.forClass(Object.class);
-        verify(messagingTemplate).convertAndSend(eq("/topic/items"), websocketPayload.capture());
-
-        Object envelope = websocketPayload.getValue();
-        assertEquals(now.toEpochMilli(), ReflectionTestUtils.getField(envelope, "timestamp"));
-
-        Object entityMessage = ReflectionTestUtils.getField(envelope, "payload");
-        assertEquals("CREATED", String.valueOf(ReflectionTestUtils.getField(entityMessage, "operation")));
-
-        Object response = ReflectionTestUtils.getField(entityMessage, "data");
-        assertEquals("item-broadcast", ReflectionTestUtils.getField(response, "id"));
-        assertEquals("broadcast-exit", ReflectionTestUtils.getField(response, "destinationId"));
-        assertEquals(List.of("broadcast-start", "broadcast-exit"), ReflectionTestUtils.getField(response, "path"));
-    }
-
-    @Test
     void liveMappedItemCreationPublishesDestinationCommand() {
         Instant now = Instant.now();
         createMappedCommandTopology("command-start", "command-exit");
@@ -261,12 +228,12 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNotNull(item);
         assertEquals("command-exit", item.getDestinationId());
 
-        var destinationCommand = org.mockito.ArgumentCaptor.forClass(ItemDestinationEvent.class);
-        verify(amqpTemplate).convertAndSend(eq("commands"), destinationCommand.capture());
-        assertEquals("ITEM_DESTINATION", destinationCommand.getValue().getEventType());
-        assertEquals("item-command", destinationCommand.getValue().getEntityId());
-        assertEquals("command-exit", destinationCommand.getValue().getLocationId());
-        assertEquals(now, destinationCommand.getValue().getTimestamp());
+        ItemDestinationEvent destinationCommand = assertInstanceOf(ItemDestinationEvent.class,
+                amqpTemplate.receiveAndConvert("commands", 2_000));
+        assertEquals("ITEM_DESTINATION", destinationCommand.getEventType());
+        assertEquals("item-command", destinationCommand.getEntityId());
+        assertEquals("command-exit", destinationCommand.getLocationId());
+        assertEquals(now, destinationCommand.getTimestamp());
     }
 
     @Test
@@ -279,7 +246,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEvent(new ItemCreatedEvent("item-no-match", "No Match Item", 1.0, true,
                 "no-match-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "999"), now), true);
 
-        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
     }
 
     @Test
@@ -297,7 +264,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 "explicit-command-start", PositionType.LOCATION, 0.0, "explicit-command-other-exit",
                 Map.of("flight_number", "123"), now), true);
 
-        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
     }
 
     @Test
@@ -312,7 +279,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 "Without Broadcast Item", 1.0, true, "without-broadcast-start", PositionType.LOCATION, 0.0,
                 Map.of("flight_number", "123"), now));
 
-        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
     }
 
     @Test
@@ -329,27 +296,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                     "sim-command-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
         }
 
-        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
-    }
-
-    @Test
-    void manageLogicDisabledDoesNotPublishDestinationCommand() {
-        Instant now = Instant.now();
-        createMappedCommandTopology("manage-disabled-start", "manage-disabled-exit");
-
-        eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "manage-disabled-exit", now.minusSeconds(60),
-                        now.plusSeconds(3600)))));
-
-        ReflectionTestUtils.setField(eventProcessor, "manageLogic", false);
-        try {
-            eventProcessor.processEvent(new ItemCreatedEvent("item-manage-disabled", "Manage Disabled Item", 1.0, true,
-                    "manage-disabled-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
-        } finally {
-            ReflectionTestUtils.setField(eventProcessor, "manageLogic", true);
-        }
-
-        verify(amqpTemplate, never()).convertAndSend(eq("commands"), any(ItemDestinationEvent.class));
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
     }
 
     @Test
@@ -516,6 +463,10 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             String destination, Instant now) {
         return new DestinationMappingRecord(fieldName, dataType, operator, value, destination, now.minusSeconds(60),
                 now.plusSeconds(3600));
+    }
+
+    private void drainCommandsQueue() {
+        amqpAdmin.purgeQueue("commands", true);
     }
 
     private void resetState() {

@@ -18,23 +18,31 @@ public class SimulationState {
     private Instant lastHeartbeatTimestamp;
     private volatile Instant lastProcessedTimestamp;
     private volatile double speedFactor = 1.0;
+    private volatile double buildProgress;
     private final Object timingLock = new Object();
     private final PriorityQueue<DomainEvent> internalEventQueue = new PriorityQueue<>(
             Comparator.comparing(DomainEvent::getTimestamp).thenComparing(DomainEvent::getEventId));
     private final Map<String, DomainEvent> scheduledEventsByItem = new ConcurrentHashMap<>();
 
     public SimulationState(String id, Instant timestamp) {
-        this(id, timestamp, SimulationStatus.QUEUED, Instant.now(), null, 1.0);
+        this(id, timestamp, SimulationStatus.QUEUED, Instant.now(), null, 1.0, 0.0);
     }
 
     public SimulationState(String id, Instant timestamp, SimulationStatus status, Instant lastHeartbeatTimestamp,
             Instant lastProcessedTimestamp, double speedFactor) {
+        this(id, timestamp, status, lastHeartbeatTimestamp, lastProcessedTimestamp, speedFactor,
+                status == SimulationStatus.READY ? 100.0 : 0.0);
+    }
+
+    public SimulationState(String id, Instant timestamp, SimulationStatus status, Instant lastHeartbeatTimestamp,
+            Instant lastProcessedTimestamp, double speedFactor, double buildProgress) {
         this.id = id;
         this.timestamp = timestamp;
         this.status = status;
         this.lastHeartbeatTimestamp = lastHeartbeatTimestamp;
         this.lastProcessedTimestamp = lastProcessedTimestamp;
         this.speedFactor = speedFactor;
+        this.buildProgress = buildProgress;
     }
 
     public synchronized void setSpeedFactor(double speedFactor) {

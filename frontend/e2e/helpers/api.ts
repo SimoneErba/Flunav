@@ -93,6 +93,7 @@ export const createConveyor = async (
       speed: conveyor.speed ?? 20,
       mainPath: conveyor.mainPath ?? true,
       isActive: conveyor.active ?? true,
+      type: "BELT",
       capacity: 10,
       properties: {},
     },

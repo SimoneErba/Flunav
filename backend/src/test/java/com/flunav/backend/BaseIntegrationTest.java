@@ -15,6 +15,7 @@ import java.util.List;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.clickhouse.ClickHouseContainer;
+import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.orientdb.OrientDBContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
@@ -37,11 +38,15 @@ public abstract class BaseIntegrationTest {
         static final OrientDBContainer ORIENTDB_CONTAINER = new OrientDBContainer("orientdb:3.2.0-tp3")
                         .withCopyFileToContainer(MountableFile.forClasspathResource("init-orientdb/01-create-db.sh"),
                                         "/docker-entrypoint-initdb.d/init.sh");
+        static final RabbitMQContainer RABBITMQ_CONTAINER = new RabbitMQContainer(
+                        DockerImageName.parse("rabbitmq:3.13-management"))
+                        .withPluginsEnabled("rabbitmq_consistent_hash_exchange");
 
         static {
                 REDIS_CONTAINER.start();
                 CLICKHOUSE_CONTAINER.start();
                 ORIENTDB_CONTAINER.start();
+                RABBITMQ_CONTAINER.start();
 
         }
 
@@ -62,5 +67,10 @@ public abstract class BaseIntegrationTest {
                 registry.add("orientdb.username", () -> "root");
                 registry.add("orientdb.password", () -> "root");
                 registry.add("orientdb.db.name", () -> "test-live");
+
+                registry.add("spring.rabbitmq.host", RABBITMQ_CONTAINER::getHost);
+                registry.add("spring.rabbitmq.port", RABBITMQ_CONTAINER::getAmqpPort);
+                registry.add("spring.rabbitmq.username", RABBITMQ_CONTAINER::getAdminUsername);
+                registry.add("spring.rabbitmq.password", RABBITMQ_CONTAINER::getAdminPassword);
         }
 }

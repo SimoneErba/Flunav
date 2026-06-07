@@ -56,8 +56,16 @@ public class WebSocketService {
     // --- SIMULATION CONTROL EVENTS (Updated) ---
 
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status, Instant timestamp) {
+        broadcastSimulationUpdate(simulationId, status, timestamp, null);
+    }
+
+    public void broadcastSimulationUpdate(String simulationId, SimulationStatus status, Instant timestamp,
+            Double buildProgress) {
         Map<String, Object> message = new HashMap<>();
         message.put("status", status);
+        if (buildProgress != null) {
+            message.put("buildProgress", buildProgress);
+        }
         // Pass explicit ID, subtopic "status"
         sendToTopic(simulationId, "status", message, timestamp.toEpochMilli());
     }

@@ -179,7 +179,12 @@ function LiveWorkspace() {
         if (activeSimulationIdRef.current !== simId) return;
         setActiveSimulation(prev => {
             if (prev?.id !== simId) return prev;
-            return { ...prev, status: update.status, lastProcessedTimestamp: new Date(update.timestamp).toISOString() };
+            return {
+              ...prev,
+              status: update.status,
+              buildProgress: update.buildProgress ?? prev.buildProgress,
+              lastProcessedTimestamp: new Date(update.timestamp).toISOString()
+            };
         });
         if (update.status === SimulationStateResponseStatusEnum.Ready) {
             refetchGraphData(simId);
@@ -213,6 +218,7 @@ function LiveWorkspace() {
   }, [activeSimulation?.id, simulationApi]); 
 
   const isLoading = graphLoading || isRestoring;
+  const restoreProgress = Math.min(100, Math.max(0, activeSimulation?.buildProgress ?? 0));
 
   const handleRetry = () => {
     toast.promise(
@@ -318,10 +324,31 @@ function LiveWorkspace() {
 
       <main className="flex-1 relative overflow-hidden">
         {isLoading ? (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+          <div className="absolute top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-6 text-center">
             <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 animate-pulse">
               {isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}
             </h3>
+            {isRestoring && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-gray-600 dark:text-gray-300">
+                  <span>Simulation progress</span>
+                  <span>{Math.round(restoreProgress)}%</span>
+                </div>
+                <div
+                  className="h-3 overflow-hidden rounded-full bg-gray-200 shadow-inner dark:bg-gray-700"
+                  role="progressbar"
+                  aria-label="Simulation build progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(restoreProgress)}
+                >
+                  <div
+                    className="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out"
+                    style={{ width: `${restoreProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <DisplayGraph 

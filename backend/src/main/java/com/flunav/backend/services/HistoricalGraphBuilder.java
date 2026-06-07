@@ -67,6 +67,7 @@ public class HistoricalGraphBuilder {
                 Snapshot snapshot = snapshotOpt.get();
                 eventsAfterTimestamp = snapshot.timestamp();
                 logger.info("Restoring state from snapshot taken at {}", eventsAfterTimestamp);
+                simulationService.updateBuildProgress(simulationId, 0.0, eventsAfterTimestamp);
                 restoreFromSnapshotData(snapshot.graphData());
             }
 
@@ -77,11 +78,20 @@ public class HistoricalGraphBuilder {
             eventsToReplay.sort(Comparator.comparing(DomainEvent::getTimestamp));
             logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
 
-            replayEventsAndInternalQueue(simulationId, eventsToReplay, realEventReplayEnd);
+            Instant progressStart = determineProgressStart(snapshotOpt, eventsToReplay, realEventReplayEnd);
+            BuildProgressTracker progressTracker = new BuildProgressTracker(
+                    simulationId,
+                    progressStart,
+                    restorePoint,
+                    simulationService);
+            progressTracker.report(progressStart, true);
+
+            replayEventsAndInternalQueue(simulationId, eventsToReplay, realEventReplayEnd, progressTracker);
             simulationService.checkpointSimulationAt(simulationId, realEventReplayEnd);
+            progressTracker.report(realEventReplayEnd, false);
 
             if (restorePoint.isAfter(realEventReplayEnd)) {
-                simulationService.processEventsUntil(simulationId, restorePoint);
+                processInternalEventsUntil(simulationId, restorePoint, progressTracker);
             }
             logger.info("Historical graph build complete for simulation: {}", simulationId);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, restorePoint);
@@ -97,7 +107,7 @@ public class HistoricalGraphBuilder {
     }
 
     private void replayEventsAndInternalQueue(String simulationId, List<DomainEvent> externalEvents,
-            Instant replayEnd) {
+            Instant replayEnd, BuildProgressTracker progressTracker) {
         SimulationState state = simulationService.getSimulationState(simulationId);
 
         orientDBService.withSession(session -> {
@@ -111,6 +121,7 @@ public class HistoricalGraphBuilder {
                 if (nextExternal != null && shouldProcessExternalBeforeInternal(nextExternal, nextInternal,
                         replayEnd)) {
                     processExternalEvent(nextExternal);
+                    progressTracker.report(nextExternal.getTimestamp(), false);
                     externalIndex++;
                     continue;
                 }
@@ -119,8 +130,35 @@ public class HistoricalGraphBuilder {
                 if (processedInternal == null) {
                     break;
                 }
+                progressTracker.report(processedInternal.getTimestamp(), false);
             }
         });
+    }
+
+    private void processInternalEventsUntil(String simulationId, Instant targetTime,
+            BuildProgressTracker progressTracker) {
+        SimulationState state = simulationService.getSimulationState(simulationId);
+        while (hasInternalEventDueAtOrBefore(state, targetTime)) {
+            DomainEvent processedInternal = simulationService.processNextInternalEvent(simulationId);
+            if (processedInternal == null) {
+                break;
+            }
+            progressTracker.report(processedInternal.getTimestamp(), false);
+        }
+
+        simulationService.checkpointSimulationAt(simulationId, targetTime);
+        progressTracker.report(targetTime, false);
+    }
+
+    private Instant determineProgressStart(Optional<Snapshot> snapshotOpt, List<DomainEvent> eventsToReplay,
+            Instant replayEnd) {
+        if (snapshotOpt.isPresent()) {
+            return snapshotOpt.get().timestamp();
+        }
+        if (!eventsToReplay.isEmpty()) {
+            return eventsToReplay.getFirst().getTimestamp();
+        }
+        return replayEnd;
     }
 
     private boolean hasInternalEventDueAtOrBefore(SimulationState state, Instant timestamp) {
@@ -143,6 +181,43 @@ public class HistoricalGraphBuilder {
             logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
                     event.getEventType(), e.getMessage());
         }
+    }
+
+    private static final class BuildProgressTracker {
+        private final String simulationId;
+        private final Instant start;
+        private final Instant target;
+        private final SimulationService simulationService;
+        private int lastPublishedPercent = -1;
+
+        private BuildProgressTracker(String simulationId, Instant start, Instant target,
+                SimulationService simulationService) {
+            this.simulationId = simulationId;
+            this.start = start;
+            this.target = target;
+            this.simulationService = simulationService;
+        }
+
+        private void report(Instant processedTimestamp, boolean force) {
+            int percent = calculateBuildProgress(start, target, processedTimestamp);
+            if (!force && percent <= lastPublishedPercent) {
+                return;
+            }
+
+            lastPublishedPercent = percent;
+            simulationService.updateBuildProgress(simulationId, percent, processedTimestamp);
+        }
+    }
+
+    static int calculateBuildProgress(Instant start, Instant target, Instant processedTimestamp) {
+        long totalMillis = target.toEpochMilli() - start.toEpochMilli();
+        if (totalMillis <= 0) {
+            return 100;
+        }
+
+        long processedMillis = processedTimestamp.toEpochMilli() - start.toEpochMilli();
+        double progress = (processedMillis * 100.0) / totalMillis;
+        return (int) Math.floor(Math.max(0.0, Math.min(100.0, progress)));
     }
 
     public void restoreFromSnapshotData(GraphData graphData) {

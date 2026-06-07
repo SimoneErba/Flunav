@@ -24,10 +24,9 @@ import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.TestConstructor;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -46,41 +45,42 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
-        "rabbitmq.routing-key.item-events=test-key",
+        "rabbitmq.routing-key.item-events=1",
         "stale-item-cleanup.enabled=false",
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false",
         "simulation.manage-logic=true"
 })
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
 
-    @Autowired
-    private SimulationTestHarness sim;
+    private final SimulationTestHarness sim;
+    private final EventProcessor eventProcessor;
+    private final GraphService graphService;
+    private final SimulationService simulationService;
+    private final LiveSimulationRepository liveSimulationRepository;
+    private final ClickHouseService clickHouseService;
+    private final StringRedisTemplate redisTemplate;
+    private final TimeService timeService;
 
-    @Autowired
-    private EventProcessor eventProcessor;
-
-    @Autowired
-    private GraphService graphService;
-
-    @Autowired
-    private SimulationService simulationService;
-
-    @Autowired
-    private LiveSimulationRepository liveSimulationRepository;
-
-    @Autowired
-    private ClickHouseService clickHouseService;
-
-    @Autowired
-    private StringRedisTemplate redisTemplate;
-
-    @Autowired
-    private TimeService timeService;
-
-    @MockBean
-    private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
+    SimulationPlaybackIntegrationTests(
+            SimulationTestHarness sim,
+            EventProcessor eventProcessor,
+            GraphService graphService,
+            SimulationService simulationService,
+            LiveSimulationRepository liveSimulationRepository,
+            ClickHouseService clickHouseService,
+            StringRedisTemplate redisTemplate,
+            TimeService timeService) {
+        this.sim = sim;
+        this.eventProcessor = eventProcessor;
+        this.graphService = graphService;
+        this.simulationService = simulationService;
+        this.liveSimulationRepository = liveSimulationRepository;
+        this.clickHouseService = clickHouseService;
+        this.redisTemplate = redisTemplate;
+        this.timeService = timeService;
+    }
 
     @BeforeEach
     void setup() throws Exception {

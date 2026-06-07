@@ -10,8 +10,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestConstructor;
 
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.services.EventProcessor;
@@ -28,13 +28,17 @@ import flunav.types.PositionType;
 		"springwolf.enabled=false",
 		"logging.level.eventprocessor=DEBUG"
 })
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class BackendApplicationTests extends BaseIntegrationTest {
 
-	@Autowired
-	private EventProcessor eventProcessor;
+	private final EventProcessor eventProcessor;
 
 	private Logger eventProcessorLogger;
 	private ListAppender<ILoggingEvent> logAppender;
+
+	BackendApplicationTests(EventProcessor eventProcessor) {
+		this.eventProcessor = eventProcessor;
+	}
 
 	@BeforeEach
 	void captureEventProcessorLogs() {

@@ -49,6 +49,7 @@ export interface EntityUpdateMessage {
 
 export interface SimulationStatusUpdate {
     status: string;
+    buildProgress?: number;
 }
 
 export interface SimulationSpeedUpdate {

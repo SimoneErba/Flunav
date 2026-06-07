@@ -16,7 +16,6 @@ import flunav.events.DomainEvent;
 import flunav.events.LocationCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.ConveyorType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate; // Import Redis Template
 import org.springframework.stereotype.Component;
 
@@ -31,28 +30,32 @@ import java.util.Objects;
 @Component
 public class SimulationTestHarness {
 
-    @Autowired
-    private EventProcessor eventProcessor;
-
-    @Autowired
-    private GraphService graphService;
-
-    @Autowired
-    private TimeService timeService;
-
-    @Autowired
-    private SimulationService simulationService;
-
-    @Autowired
-    private ConveyorService conveyorService;
-
-    @Autowired
-    private OrientDBService orientDBService;
-
-    @Autowired
-    private StringRedisTemplate redisTemplate; // Injected for cleanup
+    private final EventProcessor eventProcessor;
+    private final GraphService graphService;
+    private final TimeService timeService;
+    private final SimulationService simulationService;
+    private final ConveyorService conveyorService;
+    private final OrientDBService orientDBService;
+    private final StringRedisTemplate redisTemplate;
 
     private Instant currentTurnTime;
+
+    public SimulationTestHarness(
+            EventProcessor eventProcessor,
+            GraphService graphService,
+            TimeService timeService,
+            SimulationService simulationService,
+            ConveyorService conveyorService,
+            OrientDBService orientDBService,
+            StringRedisTemplate redisTemplate) {
+        this.eventProcessor = eventProcessor;
+        this.graphService = graphService;
+        this.timeService = timeService;
+        this.simulationService = simulationService;
+        this.conveyorService = conveyorService;
+        this.orientDBService = orientDBService;
+        this.redisTemplate = redisTemplate;
+    }
 
     /**
      * Stubs a location for the simulation.

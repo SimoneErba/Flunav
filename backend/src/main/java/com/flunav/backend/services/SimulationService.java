@@ -83,7 +83,7 @@ public class SimulationService {
 
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
-                timeService.physicalNow(), null, 1.0);
+                timeService.physicalNow(), null, 1.0, 0.0);
         simulationCache.put(simulationId, state);
         persistState(state);
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
@@ -230,9 +230,28 @@ public class SimulationService {
             if (timestamp != null) {
                 state.setLastProcessedTimestamp(timestamp);
             }
+            if (status == SimulationStatus.READY) {
+                state.setBuildProgress(100.0);
+            }
             persistState(state);
-            this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), timestamp);
+            Instant updateTimestamp = timestamp != null ? timestamp : timeService.physicalNow();
+            this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), updateTimestamp,
+                    state.getBuildProgress());
         }
+    }
+
+    public void updateBuildProgress(String simulationId, double progress, Instant processedTimestamp) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null) {
+            return;
+        }
+
+        double boundedProgress = Math.max(0.0, Math.min(100.0, progress));
+        state.setBuildProgress(Math.max(state.getBuildProgress(), boundedProgress));
+        persistState(state);
+        Instant updateTimestamp = processedTimestamp != null ? processedTimestamp : state.getTimestamp();
+        webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), updateTimestamp,
+                state.getBuildProgress());
     }
 
     public void processWaitingQueue() {
@@ -411,7 +430,8 @@ public class SimulationService {
                     metadata.status(),
                     metadata.lastHeartbeatTimestamp(),
                     metadata.lastProcessedTimestamp(),
-                    metadata.speedFactor());
+                    metadata.speedFactor(),
+                    metadata.buildProgress());
             simulationCache.put(simulationId, restored);
             return restored;
         }
@@ -419,6 +439,7 @@ public class SimulationService {
         cached.setStatus(metadata.status());
         cached.setLastHeartbeatTimestamp(metadata.lastHeartbeatTimestamp());
         cached.setLastProcessedTimestamp(metadata.lastProcessedTimestamp());
+        cached.setBuildProgress(metadata.buildProgress());
         if (Double.compare(cached.getSpeedFactor(), metadata.speedFactor()) != 0) {
             cached.setSpeedFactor(metadata.speedFactor());
         }
@@ -432,7 +453,8 @@ public class SimulationService {
                 state.getStatus(),
                 state.getLastHeartbeatTimestamp(),
                 state.getLastProcessedTimestamp(),
-                state.getSpeedFactor()));
+                state.getSpeedFactor(),
+                state.getBuildProgress()));
     }
 
     /**

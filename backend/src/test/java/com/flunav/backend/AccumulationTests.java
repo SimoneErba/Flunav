@@ -9,9 +9,8 @@ import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.TestConstructor;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -20,23 +19,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(properties = {
                 "springwolf.enabled=false",
-                "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration",
-                "rabbitmq.routing-key.item-events=test-key",
+                "rabbitmq.routing-key.item-events=1",
                 "stale-item-cleanup.enabled=false",
                 "state-recovery.enabled=false",
                 "graph-snapshot.enabled=false",
                 "simulation.manage-logic=true"
 })
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class AccumulationTests extends BaseIntegrationTest {
 
-        @Autowired
-        private SimulationTestHarness sim;
+        private final SimulationTestHarness sim;
 
-        @Autowired
-        private com.flunav.backend.services.PathfindingService pathfindingService;
-
-        @MockBean
-        private org.springframework.amqp.core.AmqpTemplate amqpTemplate;
+        AccumulationTests(SimulationTestHarness sim) {
+                this.sim = sim;
+        }
 
         @BeforeEach
         void setup() {

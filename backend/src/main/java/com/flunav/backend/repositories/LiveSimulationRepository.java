@@ -83,7 +83,13 @@ public class LiveSimulationRepository {
     }
 
     public record SimulationMetadata(String simulationId, Instant timestamp, SimulationStatus status,
-            Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor) {
+            Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor, double buildProgress) {
+
+        public SimulationMetadata(String simulationId, Instant timestamp, SimulationStatus status,
+                Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor) {
+            this(simulationId, timestamp, status, lastHeartbeatTimestamp, lastProcessedTimestamp, speedFactor,
+                    status == SimulationStatus.READY ? 100.0 : 0.0);
+        }
 
         public Map<String, String> toRedisMap() {
             var map = new java.util.HashMap<String, String>();
@@ -92,6 +98,7 @@ public class LiveSimulationRepository {
             putInstant(map, "hb", lastHeartbeatTimestamp);
             putInstant(map, "lp", lastProcessedTimestamp);
             map.put("sp", String.valueOf(speedFactor));
+            map.put("bp", String.valueOf(buildProgress));
             return map;
         }
 
@@ -102,7 +109,14 @@ public class LiveSimulationRepository {
                     SimulationStatus.valueOf(raw.getOrDefault("st", SimulationStatus.QUEUED.name())),
                     parseInstant(raw.get("hb")),
                     parseInstant(raw.get("lp")),
-                    raw.containsKey("sp") ? Double.parseDouble(raw.get("sp")) : 1.0);
+                    raw.containsKey("sp") ? Double.parseDouble(raw.get("sp")) : 1.0,
+                    raw.containsKey("bp")
+                            ? Double.parseDouble(raw.get("bp"))
+                            : defaultBuildProgress(raw.get("st")));
+        }
+
+        private static double defaultBuildProgress(String rawStatus) {
+            return SimulationStatus.READY.name().equals(rawStatus) ? 100.0 : 0.0;
         }
 
         private static void putInstant(Map<String, String> map, String key, Instant value) {

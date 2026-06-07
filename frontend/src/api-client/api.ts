@@ -1149,6 +1149,12 @@ export interface SimulationStateResponse {
      * @memberof SimulationStateResponse
      */
     'speedFactor'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof SimulationStateResponse
+     */
+    'buildProgress'?: number;
 }
 
 export const SimulationStateResponseStatusEnum = {
@@ -4860,4 +4866,3 @@ export class DestinationMappingControllerApi extends BaseAPI {
         );
     }
 }
-

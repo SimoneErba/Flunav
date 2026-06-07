@@ -12,6 +12,8 @@ TODO:
 
 bug: when backend start, it doesnt recreate the internal queue, not even when it gets a get graph data. need to calculate them on starttup based on the current positions plu timestamp in reids. and update redis
 
+no snapshots??
+
 fix pathing. its nodes right now
 attese, ricircoli
 for analytics, count items exite not deleted
