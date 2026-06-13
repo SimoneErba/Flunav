@@ -24,10 +24,7 @@ public abstract class BaseIntegrationTest {
 
         static final RedisContainer REDIS_CONTAINER = new RedisContainer(DockerImageName.parse("redis:7.0-alpine"));
         static final ClickHouseContainer CLICKHOUSE_CONTAINER = new ClickHouseContainer(
-                        "clickhouse/clickhouse-server:23.8").withUrlParam("allow_experimental_object_type", "1")
-                        .withCopyFileToContainer(
-                                        MountableFile.forClasspathResource("test-clickhouse-config/users.xml"),
-                                        "/etc/clickhouse-server/users.d/allow_experimental.xml")
+                        "clickhouse/clickhouse-server:25.3")
                         .withInitScripts(List.of("init-clickhouse/001_init_snapshot.sql",
                                         "init-clickhouse/002_init_events.sql",
                                         "init-clickhouse/003_analytics_count.sql",

@@ -159,8 +159,6 @@ public class ClickHouseService {
             clickHouseRow.put("snapshot_id", snapshotId);
             clickHouseRow.put("timestamp", CLICKHOUSE_FORMATTER.format(timestamp));
 
-            // Let Jackson serialize the rich GraphData object into a nested JSON object for
-            // the 'graph_data' column.
             clickHouseRow.put("graph_data", graphData);
 
             // Serialize the entire row map into a single JSON string for insertion.
@@ -194,7 +192,17 @@ public class ClickHouseService {
      */
     public Optional<Snapshot> getMostRecentSnapshotBefore(Instant timestamp) {
         String formattedTimestamp = CLICKHOUSE_FORMATTER.format(timestamp);
-        String query = "SELECT graph_data, timestamp FROM snapshots WHERE timestamp <= {ts:Datetime64(3)} ORDER BY timestamp DESC LIMIT 1 FORMAT JSONEachRow";
+        String query = """
+                SELECT graph_data, timestamp
+                FROM snapshots
+                WHERE timestamp <= {ts:DateTime64(3, 'UTC')}
+                ORDER BY timestamp DESC
+                LIMIT 1
+                FORMAT JSONEachRow
+                SETTINGS
+                    date_time_output_format = 'iso',
+                    output_format_json_quote_64bit_integers = 0
+                """;
 
         logger.debug("Executing query to find most recent snapshot before {}", formattedTimestamp);
 
@@ -209,8 +217,7 @@ public class ClickHouseService {
 
                     GraphData graphData = objectMapper.convertValue(row.get("graph_data"), GraphData.class);
                     String timestampString = (String) row.get("timestamp");
-                    LocalDateTime localDateTime = LocalDateTime.parse(timestampString, CLICKHOUSE_FORMATTER);
-                    Instant snapshotTimestamp = localDateTime.toInstant(ZoneOffset.UTC);
+                    Instant snapshotTimestamp = Instant.parse(timestampString);
 
                     Snapshot result = new Snapshot(graphData, snapshotTimestamp);
 

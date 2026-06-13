@@ -87,7 +87,7 @@ services:
       - app-network
 
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.12.3.21
     container_name: flunav_clickhouse
     restart: always
     ports:

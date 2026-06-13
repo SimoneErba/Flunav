@@ -46,6 +46,41 @@ Domain B: The Sorting Plant (e.g., Logistics Hub, Mail Center, Baggage Handling)
     Real-time Tracking: Events are often per-item (barcode scans at every junction).
 
 
+Path calculation should be split into two separate layers: **physical path discovery** and **runtime route selection**.
+
+The physical path discovery layer answers what the conveyor system can do structurally. For example, from a given conveyor or decision point, it determines which exits are reachable and which possible paths can be used to reach them. This information is mostly static, because it depends on the physical topology of the system: conveyors, edges, diverters, exits, and destination-to-exit mappings.
+
+This part makes sense to cache. The cache should store all valid candidate paths, not only the single best path. A useful cache key can include the topology version, the source node, and the destination or destination group.
+
+The runtime route selection layer answers what the system should do right now. This decision should not be blindly cached, because it depends on dynamic conditions such as congestion, exit capacity, blocked conveyors, reserved slots, item priority, deadlines, recirculation count, and machine failures.
+
+For destinations that can be served by multiple exits, the cache should store all compatible exits and all physical paths to reach them. Then, at runtime, the router can choose the best exit and path based on the current state of the system. For example, a closer exit may be physically valid but almost full, while a farther exit may be empty and therefore better for a normal-priority item.
+
+The recommended approach is to cache what is physically possible, but recalculate the operational decision every time. In practice, this means caching candidate paths and compatible exits, while computing the final selected path using live scoring based on congestion, capacity, priority, and availability.
+
+The physical path cache should be invalidated only when the topology changes, such as when a conveyor, edge, diverter, exit, or destination mapping is added, removed, or modified. Normal congestion changes should not invalidate the cache; they should only affect the runtime scoring.
+
+In short: **cache what the system can do physically, but recalculate what it should do operationally.**
+
+
+Priority in a conveyor system should be modeled as a **local routing decision**, not as a global rule that stops or recirculates all lower-priority items.
+
+A high-priority item should receive preference only when it competes with other items for the same limited resource, such as a diverter, merge point, buffer, lane, or exit. If there is no conflict, normal and low-priority items should continue moving as usual.
+
+For example, if a high-priority item needs Exit A and a normal-priority item needs Exit B, both items can be routed normally. The normal item should not be delayed just because a high-priority item exists elsewhere in the system.
+
+Priority becomes important when multiple items want the same resource. If two items are approaching the same exit and there is limited available space, the high-priority item should be routed first. The lower-priority item can then be delayed, sent to another compatible exit, stored in a buffer, or recirculated if no better option exists.
+
+Multiple exits are important because they allow the system to avoid unnecessary recirculation. If a destination can be served by more than one exit, the routing logic should choose the best available exit based on priority, capacity, congestion, and compatibility. High-priority items may get access to the preferred or least congested exit, while normal items may be assigned to alternative exits when available.
+
+Recirculation should be treated as a fallback, not the default behavior for lower-priority items. An item should recirculate only when its target exit is full, no compatible alternative exit is available, no buffer space is available, and keeping the item on the main path would block the system or interfere with higher-priority flow.
+
+To avoid starvation, lower-priority items should gain effective priority over time or after several failed routing attempts. This prevents them from circulating forever while high-priority items keep being served first.
+
+In short: priority should decide who wins when there is contention, but it should not reduce the overall throughput of the system when there is enough space and routing capacity.
+
+
+
 ### Known Challenges
 
 *   **State Divergence Risk:** A bug in the `EventProcessor` could cause the OrientDB state to drift out of sync with the ClickHouse event log.
