@@ -186,7 +186,7 @@ abstract class RoutingScenarioSimulation implements Simulation {
                 entry,
                 PositionType.LOCATION,
                 0.0,
-                destination,
+                destination == null ? null : java.util.List.of(destination),
                 properties), "POST");
         return itemId;
     }

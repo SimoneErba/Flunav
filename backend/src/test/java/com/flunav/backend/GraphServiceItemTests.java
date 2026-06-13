@@ -7,15 +7,18 @@ import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.services.DestinationMappingService;
+import com.flunav.backend.services.DestinationExitMappingService;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.GraphService;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.StaleItemCleanupService;
 import flunav.events.DestinationMappingRecord;
+import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.MapDestinationsEvent;
+import flunav.events.MapDestinationExitsEvent;
 import flunav.types.DataType;
 import flunav.types.LocationType;
 import flunav.types.OperatorType;
@@ -58,6 +61,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final StaleItemCleanupService staleItemCleanupService;
     private final EventProcessor eventProcessor;
     private final DestinationMappingService destinationMappingService;
+    private final DestinationExitMappingService destinationExitMappingService;
     private final com.flunav.backend.services.LocationService locationService;
     private final ConveyorService conveyorService;
     private final OrientDBService orientDBService;
@@ -72,6 +76,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             StaleItemCleanupService staleItemCleanupService,
             EventProcessor eventProcessor,
             DestinationMappingService destinationMappingService,
+            DestinationExitMappingService destinationExitMappingService,
             com.flunav.backend.services.LocationService locationService,
             ConveyorService conveyorService,
             OrientDBService orientDBService,
@@ -84,6 +89,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.staleItemCleanupService = staleItemCleanupService;
         this.eventProcessor = eventProcessor;
         this.destinationMappingService = destinationMappingService;
+        this.destinationExitMappingService = destinationExitMappingService;
         this.locationService = locationService;
         this.conveyorService = conveyorService;
         this.orientDBService = orientDBService;
@@ -109,15 +115,15 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         Instant now = Instant.parse("2026-03-22T12:00:00Z");
 
         liveItemRepository.saveItemState("live-stale", "live-start", PositionType.LOCATION, now.minusSeconds(25 * 3600),
-                0.0, "Live Stale", null, null);
+                0.0, "Live Stale", null, null, null);
         liveItemRepository.saveItemState("live-fresh", "live-start", PositionType.LOCATION, now.minusSeconds(23 * 3600),
-                0.0, "Live Fresh", null, null);
+                0.0, "Live Fresh", null, null, null);
 
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
             liveItemRepository.saveItemState("sim-stale", "sim-start", PositionType.LOCATION,
                     now.minusSeconds(30 * 3600),
-                    0.0, "Simulation Stale", null, null);
+                    0.0, "Simulation Stale", null, null, null);
         }
 
         staleItemCleanupService.cleanupExpiredLiveItemsOnStartup(now);
@@ -154,12 +160,12 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         Instant now = Instant.parse("2026-03-22T12:00:00Z");
 
         liveItemRepository.saveItemState("live-invalid", "missing-live-location", PositionType.LOCATION,
-                now.minusSeconds(30), 0.0, "Live Invalid", null, null);
+                now.minusSeconds(30), 0.0, "Live Invalid", null, null, null);
 
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
             liveItemRepository.saveItemState("sim-invalid", "missing-sim-location", PositionType.LOCATION,
-                    now.minusSeconds(30), 0.0, "Simulation Invalid", null, null);
+                    now.minusSeconds(30), 0.0, "Simulation Invalid", null, null, null);
         }
 
         List<ItemResponse> liveItems = graphService.getGraphData(now, true, null, false).getItems();
@@ -180,14 +186,16 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 true, true);
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "mapped-exit-a", now.minusSeconds(60), now.plusSeconds(3600)))));
+                new DestinationMappingRecord("123", List.of("mapped-exit-a"), now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-mapped", "Mapped Item", 1.0, true,
                 "mapped-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now));
 
         var item = itemService.getItemById("item-mapped");
 
         assertNotNull(item);
-        assertEquals("mapped-exit-a", item.getDestinationId());
+        assertEquals(List.of("mapped-exit-a"), item.getDestinations());
+        assertEquals("mapped-exit-a", item.getSelectedExitId());
         assertEquals(List.of("mapped-start", "mapped-exit-a"), item.getPath());
     }
 
@@ -203,14 +211,17 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 false, true);
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "explicit-exit-a", now.minusSeconds(60), now.plusSeconds(3600)))));
+                new DestinationMappingRecord("123", List.of("explicit-exit-a"), now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-explicit", "Explicit Item", 1.0, true,
-                "explicit-start", PositionType.LOCATION, 0.0, "explicit-exit-b", Map.of("flight_number", "123"), now));
+                "explicit-start", PositionType.LOCATION, 0.0, List.of("explicit-exit-b"),
+                Map.of("flight_number", "123"), now));
 
         var item = itemService.getItemById("item-explicit");
 
         assertNotNull(item);
-        assertEquals("explicit-exit-b", item.getDestinationId());
+        assertEquals(List.of("explicit-exit-b"), item.getDestinations());
+        assertEquals("explicit-exit-b", item.getSelectedExitId());
         assertEquals(List.of("explicit-start", "explicit-exit-b"), item.getPath());
     }
 
@@ -220,13 +231,14 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         createMappedCommandTopology("command-start", "command-exit");
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "command-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
+                new DestinationMappingRecord("123", List.of("command-exit"), now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
         eventProcessor.processEvent(new ItemCreatedEvent("item-command", "Command Item", 1.0, true,
                 "command-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
 
         var item = itemService.getItemById("item-command");
         assertNotNull(item);
-        assertEquals("command-exit", item.getDestinationId());
+        assertEquals("command-exit", item.getSelectedExitId());
 
         ItemDestinationEvent destinationCommand = assertInstanceOf(ItemDestinationEvent.class,
                 amqpTemplate.receiveAndConvert("commands", 2_000));
@@ -242,7 +254,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         createMappedCommandTopology("no-match-start", "no-match-exit");
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "no-match-exit", now.minusSeconds(60), now.plusSeconds(3600)))));
+                new DestinationMappingRecord("123", List.of("no-match-exit"), now.minusSeconds(60),
+                        now.plusSeconds(3600)))));
         eventProcessor.processEvent(new ItemCreatedEvent("item-no-match", "No Match Item", 1.0, true,
                 "no-match-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "999"), now), true);
 
@@ -258,13 +271,15 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 "explicit-command-other-exit", "Other Exit Conveyor", 10.0, 1.0, 0.0, false, true);
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "explicit-command-exit", now.minusSeconds(60),
+                new DestinationMappingRecord("123", List.of("explicit-command-exit"), now.minusSeconds(60),
                         now.plusSeconds(3600)))));
         eventProcessor.processEvent(new ItemCreatedEvent("item-explicit-command", "Explicit Command Item", 1.0, true,
-                "explicit-command-start", PositionType.LOCATION, 0.0, "explicit-command-other-exit",
+                "explicit-command-start", PositionType.LOCATION, 0.0, List.of("explicit-command-other-exit"),
                 Map.of("flight_number", "123"), now), true);
 
-        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+        ItemDestinationEvent command = assertInstanceOf(ItemDestinationEvent.class,
+                amqpTemplate.receiveAndConvert("commands", 2_000));
+        assertEquals("explicit-command-other-exit", command.getLocationId());
     }
 
     @Test
@@ -273,7 +288,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         createMappedCommandTopology("without-broadcast-start", "without-broadcast-exit");
 
         eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                new DestinationMappingRecord("123", "without-broadcast-exit", now.minusSeconds(60),
+                new DestinationMappingRecord("123", List.of("without-broadcast-exit"), now.minusSeconds(60),
                         now.plusSeconds(3600)))));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-without-broadcast",
                 "Without Broadcast Item", 1.0, true, "without-broadcast-start", PositionType.LOCATION, 0.0,
@@ -290,7 +305,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
             createMappedCommandTopology("sim-command-start", "sim-command-exit");
             eventProcessor.processEventWithoutBroadcast(new MapDestinationsEvent("flight_number", List.of(
-                    new DestinationMappingRecord("123", "sim-command-exit", now.minusSeconds(60),
+                    new DestinationMappingRecord("123", List.of("sim-command-exit"), now.minusSeconds(60),
                             now.plusSeconds(3600)))));
             eventProcessor.processEvent(new ItemCreatedEvent("item-sim-command", "Simulation Command Item", 1.0, true,
                     "sim-command-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "123"), now), true);
@@ -310,13 +325,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
                 mapping("flight", DataType.STRING, OperatorType.EQUAL, "LH456", "replace-destination-b", now))));
 
-        assertTrue(destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).isEmpty());
-        assertEquals("replace-destination-b",
-                destinationMappingService.resolveDestination(Map.of("flight", "LH456"), now).orElseThrow());
+        assertTrue(destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now).isEmpty());
+        assertEquals(List.of("replace-destination-b"),
+                destinationMappingService.resolveDestinations(Map.of("flight", "LH456"), now));
 
         destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of()));
 
-        assertTrue(destinationMappingService.resolveDestination(Map.of("flight", "LH456"), now).isEmpty());
+        assertTrue(destinationMappingService.resolveDestinations(Map.of("flight", "LH456"), now).isEmpty());
         assertTrue(destinationMappingService.getDestinationMappings().isEmpty());
     }
 
@@ -331,17 +346,17 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 mapping("flight", DataType.STRING, OperatorType.EQUAL, "KL123", "mixed-destination-a", now),
                 mapping("priority", DataType.NUMBER, OperatorType.GREATER, "10", "mixed-destination-b", now))));
 
-        assertEquals("mixed-destination-a",
-                destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).orElseThrow());
-        assertEquals("mixed-destination-b",
-                destinationMappingService.resolveDestination(Map.of("priority", 11), now).orElseThrow());
+        assertEquals(List.of("mixed-destination-a"),
+                destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now));
+        assertEquals(List.of("mixed-destination-b"),
+                destinationMappingService.resolveDestinations(Map.of("priority", 11), now));
 
         destinationMappingService.saveMapDestinations(new MapDestinationsEvent("legacyField", List.of(
-                new DestinationMappingRecord("legacy-value", "legacy-destination", now.minusSeconds(60),
+                new DestinationMappingRecord("legacy-value", List.of("legacy-destination"), now.minusSeconds(60),
                         now.plusSeconds(3600)))));
 
-        assertEquals("legacy-destination",
-                destinationMappingService.resolveDestination(Map.of("legacyField", "legacy-value"), now).orElseThrow());
+        assertEquals(List.of("legacy-destination"),
+                destinationMappingService.resolveDestinations(Map.of("legacyField", "legacy-value"), now));
     }
 
     @Test
@@ -357,17 +372,17 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
                 new MapDestinationsEvent(null, List.of(
                         new DestinationMappingRecord("", DataType.STRING, OperatorType.EQUAL, "KL123",
-                                "valid-destination", now.minusSeconds(60), now.plusSeconds(3600))))));
+                                List.of("valid-destination"), now.minusSeconds(60), now.plusSeconds(3600))))));
 
         assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
                 new MapDestinationsEvent(null, List.of(
                         new DestinationMappingRecord("flight", DataType.STRING, OperatorType.EQUAL, "",
-                                "valid-destination", now.minusSeconds(60), now.plusSeconds(3600))))));
+                                List.of("valid-destination"), now.minusSeconds(60), now.plusSeconds(3600))))));
 
         assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
                 new MapDestinationsEvent(null, List.of(
                         new DestinationMappingRecord("flight", DataType.STRING, OperatorType.EQUAL, "KL123",
-                                "valid-destination", now.plusSeconds(3600), now.minusSeconds(60))))));
+                                List.of("valid-destination"), now.plusSeconds(3600), now.minusSeconds(60))))));
     }
 
     @Test
@@ -378,8 +393,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 new MapDestinationsEvent(null, List.of(
                         mapping("flight", DataType.STRING, OperatorType.EQUAL, "KL123", "missing-location", now))));
 
-        assertEquals("missing-location",
-                destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).orElseThrow());
+        assertEquals(List.of("missing-location"),
+                destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now));
     }
 
     @Test
@@ -395,14 +410,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                         "operator-destination-b", now),
                 mapping("fragile", DataType.BOOLEAN, OperatorType.EQUAL, "true", "operator-destination-c", now))));
 
-        assertEquals("operator-destination-a",
-                destinationMappingService.resolveDestination(Map.of("weight", "10.5"), now).orElseThrow());
-        assertEquals("operator-destination-b",
-                destinationMappingService.resolveDestination(Map.of("cutoff", "2025-12-31T23:59:59Z"), now)
-                        .orElseThrow());
-        assertEquals("operator-destination-c",
-                destinationMappingService.resolveDestination(Map.of("fragile", "true"), now).orElseThrow());
-        assertTrue(destinationMappingService.resolveDestination(Map.of("weight", "9"), now).isEmpty());
+        assertEquals(List.of("operator-destination-a"),
+                destinationMappingService.resolveDestinations(Map.of("weight", "10.5"), now));
+        assertEquals(List.of("operator-destination-b"),
+                destinationMappingService.resolveDestinations(Map.of("cutoff", "2025-12-31T23:59:59Z"), now));
+        assertEquals(List.of("operator-destination-c"),
+                destinationMappingService.resolveDestinations(Map.of("fragile", "true"), now));
+        assertTrue(destinationMappingService.resolveDestinations(Map.of("weight", "9"), now).isEmpty());
     }
 
     @Test
@@ -426,12 +440,58 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
                     mapping("flight", DataType.STRING, OperatorType.EQUAL, "KL123", "sim-destination", now))));
 
-            assertEquals("sim-destination",
-                    destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).orElseThrow());
+            assertEquals(List.of("sim-destination"),
+                    destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now));
         }
 
-        assertEquals("live-destination",
-                destinationMappingService.resolveDestination(Map.of("flight", "KL123"), now).orElseThrow());
+        assertEquals(List.of("live-destination"),
+                destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now));
+    }
+
+    @Test
+    void selectsFirstReachableExitAcrossOrderedDestinationsAndExits() {
+        Instant now = Instant.now();
+        createLocation("routing-start", "Start");
+        createLocation("routing-unreachable", "Unreachable");
+        createLocation("routing-reachable", "Reachable");
+        conveyorService.createConveyor("routing-conveyor", "routing-start", "routing-reachable",
+                "Reachable Conveyor", 10.0, 1.0, 0.0, true, true);
+
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("primary", List.of("routing-unreachable")),
+                new DestinationExitMappingRecord("secondary", List.of("routing-reachable")))));
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "routing-item", "Routing Item", 1.0, true, "routing-start", PositionType.LOCATION, 0.0,
+                List.of("primary", "secondary"), Map.of(), now));
+
+        var item = itemService.getItemById("routing-item");
+        assertEquals(List.of("primary", "secondary"), item.getDestinations());
+        assertEquals("routing-reachable", item.getSelectedExitId());
+        assertEquals(List.of("routing-start", "routing-reachable"), item.getPath());
+    }
+
+    @Test
+    void destinationExitMappingsReplaceClearValidateAndStaySimulationIsolated() {
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("live", List.of("exit-a", "exit-a", "exit-b")))));
+        assertEquals(List.of("exit-a", "exit-b"), destinationExitMappingService.getExits("live"));
+
+        assertThrows(IllegalArgumentException.class, () -> destinationExitMappingService.saveMappings(
+                new MapDestinationExitsEvent(List.of(
+                        new DestinationExitMappingRecord("duplicate", List.of("exit-a")),
+                        new DestinationExitMappingRecord("duplicate", List.of("exit-b"))))));
+
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                    new DestinationExitMappingRecord("live", List.of("sim-exit")))));
+            assertEquals(List.of("sim-exit"), destinationExitMappingService.getExits("live"));
+        }
+
+        assertEquals(List.of("exit-a", "exit-b"), destinationExitMappingService.getExits("live"));
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of()));
+        assertTrue(destinationExitMappingService.getMappings().isEmpty());
     }
 
     private void createLocation(String id, String name) {
@@ -461,7 +521,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     private DestinationMappingRecord mapping(String fieldName, DataType dataType, OperatorType operator, String value,
             String destination, Instant now) {
-        return new DestinationMappingRecord(fieldName, dataType, operator, value, destination, now.minusSeconds(60),
+        return new DestinationMappingRecord(fieldName, dataType, operator, value, List.of(destination),
+                now.minusSeconds(60),
                 now.plusSeconds(3600));
     }
 

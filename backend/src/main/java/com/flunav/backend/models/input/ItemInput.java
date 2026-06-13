@@ -16,7 +16,8 @@ public class ItemInput {
     private String locationId;
     private flunav.types.PositionType positionType;
     private Double progress;
-    private String destinationId;
+    private java.util.List<String> destinations;
+    private String selectedExitId;
     private java.util.List<String> path;
     private Map<String, Object> properties;
     private Instant timestamp;
@@ -32,7 +33,7 @@ public class ItemInput {
         this.locationId = event.getLocationId();
         this.positionType = event.getPositionType();
         this.progress = event.getProgress();
-        this.destinationId = event.getDestinationId();
+        this.destinations = event.getDestinations();
         this.properties = event.getProperties();
         this.timestamp = event.getTimestamp();
     }

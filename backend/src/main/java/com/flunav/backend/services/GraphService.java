@@ -140,7 +140,8 @@ public class GraphService {
                     type = PositionType.LOCATION;
 
                 Instant entryTime = rawItem.getEntryTime();
-                String destId = rawItem.getDestinationId();
+                List<String> destinations = rawItem.getDestinations();
+                String selectedExitId = rawItem.getSelectedExitId();
                 Double accDist = rawItem.getAccumulatedDistance();
 
                 if (positionId == null || entryTime == null)
@@ -149,7 +150,7 @@ public class GraphService {
                 List<String> path = rawItem.getPath();
 
                 // --- PATHFINDING (If missing) ---
-                if (path == null && destId != null) {
+                if (path == null && selectedExitId != null) {
                     String startNode = null;
                     if (type == PositionType.LOCATION) {
                         startNode = positionId;
@@ -158,7 +159,7 @@ public class GraphService {
                     }
 
                     if (startNode != null) {
-                        path = pathfindingService.calculateShortestPath(startNode, type, destId);
+                        path = pathfindingService.calculateShortestPath(startNode, type, selectedExitId);
                     }
                 }
 
@@ -168,7 +169,8 @@ public class GraphService {
                 if (simulatedItem != null) {
                     simulatedItem.setName(rawItem.getName());
                     simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
-                    simulatedItem.setDestinationId(destId);
+                    simulatedItem.setDestinations(destinations);
+                    simulatedItem.setSelectedExitId(selectedExitId);
                     simulatedItem.setPath(path);
                     activeItems.add(simulatedItem);
                 } else {

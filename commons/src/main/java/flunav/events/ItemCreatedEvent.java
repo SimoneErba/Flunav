@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -14,8 +15,7 @@ public class ItemCreatedEvent extends EntityEvent {
     private final String locationId;
     private final flunav.types.PositionType positionType;
     private final Double progress;
-    private final String destinationId;
-
+    private final List<String> destinations;
     private final Map<String, Object> properties;
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
@@ -30,9 +30,9 @@ public class ItemCreatedEvent extends EntityEvent {
     }
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
-            flunav.types.PositionType positionType, Double progress, String destinationId,
+            flunav.types.PositionType positionType, Double progress, List<String> destinations,
             Map<String, Object> properties) {
-        this(itemId, name, speed, active, locationId, positionType, progress, destinationId, properties, null);
+        this(itemId, name, speed, active, locationId, positionType, progress, destinations, properties, null);
     }
 
     @JsonCreator
@@ -44,7 +44,7 @@ public class ItemCreatedEvent extends EntityEvent {
             @JsonProperty("locationId") String locationId,
             @JsonProperty("positionType") flunav.types.PositionType positionType,
             @JsonProperty("progress") Double progress,
-            @JsonProperty("destinationId") String destinationId,
+            @JsonProperty("destinations") List<String> destinations,
             @JsonProperty("properties") Map<String, Object> properties,
             @JsonProperty("timestamp") Instant timestamp) {
         super(itemId, "ITEM_CREATED", timestamp);
@@ -53,7 +53,7 @@ public class ItemCreatedEvent extends EntityEvent {
         this.active = active;
         this.locationId = locationId;
         this.positionType = positionType;
-        this.destinationId = destinationId;
+        this.destinations = destinations;
         this.properties = properties;
         this.progress = progress;
     }

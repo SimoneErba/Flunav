@@ -27,7 +27,8 @@ public class ItemResponse {
     private Double progress;
 
     // --- NAVIGATION ---
-    private String destinationId;
+    private List<String> destinations;
+    private String selectedExitId;
     private List<String> path; // Ordered location IDs
     private String customColor;
 }

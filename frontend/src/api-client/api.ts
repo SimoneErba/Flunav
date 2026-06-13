@@ -492,10 +492,10 @@ export interface DestinationMappingRecord {
     'value'?: string;
     /**
      * 
-     * @type {string}
+     * @type {Array<string>}
      * @memberof DestinationMappingRecord
      */
-    'destination'?: string;
+    'destinations'?: Array<string>;
     /**
      * 
      * @type {string}
@@ -508,6 +508,16 @@ export interface DestinationMappingRecord {
      * @memberof DestinationMappingRecord
      */
     'validTo'?: string;
+}
+
+/**
+ * 
+ * @export
+ * @interface DestinationExitMappingRecord
+ */
+export interface DestinationExitMappingRecord {
+    'destination'?: string;
+    'exits'?: Array<string>;
 }
 
 /**
@@ -639,12 +649,8 @@ export interface Item {
      * @memberof Item
      */
     'entryTimestamp'?: string;
-    /**
-     * 
-     * @type {string}
-     * @memberof Item
-     */
-    'destinationId'?: string;
+    'destinations'?: Array<string>;
+    'selectedExitId'?: string;
     /**
      * 
      * @type {Array<string>}
@@ -714,6 +720,7 @@ export interface ItemInput {
      * @memberof ItemInput
      */
     'progress'?: number;
+    'destinations'?: Array<string>;
     /**
      * 
      * @type {{ [key: string]: object; }}
@@ -789,12 +796,8 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'progress'?: number;
-    /**
-     * 
-     * @type {string}
-     * @memberof ItemResponse
-     */
-    'destinationId'?: string;
+    'destinations'?: Array<string>;
+    'selectedExitId'?: string;
     /**
      * 
      * @type {Array<string>}
@@ -4937,6 +4940,40 @@ export class DestinationMappingControllerApi extends BaseAPI {
         return this.axios.put<Array<DestinationMappingRecord>>(
             `${this.basePath}/api/destination-mappings`,
             destinationMappingRecord,
+            {
+                ...this.configuration?.baseOptions,
+                ...options,
+                headers: {
+                    ...(this.configuration?.baseOptions?.headers || {}),
+                    ...(options?.headers || {}),
+                },
+            },
+        );
+    }
+}
+
+export class DestinationExitMappingControllerApi extends BaseAPI {
+    public getMappings(options?: RawAxiosRequestConfig) {
+        return this.axios.get<Array<DestinationExitMappingRecord>>(
+            `${this.basePath}/api/destination-exit-mappings`,
+            {
+                ...this.configuration?.baseOptions,
+                ...options,
+                headers: {
+                    ...(this.configuration?.baseOptions?.headers || {}),
+                    ...(options?.headers || {}),
+                },
+            },
+        );
+    }
+
+    public updateMappings(
+        destinationExitMappingRecord: Array<DestinationExitMappingRecord>,
+        options?: RawAxiosRequestConfig,
+    ) {
+        return this.axios.put<Array<DestinationExitMappingRecord>>(
+            `${this.basePath}/api/destination-exit-mappings`,
+            destinationExitMappingRecord,
             {
                 ...this.configuration?.baseOptions,
                 ...options,

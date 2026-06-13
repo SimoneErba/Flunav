@@ -32,7 +32,8 @@ export const waitForItem = async (page: Page, itemId: string) => {
 export const waitForItemDestinationAndPath = async (
   page: Page,
   itemId: string,
-  expectedDestinationId: string,
+  expectedDestinations: string[],
+  expectedSelectedExitId: string,
   expectedPath: string[],
 ) => {
   await expect
@@ -40,17 +41,21 @@ export const waitForItemDestinationAndPath = async (
       page.evaluate((id) => {
         const item = window.__graphTestApi!.getItem(id);
         return {
-          graphDestinationId: item.graphNode?.attributes.destinationId,
+          graphDestinations: item.graphNode?.attributes.destinations,
+          graphSelectedExitId: item.graphNode?.attributes.selectedExitId,
           graphPath: item.graphNode?.attributes.path,
-          activeDestinationId: item.activeItem?.destinationId,
+          activeDestinations: item.activeItem?.destinations,
+          activeSelectedExitId: item.activeItem?.selectedExitId,
           activePath: item.activeItem?.path,
         };
       }, itemId),
     )
     .toEqual({
-      graphDestinationId: expectedDestinationId,
+      graphDestinations: expectedDestinations,
+      graphSelectedExitId: expectedSelectedExitId,
       graphPath: expectedPath,
-      activeDestinationId: expectedDestinationId,
+      activeDestinations: expectedDestinations,
+      activeSelectedExitId: expectedSelectedExitId,
       activePath: expectedPath,
     });
 };

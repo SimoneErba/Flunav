@@ -138,7 +138,7 @@ public final class SimulatorUtils {
             payload.put("locationId", e.getLocationId());
             payload.put("positionType", e.getPositionType());
             payload.put("progress", e.getProgress());
-            payload.put("destinationId", e.getDestinationId());
+            payload.put("destinations", e.getDestinations());
             payload.put("properties", e.getProperties());
             payload.put("timestamp", e.getTimestamp());
             return payload;

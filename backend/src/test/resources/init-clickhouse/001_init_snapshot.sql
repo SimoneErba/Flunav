@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             currentEdgeId Nullable(String),
             entryTimestamp Nullable(String),
             progress Nullable(Float64),
-            destinationId Nullable(String),
+            destinations Array(String),
+            selectedExitId Nullable(String),
             path Variant(Array(String), Nothing),
             customColor Nullable(String)
         ))
@@ -90,7 +91,8 @@ ALTER TABLE default.snapshots
             currentEdgeId Nullable(String),
             entryTimestamp Nullable(String),
             progress Nullable(Float64),
-            destinationId Nullable(String),
+            destinations Array(String),
+            selectedExitId Nullable(String),
             path Variant(Array(String), Nothing),
             customColor Nullable(String)
         ))

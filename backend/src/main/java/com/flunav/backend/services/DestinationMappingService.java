@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Map;
@@ -56,7 +57,7 @@ public class DestinationMappingService {
                         record.getDataType(),
                         record.getOperator(),
                         record.getValue().trim(),
-                        record.getDestination().trim(),
+                        record.getDestinations(),
                         record.getValidFrom(),
                         record.getValidTo(),
                         event.getEventId(),
@@ -90,46 +91,42 @@ public class DestinationMappingService {
                         value.dataType(),
                         value.operator(),
                         value.value(),
-                        value.destination(),
+                        value.destinations(),
                         value.validFrom(),
                         value.validTo()))
                 .toList();
     }
 
-    public Optional<String> resolveDestination(Map<String, Object> properties, Instant now) {
+    public List<String> resolveDestinations(Map<String, Object> properties, Instant now) {
         if (properties == null || properties.isEmpty()) {
-            return Optional.empty();
+            return List.of();
         }
 
         Instant effectiveNow = (now != null) ? now : Instant.now();
         List<DestinationMappingValue> mappings = getStoredMappings();
         if (mappings.isEmpty()) {
-            return Optional.empty();
+            return List.of();
         }
 
-        String resolvedDestination = null;
+        LinkedHashSet<String> resolvedDestinations = new LinkedHashSet<>();
         for (DestinationMappingValue mapping : mappings) {
             if (effectiveNow.isBefore(mapping.validFrom()) || effectiveNow.isAfter(mapping.validTo())
                     || !applies(properties, mapping)) {
                 continue;
             }
 
-            if (resolvedDestination != null && !resolvedDestination.equals(mapping.destination())) {
-                logger.warn("Multiple destination mappings matched different destinations for fields in item properties");
-                return Optional.empty();
-            }
-            resolvedDestination = mapping.destination();
+            resolvedDestinations.addAll(mapping.destinations());
         }
 
-        return Optional.ofNullable(resolvedDestination);
+        return List.copyOf(resolvedDestinations);
     }
 
-    public Optional<String> resolveDestination(String fieldName, String fieldValue, Instant now) {
+    public List<String> resolveDestinations(String fieldName, String fieldValue, Instant now) {
         if (isBlank(fieldName) || isBlank(fieldValue)) {
-            return Optional.empty();
+            return List.of();
         }
 
-        return resolveDestination(Map.of(fieldName.trim(), fieldValue.trim()), now);
+        return resolveDestinations(Map.of(fieldName.trim(), fieldValue.trim()), now);
     }
 
     private List<DestinationMappingRecord> normalizeAndValidate(MapDestinationsEvent event) {
@@ -154,9 +151,7 @@ public class DestinationMappingService {
             if (isBlank(record.getValue())) {
                 throw new IllegalArgumentException("mapping value is required");
             }
-            if (isBlank(record.getDestination())) {
-                throw new IllegalArgumentException("mapping destination is required");
-            }
+            List<String> destinations = normalizeOrderedValues(record.getDestinations(), "mapping destinations");
             if (record.getValidFrom() == null || record.getValidTo() == null) {
                 throw new IllegalArgumentException("mapping validFrom and validTo are required");
             }
@@ -181,7 +176,7 @@ public class DestinationMappingService {
                     dataType,
                     operator,
                     record.getValue().trim(),
-                    record.getDestination().trim(),
+                    destinations,
                     record.getValidFrom(),
                     record.getValidTo()));
         }
@@ -258,12 +253,26 @@ public class DestinationMappingService {
         return value == null || value.isBlank();
     }
 
+    private List<String> normalizeOrderedValues(List<String> values, String fieldName) {
+        if (values == null || values.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " are required");
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String value : values) {
+            if (isBlank(value)) {
+                throw new IllegalArgumentException(fieldName + " must contain nonblank values");
+            }
+            normalized.add(value.trim());
+        }
+        return List.copyOf(normalized);
+    }
+
     public record DestinationMappingValue(
             String fieldName,
             DataType dataType,
             OperatorType operator,
             String value,
-            String destination,
+            List<String> destinations,
             Instant validFrom,
             Instant validTo,
             String sourceEventId,
@@ -274,7 +283,7 @@ public class DestinationMappingService {
                 @JsonProperty("dataType") DataType dataType,
                 @JsonProperty("operator") OperatorType operator,
                 @JsonProperty("value") String value,
-                @JsonProperty("destination") String destination,
+                @JsonProperty("destinations") List<String> destinations,
                 @JsonProperty("validFrom") Instant validFrom,
                 @JsonProperty("validTo") Instant validTo,
                 @JsonProperty("sourceEventId") String sourceEventId,
@@ -283,7 +292,7 @@ public class DestinationMappingService {
             this.dataType = dataType;
             this.operator = operator;
             this.value = value;
-            this.destination = destination;
+            this.destinations = destinations;
             this.validFrom = validFrom;
             this.validTo = validTo;
             this.sourceEventId = sourceEventId;

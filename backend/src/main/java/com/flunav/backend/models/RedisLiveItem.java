@@ -28,7 +28,8 @@ public class RedisLiveItem {
     private PositionType type; // Redis key: "ty"
     private Instant entryTime; // Redis key: "t"
     private double accumulatedDistance; // Redis key: "ad"
-    private String destinationId; // Redis key: "d"
+    private List<String> destinations; // Redis key: "ds"
+    private String selectedExitId; // Redis key: "d"
     private String name; // Redis key: "n"
     private List<String> path; // Redis key: "p"
 
@@ -46,8 +47,15 @@ public class RedisLiveItem {
             data.put("t", String.valueOf(entryTime.toEpochMilli()));
         data.put("ad", String.valueOf(accumulatedDistance));
 
-        if (destinationId != null)
-            data.put("d", destinationId);
+        if (destinations != null) {
+            try {
+                data.put("ds", objectMapper.writeValueAsString(destinations));
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize destinations for item {}: {}", id, destinations);
+            }
+        }
+        if (selectedExitId != null)
+            data.put("d", selectedExitId);
         if (name != null)
             data.put("n", name);
 
@@ -102,9 +110,18 @@ public class RedisLiveItem {
             }
         }
 
-        // 5. Simple Strings
+        // 5. Navigation and simple strings
+        String destinationsJson = hash.get("ds");
+        if (destinationsJson != null && !destinationsJson.isEmpty()) {
+            try {
+                builder.destinations(objectMapper.readValue(destinationsJson, new TypeReference<List<String>>() {
+                }));
+            } catch (Exception e) {
+                logger.warn("Failed to parse destinations JSON for item {}: {}", id, destinationsJson);
+            }
+        }
         if (hash.containsKey("d"))
-            builder.destinationId(hash.get("d"));
+            builder.selectedExitId(hash.get("d"));
         if (hash.containsKey("n"))
             builder.name(hash.get("n"));
 

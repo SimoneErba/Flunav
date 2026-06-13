@@ -68,6 +68,10 @@ public class HistoricalGraphBuilder {
                 eventsAfterTimestamp = snapshot.timestamp();
                 logger.info("Restoring state from snapshot taken at {}", eventsAfterTimestamp);
                 simulationService.updateBuildProgress(simulationId, 0.0, eventsAfterTimestamp);
+                for (DomainEvent mappingEvent : clickHouseService
+                        .getLatestDestinationMappingEventsBefore(eventsAfterTimestamp)) {
+                    eventProcessor.processEventWithoutBroadcast(mappingEvent);
+                }
                 restoreFromSnapshotData(snapshot.graphData());
             }
 
@@ -295,7 +299,8 @@ public class HistoricalGraphBuilder {
                         // In the simulation DB, we store these as properties on the Vertex
                         // because we don't have Redis here.
                         itemVertex.setProperty("currentEdgeId", itemData.getCurrentEdgeId());
-                        itemVertex.setProperty("destinationId", itemData.getDestinationId());
+                        itemVertex.setProperty("destinations", itemData.getDestinations());
+                        itemVertex.setProperty("selectedExitId", itemData.getSelectedExitId());
                         itemVertex.setProperty("locationId", itemData.getLocationId());
                         itemVertex.setProperty("path", itemData.getPath());
 
@@ -351,7 +356,8 @@ public class HistoricalGraphBuilder {
                     effectiveTimestamp,
                     accumulatedDistance,
                     itemData.getName(),
-                    itemData.getDestinationId(),
+                    itemData.getDestinations(),
+                    itemData.getSelectedExitId(),
                     itemData.getPath());
         }
     }

@@ -214,7 +214,8 @@ export const useGraphLiveEvents = (
                 properties: item.properties,
                 isActive: item.active,
                 customColor: item.customColor,
-                destinationId: item.destinationId,
+                destinations: item.destinations,
+                selectedExitId: item.selectedExitId,
                 path: item.path
             });
 
@@ -246,7 +247,8 @@ export const useGraphLiveEvents = (
                 entryTimestamp, 
                 progress: item.progress || 0,
                 customColor: item.customColor,
-                destinationId: item.destinationId,
+                destinations: item.destinations,
+                selectedExitId: item.selectedExitId,
                 path: item.path,
                 properties: item.properties
             });

@@ -288,6 +288,35 @@ public class ClickHouseService {
         }
     }
 
+    public List<DomainEvent> getLatestDestinationMappingEventsBefore(Instant timestamp) {
+        String query = """
+                SELECT data
+                FROM Events
+                WHERE event_type IN ('MAP_DESTINATIONS', 'MAP_DESTINATION_EXITS')
+                  AND timestamp_received <= {ts:DateTime64(3)}
+                ORDER BY timestamp_received DESC, timestamp_processed DESC
+                LIMIT 1 BY event_type
+                FORMAT JSONEachRow
+                """;
+        String formattedTimestamp = CLICKHOUSE_FORMATTER.format(timestamp);
+        List<DomainEvent> events = new ArrayList<>();
+        try (QueryResponse response = client.query(query, Map.of("ts", formattedTimestamp)).get();
+                InputStream inputStream = response.getInputStream()) {
+            var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
+            MappingIterator<Map<String, Object>> iterator = objectMapper.readerFor(mapType).readValues(inputStream);
+            while (iterator.hasNext()) {
+                DomainEvent event = objectMapper.convertValue(iterator.next().get("data"), DomainEvent.class);
+                if (!(event instanceof UnknownEvent)) {
+                    events.add(event);
+                }
+            }
+            events.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
+            return events;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to retrieve destination mapping state", e);
+        }
+    }
+
     /**
      * Executes a raw SQL query and returns the result as a List of Maps.
      * Useful for ad-hoc queries like state rehydration.

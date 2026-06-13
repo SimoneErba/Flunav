@@ -2,6 +2,7 @@ package com.flunav.backend.controllers;
 
 import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.services.DestinationMappingService;
+import com.flunav.backend.utils.ControllerHelper;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.MapDestinationsEvent;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/destination-mappings")
@@ -20,9 +22,13 @@ import java.util.List;
 public class DestinationMappingController {
 
     private final DestinationMappingService destinationMappingService;
+    private final ControllerHelper controllerHelper;
 
-    public DestinationMappingController(DestinationMappingService destinationMappingService) {
+    public DestinationMappingController(
+            DestinationMappingService destinationMappingService,
+            ControllerHelper controllerHelper) {
         this.destinationMappingService = destinationMappingService;
+        this.controllerHelper = controllerHelper;
     }
 
     @GetMapping
@@ -32,9 +38,9 @@ public class DestinationMappingController {
 
     @BlockInDemo
     @PutMapping
-    public ResponseEntity<List<DestinationMappingRecord>> updateDestinationMappings(
+    public CompletableFuture<ResponseEntity<List<DestinationMappingRecord>>> updateDestinationMappings(
             @RequestBody List<DestinationMappingRecord> mappings) {
-        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, mappings));
-        return ResponseEntity.ok(destinationMappingService.getDestinationMappings());
+        return controllerHelper.processAndLogEvent(new MapDestinationsEvent(null, mappings))
+                .thenApply(result -> ResponseEntity.ok(destinationMappingService.getDestinationMappings()));
     }
 }

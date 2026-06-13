@@ -63,6 +63,7 @@ public class EventProcessor {
     private final LocationService locationService;
     private final ItemMovementProcessor itemMovementProcessor;
     private final DestinationMappingService destinationMappingService;
+    private final DestinationExitMappingService destinationExitMappingService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -89,6 +90,7 @@ public class EventProcessor {
             TopologyProvider topologyProvider,
             ItemMovementProcessor itemMovementProcessor,
             DestinationMappingService destinationMappingService,
+            DestinationExitMappingService destinationExitMappingService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -109,6 +111,7 @@ public class EventProcessor {
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
         this.destinationMappingService = destinationMappingService;
+        this.destinationExitMappingService = destinationExitMappingService;
         this.manageLogic = manageLogic;
     }
 
@@ -185,11 +188,16 @@ public class EventProcessor {
             logProcessingStarted(shouldBroadcast);
 
             try {
-                if (simulationId == null) {
+                boolean persistAfterProcessing = event instanceof MapDestinationsEvent
+                        || event instanceof MapDestinationExitsEvent;
+                if (simulationId == null && !persistAfterProcessing) {
                     clickHouseService.saveEventAsync(event);
                 }
 
                 Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
+                if (simulationId == null && persistAfterProcessing) {
+                    clickHouseService.saveEventAsync(event);
+                }
                 logProcessingCompleted(shouldBroadcast, elapsedMillis(startedAt));
                 return resultMap;
             } catch (Exception e) {
@@ -293,7 +301,12 @@ public class EventProcessor {
 
                 case MapDestinationsEvent e -> {
                     destinationMappingService.saveMapDestinations(e);
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY", "fieldName", e.getFieldName());
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case MapDestinationExitsEvent e -> {
+                    destinationExitMappingService.saveMappings(e);
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
                 case ItemPositionChangedEvent e -> {
@@ -440,24 +453,31 @@ public class EventProcessor {
 
                 case ItemDestinationEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
+                    if (item == null) {
+                        throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
+                    }
+                    List<String> calculatedPath = item.getPositionId() == null
+                            ? List.of()
+                            : pathfindingService.calculateShortestPath(
+                                    item.getPositionId(),
+                                    item.getPositionType() != null ? item.getPositionType() : PositionType.LOCATION,
+                                    e.getLocationId());
 
-                    List<String> calculatedPath = pathfindingService.calculateShortestPath(
-                            item.getPositionId(),
-                            item.getPositionType(),
-                            e.getLocationId());
-
-                    item.setDestinationId(e.getLocationId());
+                    item.setSelectedExitId(e.getLocationId());
                     item.setPath(calculatedPath);
                     var oldEvent = itemMovementProcessor.getScheduledEvent(item.getId());
                     itemMovementProcessor.cancelScheduledEvent(item.getId());
-                    itemMovementProcessor
-                            .scheduleEvent(new ItemPositionChangedEvent(item.getId(), calculatedPath.getFirst(), 0.0,
-                                    oldEvent.getTimestamp()));
-                    itemService.fullUpdateItem(item);
+                    if (!calculatedPath.isEmpty() && oldEvent != null) {
+                        itemMovementProcessor.scheduleEvent(new ItemPositionChangedEvent(
+                                item.getId(), calculatedPath.getFirst(), 0.0, oldEvent.getTimestamp()));
+                    }
+                    itemService.updateItemRouting(
+                            item.getId(), item.getDestinations(), item.getSelectedExitId(), calculatedPath);
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(),
-                                Map.of("destination", e.getLocationId(), "path", calculatedPath)), e.getTimestamp());
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of(
+                                "selectedExitId", e.getLocationId(),
+                                "path", calculatedPath)), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -700,43 +720,41 @@ public class EventProcessor {
     }
 
     private AppliedDestination applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
-        String explicitDestinationId = normalizeDestination(item.getDestinationId());
-        boolean explicitDestination = explicitDestinationId != null;
-        String destinationId = explicitDestination
-                ? explicitDestinationId
-                : destinationMappingService.resolveDestination(item.getProperties(), timestamp).orElse(null);
-
-        if (destinationId == null) {
-            return AppliedDestination.none();
-        }
-
-        if (topologyProvider.getLocationById(destinationId) == null) {
-            logger.warn("Mapped destination does not exist destination={}", destinationId);
-            if (explicitDestination) {
-                item.setDestinationId(destinationId);
-                return new AppliedDestination(destinationId, false, true);
-            }
-            return AppliedDestination.none();
-        }
-
-        item.setDestinationId(destinationId);
-
+        List<String> explicitDestinations = normalizeDestinations(item.getDestinations());
+        boolean explicit = !explicitDestinations.isEmpty();
+        List<String> destinations = explicit
+                ? explicitDestinations
+                : destinationMappingService.resolveDestinations(item.getProperties(), timestamp);
+        item.setDestinations(destinations);
         if (item.getLocationId() == null) {
-            logger.warn("Cannot calculate destination path for item {} because locationId is missing", item.getId());
-            return new AppliedDestination(destinationId, !explicitDestination, true);
+            return new AppliedDestination(destinations, null, null, explicit);
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
-        List<String> calculatedPath = pathfindingService.calculateShortestPath(
-                item.getLocationId(),
-                positionType,
-                destinationId);
-
-        if (!calculatedPath.isEmpty()) {
-            item.setPath(calculatedPath);
+        // Ordered first-reachable selection is temporary; future routing should score all
+        // compatible exits by operational convenience such as capacity and congestion.
+        for (String destination : destinations) {
+            List<String> mappedExits = destinationExitMappingService.getExits(destination);
+            List<String> candidateExits = mappedExits.isEmpty()
+                    && topologyProvider.getLocationById(destination) != null
+                            ? List.of(destination)
+                            : mappedExits;
+            for (String exitId : candidateExits) {
+                if (topologyProvider.getLocationById(exitId) == null) {
+                    continue;
+                }
+                List<String> path = pathfindingService.calculateShortestPath(
+                        item.getLocationId(), positionType, exitId);
+                if (!path.isEmpty()) {
+                    item.setSelectedExitId(exitId);
+                    item.setPath(path);
+                    return new AppliedDestination(destinations, exitId, path, explicit);
+                }
+            }
         }
-
-        return new AppliedDestination(destinationId, !explicitDestination, true);
+        item.setSelectedExitId(null);
+        item.setPath(null);
+        return new AppliedDestination(destinations, null, null, explicit);
     }
 
     private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
@@ -744,32 +762,38 @@ public class EventProcessor {
         if (!manageLogic || !shouldBroadcast || DatabaseContextHolder.getSimulationId() != null) {
             return;
         }
-        if (!appliedDestination.fromMapping() || !appliedDestination.applied()) {
-            return;
-        }
-        if (!Objects.equals(item.getDestinationId(), appliedDestination.destinationId())) {
+        if (appliedDestination.selectedExitId() == null
+                || !Objects.equals(item.getSelectedExitId(), appliedDestination.selectedExitId())) {
             return;
         }
 
         try {
             amqpTemplate.convertAndSend(commandsQueue,
-                    new ItemDestinationEvent(event.getEntityId(), appliedDestination.destinationId(),
+                    new ItemDestinationEvent(event.getEntityId(), appliedDestination.selectedExitId(),
                             event.getTimestamp()));
         } catch (Exception e) {
             logger.error("Failed to publish destination command for item {}", event.getEntityId(), e);
         }
     }
 
-    private String normalizeDestination(String destinationId) {
-        if (destinationId == null || destinationId.isBlank()) {
-            return null;
+    private List<String> normalizeDestinations(List<String> destinations) {
+        if (destinations == null || destinations.isEmpty()) {
+            return List.of();
         }
-        return destinationId.trim();
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String destination : destinations) {
+            if (destination == null || destination.isBlank()) {
+                throw new IllegalArgumentException("destinations must contain nonblank values");
+            }
+            normalized.add(destination.trim());
+        }
+        return List.copyOf(normalized);
     }
 
-    private record AppliedDestination(String destinationId, boolean fromMapping, boolean applied) {
-        private static AppliedDestination none() {
-            return new AppliedDestination(null, false, false);
-        }
+    private record AppliedDestination(
+            List<String> destinations,
+            String selectedExitId,
+            List<String> path,
+            boolean explicit) {
     }
 }

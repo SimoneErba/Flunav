@@ -1,4 +1,5 @@
 import { test } from "./fixtures";
+import { expect } from "@playwright/test";
 import {
   activateConveyor,
   createConveyor,
@@ -9,6 +10,7 @@ import {
   seedMovingItemGraph,
   uniqueE2eId,
   updateDestinationMappings,
+  updateDestinationExitMappings,
   updateConveyorSpeed,
 } from "./helpers/api";
 import { AuthSession, installAuthSession, loginAsSuperadmin } from "./helpers/auth";
@@ -41,6 +43,7 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async ({ request }) => {
   await updateDestinationMappings(request, backendUrl, session, []);
+  await updateDestinationExitMappings(request, backendUrl, session, []);
 });
 
 test("websocket-created graph entities appear and animate without reload", async ({ page, request }) => {
@@ -93,6 +96,7 @@ test("websocket-created mapped item exposes destination and path without reload"
   const id = uniqueE2eId("ws-destination");
   const sourceId = `${id}-source`;
   const destinationId = `${id}-destination`;
+  const logicalDestination = `${id}-logical-destination`;
   const conveyorId = `${id}-conveyor`;
   const itemId = `${id}-item`;
   const flightNumber = `${id}-flight`;
@@ -132,9 +136,15 @@ test("websocket-created mapped item exposes destination and path without reload"
       dataType: "STRING",
       operator: "EQUAL",
       value: flightNumber,
-      destination: destinationId,
+      destinations: [logicalDestination],
       validFrom: new Date(now - 60_000).toISOString(),
       validTo: new Date(now + 3_600_000).toISOString(),
+    },
+  ]);
+  await updateDestinationExitMappings(request, backendUrl, session, [
+    {
+      destination: logicalDestination,
+      exits: [destinationId],
     },
   ]);
 
@@ -147,7 +157,30 @@ test("websocket-created mapped item exposes destination and path without reload"
   });
 
   await waitForItem(page, itemId);
-  await waitForItemDestinationAndPath(page, itemId, destinationId, [sourceId, destinationId]);
+  await waitForItemDestinationAndPath(
+    page,
+    itemId,
+    [logicalDestination],
+    destinationId,
+    [sourceId, destinationId],
+  );
+});
+
+test("admin imports and persists destination exit JSON-array CSV", async ({ page, request }) => {
+  const destination = "e2e-csv-destination";
+  const exits = ["e2e-csv-exit-a", "e2e-csv-exit-b"];
+
+  await page.goto("/admin/destination-mappings");
+  const section = page.getByRole("heading", { name: "Destinations To Exits" }).locator("xpath=ancestor::section");
+  await section.locator('input[type="file"]').setInputFiles("e2e/fixtures/destination-exits.csv");
+  await section.getByRole("button", { name: "Save" }).click();
+
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/destination-exit-mappings`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    return response.json();
+  }).toEqual([{ destination, exits }]);
 });
 
 test("stop condition freezes moving item", async ({ page, request }) => {

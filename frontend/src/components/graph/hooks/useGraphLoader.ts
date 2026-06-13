@@ -109,6 +109,7 @@ export const useGraphLoader = (
                 color: item.customColor || "#FF0000",
                 type: "square", id: item.id, isItem: true,
                 path: item.path, properties: item.properties,
+                destinations: item.destinations, selectedExitId: item.selectedExitId,
                 isActive: item.active, customColor: item.customColor,
             });
         });

@@ -116,7 +116,8 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
         item.setActive(true);
         item.setLocationId(pathA);
         item.setPositionType(PositionType.LOCATION);
-        item.setDestinationId(pathC);
+        item.setDestinations(List.of("path-destination"));
+        item.setSelectedExitId(pathC);
         item.setProperties(Map.of());
         item.setTimestamp(Instant.now());
         itemService.createItem(item);
@@ -137,7 +138,7 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
 
         assertEquals(200, response.getStatus());
         assertEquals(List.of(pathA, pathB, pathC), itemService.getItemById(itemId).getPath());
-        assertEquals(pathC, itemService.getItemById(itemId).getDestinationId());
+        assertEquals(pathC, itemService.getItemById(itemId).getSelectedExitId());
         assertEquals(List.of(pathA, pathB, pathC),
                 graphService.getGraphData().getItems().getFirst().getPath());
 
@@ -161,7 +162,7 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
 
         assertEquals(200, response.getStatus());
         assertEquals(List.of(pathA, pathB), liveItemRepository.getItemState(itemId).getPath());
-        assertEquals(pathC, liveItemRepository.getItemState(itemId).getDestinationId());
+        assertEquals(pathC, liveItemRepository.getItemState(itemId).getSelectedExitId());
     }
 
     @Test
@@ -175,7 +176,7 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
         assertEquals(List.of(), liveItemRepository.getItemState(itemId).getPath());
         assertEquals(List.of(), itemService.getItemById(itemId).getPath());
         assertEquals(List.of(), graphService.getGraphData().getItems().getFirst().getPath());
-        assertEquals(pathC, itemService.getItemById(itemId).getDestinationId());
+        assertEquals(pathC, itemService.getItemById(itemId).getSelectedExitId());
     }
 
     @Test

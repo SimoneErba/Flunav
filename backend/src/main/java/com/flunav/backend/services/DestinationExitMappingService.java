@@ -1,0 +1,99 @@
+package com.flunav.backend.services;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flunav.backend.context.DatabaseContextHolder;
+import flunav.events.DestinationExitMappingRecord;
+import flunav.events.MapDestinationExitsEvent;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+@Service
+public class DestinationExitMappingService {
+    private static final String TABLE_KEY = "destination_exit_map:records";
+
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
+
+    public DestinationExitMappingService(StringRedisTemplate redis, ObjectMapper objectMapper) {
+        this.redis = redis;
+        this.objectMapper = objectMapper;
+    }
+
+    public void saveMappings(MapDestinationExitsEvent event) {
+        List<DestinationExitMappingRecord> mappings = normalizeAndValidate(event);
+        if (mappings.isEmpty()) {
+            redis.delete(tableKey());
+            return;
+        }
+        try {
+            redis.opsForValue().set(tableKey(), objectMapper.writeValueAsString(mappings));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to serialize destination exit mappings", e);
+        }
+    }
+
+    public List<DestinationExitMappingRecord> getMappings() {
+        String json = redis.opsForValue().get(tableKey());
+        if (json == null) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<DestinationExitMappingRecord>>() {
+            });
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to deserialize destination exit mappings", e);
+        }
+    }
+
+    public List<String> getExits(String destination) {
+        if (destination == null) {
+            return List.of();
+        }
+        return getMappings().stream()
+                .filter(mapping -> destination.equals(mapping.getDestination()))
+                .findFirst()
+                .map(DestinationExitMappingRecord::getExits)
+                .orElse(List.of());
+    }
+
+    private List<DestinationExitMappingRecord> normalizeAndValidate(MapDestinationExitsEvent event) {
+        if (event == null || event.getMappings() == null) {
+            throw new IllegalArgumentException("mappings are required");
+        }
+        Set<String> destinations = new HashSet<>();
+        List<DestinationExitMappingRecord> normalized = new ArrayList<>();
+        for (DestinationExitMappingRecord mapping : event.getMappings()) {
+            if (mapping == null || mapping.getDestination() == null || mapping.getDestination().isBlank()) {
+                throw new IllegalArgumentException("destination is required");
+            }
+            String destination = mapping.getDestination().trim();
+            if (!destinations.add(destination)) {
+                throw new IllegalArgumentException("duplicate destination mapping row");
+            }
+            if (mapping.getExits() == null || mapping.getExits().isEmpty()) {
+                throw new IllegalArgumentException("exits are required");
+            }
+            LinkedHashSet<String> exits = new LinkedHashSet<>();
+            for (String exit : mapping.getExits()) {
+                if (exit == null || exit.isBlank()) {
+                    throw new IllegalArgumentException("exits must contain nonblank values");
+                }
+                exits.add(exit.trim());
+            }
+            normalized.add(new DestinationExitMappingRecord(destination, List.copyOf(exits)));
+        }
+        return normalized;
+    }
+
+    private String tableKey() {
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        return simulationId == null ? TABLE_KEY : "sim:" + simulationId + ":" + TABLE_KEY;
+    }
+}

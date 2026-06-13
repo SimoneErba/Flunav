@@ -32,7 +32,10 @@ public class Item {
     private Instant entryTimestamp;
 
     @Setter
-    private String destinationId;
+    private List<String> destinations;
+
+    @Setter
+    private String selectedExitId;
 
     @Setter
     private List<String> path;

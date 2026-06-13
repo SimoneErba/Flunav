@@ -35,7 +35,8 @@ public class LiveItemRepository {
     // --- WRITE OPERATIONS ---
 
     public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime,
-            double accumulatedDistance, String name, String destId, List<String> path) {
+            double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
+            List<String> path) {
 
         // Create the object
         RedisLiveItem item = RedisLiveItem.builder()
@@ -45,7 +46,8 @@ public class LiveItemRepository {
                 .entryTime(entryTime)
                 .accumulatedDistance(accumulatedDistance)
                 .name(name)
-                .destinationId(destId)
+                .destinations(destinations)
+                .selectedExitId(selectedExitId)
                 .path(path)
                 .build();
 
@@ -106,14 +108,18 @@ public class LiveItemRepository {
         redis.opsForHash().put(itemKey, "n", name);
     }
 
-    public void updateDestinationAndPath(String itemId, String destinationId, List<String> path) {
+    public void updateRouting(String itemId, List<String> destinations, String selectedExitId, List<String> path) {
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
 
-        if (destinationId != null) {
-            updates.put("d", destinationId);
+        try {
+            updates.put("ds", objectMapper.writeValueAsString(destinations != null ? destinations : List.of()));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialize destinations for item " + itemId, e);
         }
-
+        if (selectedExitId != null) {
+            updates.put("d", selectedExitId);
+        }
         if (path != null) {
             try {
                 updates.put("p", objectMapper.writeValueAsString(path));
@@ -124,6 +130,12 @@ public class LiveItemRepository {
 
         if (!updates.isEmpty()) {
             redis.opsForHash().putAll(itemKey, updates);
+        }
+        if (selectedExitId == null) {
+            redis.opsForHash().delete(itemKey, "d");
+        }
+        if (path == null) {
+            redis.opsForHash().delete(itemKey, "p");
         }
     }
 

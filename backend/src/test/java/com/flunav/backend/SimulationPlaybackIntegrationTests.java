@@ -407,7 +407,7 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         Instant itemCreatedAt = Instant.now();
         clickHouseService.saveEventAsync(new ItemCreatedEvent(
                 "empty-path-item", "Empty Path Item", 1.0, true, "empty-path-start", PositionType.LOCATION,
-                0.0, "empty-path-end", new HashMap<>(), itemCreatedAt));
+                0.0, List.of("empty-path-end"), new HashMap<>(), itemCreatedAt));
         Thread.sleep(5);
         Instant pathChangedAt = Instant.now();
         clickHouseService.saveEventAsync(new ItemPathChangedEvent("empty-path-item", List.of(), pathChangedAt));
@@ -418,7 +418,8 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         waitForStatus("sim-empty-path", SimulationStatus.READY);
 
         ItemResponse item = getSimulationItem("sim-empty-path", restorePoint, "empty-path-item").orElseThrow();
-        assertEquals("empty-path-end", item.getDestinationId());
+        assertEquals(List.of("empty-path-end"), item.getDestinations());
+        assertEquals("empty-path-end", item.getSelectedExitId());
         assertEquals(List.of(), item.getPath());
     }
 

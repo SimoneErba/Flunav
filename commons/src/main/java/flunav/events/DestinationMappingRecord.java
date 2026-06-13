@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.List;
 
 import flunav.types.DataType;
 import flunav.types.OperatorType;
@@ -16,7 +17,7 @@ public class DestinationMappingRecord {
     private final DataType dataType;
     private final OperatorType operator;
     private final String value;
-    private final String destination;
+    private final List<String> destinations;
     private final Instant validFrom;
     private final Instant validTo;
 
@@ -26,23 +27,23 @@ public class DestinationMappingRecord {
             @JsonProperty("dataType") DataType dataType,
             @JsonProperty("operator") OperatorType operator,
             @JsonProperty("value") String value,
-            @JsonProperty("destination") String destination,
+            @JsonProperty("destinations") List<String> destinations,
             @JsonProperty("validFrom") Instant validFrom,
             @JsonProperty("validTo") Instant validTo) {
         this.fieldName = fieldName;
         this.dataType = dataType;
         this.operator = operator;
         this.value = value;
-        this.destination = destination;
+        this.destinations = destinations;
         this.validFrom = validFrom;
         this.validTo = validTo;
     }
 
     public DestinationMappingRecord(
             String value,
-            String destination,
+            List<String> destinations,
             Instant validFrom,
             Instant validTo) {
-        this(null, null, null, value, destination, validFrom, validTo);
+        this(null, null, null, value, destinations, validFrom, validTo);
     }
 }

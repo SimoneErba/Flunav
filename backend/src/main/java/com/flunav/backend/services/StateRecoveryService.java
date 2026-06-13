@@ -57,6 +57,10 @@ public class StateRecoveryService {
             logger.info("Restoring live state from snapshot taken at {}", snapshot.timestamp());
 
             liveItemRepository.deleteAllItems();
+            for (DomainEvent mappingEvent : clickHouseService
+                    .getLatestDestinationMappingEventsBefore(snapshot.timestamp())) {
+                eventProcessor.processEventWithoutBroadcast(mappingEvent);
+            }
             historicalGraphBuilder.restoreFromSnapshotData(snapshot.graphData());
 
             List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(snapshot.timestamp(), restorePoint);

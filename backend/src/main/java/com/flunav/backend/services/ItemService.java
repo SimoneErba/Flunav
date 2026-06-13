@@ -89,7 +89,8 @@ public class ItemService {
                 Instant time = state.getEntryTime();
                 Double dist = state.getAccumulatedDistance();
                 item.updatePosition(posId, type, time, dist);
-                item.setDestinationId(state.getDestinationId());
+                item.setDestinations(state.getDestinations());
+                item.setSelectedExitId(state.getSelectedExitId());
                 item.setPath(state.getPath());
             }
         }
@@ -120,7 +121,8 @@ public class ItemService {
             Double dist = redisState.getAccumulatedDistance();
             item.updatePosition(redisState.getPositionId(), type, time, dist);
 
-            item.setDestinationId(redisState.getDestinationId());
+            item.setDestinations(redisState.getDestinations());
+            item.setSelectedExitId(redisState.getSelectedExitId());
             item.setPath(redisState.getPath());
         }
 
@@ -168,7 +170,8 @@ public class ItemService {
                         entryTime,
                         initialDistance,
                         itemInput.getName(),
-                        itemInput.getDestinationId(),
+                        itemInput.getDestinations(),
+                        itemInput.getSelectedExitId(),
                         itemInput.getPath());
             });
         } catch (DuplicateItemException e) {
@@ -190,8 +193,8 @@ public class ItemService {
         redisRepository.updatePosition(itemId, positionId, type, timestamp, offset, path);
     }
 
-    public void updateItemDestinationAndPath(String itemId, String destinationId, List<String> path) {
-        redisRepository.updateDestinationAndPath(itemId, destinationId, path);
+    public void updateItemRouting(String itemId, List<String> destinations, String selectedExitId, List<String> path) {
+        redisRepository.updateRouting(itemId, destinations, selectedExitId, path);
     }
 
     public void updateItemPath(String itemId, List<String> path) {

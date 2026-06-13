@@ -33,6 +33,7 @@ export type ItemSeed = {
   progress?: number;
   timestamp?: string;
   properties?: Record<string, unknown>;
+  destinations?: string[];
 };
 
 export type DestinationMappingSeed = {
@@ -40,9 +41,14 @@ export type DestinationMappingSeed = {
   dataType: "STRING" | "NUMBER" | "BOOLEAN" | "DATETIME";
   operator: "EQUAL" | "LESSER" | "GREATER";
   value: string;
-  destination: string;
+  destinations: string[];
   validFrom: string;
   validTo: string;
+};
+
+export type DestinationExitMappingSeed = {
+  destination: string;
+  exits: string[];
 };
 
 export type SeededMovingItemGraph = {
@@ -117,6 +123,7 @@ export const createItem = async (
       positionType: item.positionType ?? "CONVEYOR",
       progress: item.progress ?? 0,
       properties: item.properties ?? {},
+      destinations: item.destinations,
       timestamp: item.timestamp ?? new Date().toISOString(),
     },
   });
@@ -130,6 +137,19 @@ export const updateDestinationMappings = async (
   mappings: DestinationMappingSeed[],
 ) => {
   const response = await request.put(`${baseUrl}/api/destination-mappings`, {
+    headers: authHeaders(session),
+    data: mappings,
+  });
+  expect(response.ok()).toBeTruthy();
+};
+
+export const updateDestinationExitMappings = async (
+  request: APIRequestContext,
+  baseUrl: string,
+  session: AuthSession,
+  mappings: DestinationExitMappingSeed[],
+) => {
+  const response = await request.put(`${baseUrl}/api/destination-exit-mappings`, {
     headers: authHeaders(session),
     data: mappings,
   });
