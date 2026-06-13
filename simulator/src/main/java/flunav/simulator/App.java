@@ -7,7 +7,8 @@ public class App {
     public static void main(String[] args) {
         if (args.length == 0) {
             SimulatorUtils.logger.severe(
-                    "Please specify a simulation to run. Usage: java App <line|loop|multi|large|perf|future|long|future-long>");
+                    "Please specify a simulation to run. Usage: java App "
+                            + "<line|loop|multi|large|perf|future|sorting-hub|hub|airport-baggage|airport>");
             return;
         }
 
@@ -52,6 +53,16 @@ public class App {
                 case "future-long":
                     SimulatorUtils.logger.info("--- Selected: FUTURE LONG CONVEYOR Simulation ---");
                     simulation = new FutureLongConveyorSimulation();
+                    break;
+                case "sorting-hub":
+                case "hub":
+                    SimulatorUtils.logger.info("--- Selected: REALISTIC SORTING HUB Simulation ---");
+                    simulation = new SortingHubSimulation();
+                    break;
+                case "airport-baggage":
+                case "airport":
+                    SimulatorUtils.logger.info("--- Selected: AIRPORT BAGGAGE Simulation ---");
+                    simulation = new AirportBaggageSimulation();
                     break;
                 default:
                     SimulatorUtils.logger.severe("Unknown simulation type: " + simulationType);

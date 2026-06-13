@@ -809,6 +809,19 @@ export interface ItemResponse {
     'customColor'?: string;
 }
 /**
+ *
+ * @export
+ * @interface PathUpdateRequest
+ */
+export interface PathUpdateRequest {
+    /**
+     *
+     * @type {Array<string>}
+     * @memberof PathUpdateRequest
+     */
+    'path': Array<string>;
+}
+/**
  * 
  * @export
  * @interface LengthUpdateRequest
@@ -2739,6 +2752,40 @@ export const ItemControllerApiAxiosParamCreator = function (configuration?: Conf
                 options: localVarRequestOptions,
             };
         },
+        /**
+         *
+         * @param {string} id
+         * @param {PathUpdateRequest} pathUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateItemPath: async (id: string, pathUpdateRequest: PathUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            assertParamExists('updateItemPath', 'id', id)
+            assertParamExists('updateItemPath', 'pathUpdateRequest', pathUpdateRequest)
+            const localVarPath = `/api/items/{id}/path`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(pathUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
     }
 };
 
@@ -2809,6 +2856,19 @@ export const ItemControllerApiFp = function(configuration?: Configuration) {
             const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItem']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
+        /**
+         *
+         * @param {string} id
+         * @param {PathUpdateRequest} pathUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateItemPath(id: string, pathUpdateRequest: PathUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateItemPath(id, pathUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ItemControllerApi.updateItemPath']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
     }
 };
 
@@ -2863,6 +2923,16 @@ export const ItemControllerApiFactory = function (configuration?: Configuration,
          */
         updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig): AxiosPromise<void> {
             return localVarFp.updateItem(id, requestBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {PathUpdateRequest} pathUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateItemPath(id: string, pathUpdateRequest: PathUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.updateItemPath(id, pathUpdateRequest, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -2927,6 +2997,18 @@ export class ItemControllerApi extends BaseAPI {
      */
     public updateItem(id: string, requestBody: { [key: string]: object; }, options?: RawAxiosRequestConfig) {
         return ItemControllerApiFp(this.configuration).updateItem(id, requestBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {PathUpdateRequest} pathUpdateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ItemControllerApi
+     */
+    public updateItemPath(id: string, pathUpdateRequest: PathUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ItemControllerApiFp(this.configuration).updateItemPath(id, pathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

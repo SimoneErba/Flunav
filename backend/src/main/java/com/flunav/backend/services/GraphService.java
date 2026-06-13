@@ -149,7 +149,7 @@ public class GraphService {
                 List<String> path = rawItem.getPath();
 
                 // --- PATHFINDING (If missing) ---
-                if ((path == null || path.isEmpty()) && destId != null) {
+                if (path == null && destId != null) {
                     String startNode = null;
                     if (type == PositionType.LOCATION) {
                         startNode = positionId;

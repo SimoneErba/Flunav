@@ -462,6 +462,15 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case ItemPathChangedEvent e -> {
+                    itemService.updateItemPath(e.getEntityId(), e.getPath());
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastItemUpdated(
+                                new UpdateModel(e.getEntityId(), Map.of("path", e.getPath())), e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 // --- LOCATION EVENTS (Nodes) ---
 
                 case LocationCreatedEvent e -> {

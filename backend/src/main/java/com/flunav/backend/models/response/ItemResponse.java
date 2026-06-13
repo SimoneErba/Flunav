@@ -28,6 +28,6 @@ public class ItemResponse {
 
     // --- NAVIGATION ---
     private String destinationId;
-    private List<String> path; // List of Edge IDs
+    private List<String> path; // Ordered location IDs
     private String customColor;
 }

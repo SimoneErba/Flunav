@@ -11,12 +11,14 @@ import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.controllers.LocationController.PropertyUpdateRequest;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.input.ItemInput;
+import com.flunav.backend.models.input.PathUpdateRequest;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.utils.ControllerHelper;
 
 import flunav.events.DomainEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
+import flunav.events.ItemPathChangedEvent;
 import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.events.ItemRenamedEvent;
 
@@ -109,8 +111,12 @@ public class ItemController {
                 }
             }
 
+            if (updates.containsKey("path")) {
+                events.add(new ItemPathChangedEvent(id, validatePathValue(updates.get("path"))));
+            }
+
         } catch (Exception e) {
-            logger.error("An unexpected error occurred during payload validation for location {}", id, e);
+            logger.warn("Item update validation failed for {}: {}", id, e.getMessage());
             return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
         }
 
@@ -135,6 +141,35 @@ public class ItemController {
                             ex.getCause());
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build();
                 });
+    }
+
+    @BlockInDemo
+    @PutMapping("/{id}/path")
+    public CompletableFuture<ResponseEntity<Void>> updateItemPath(
+            @PathVariable String id,
+            @RequestBody PathUpdateRequest request) {
+        final List<String> path;
+        try {
+            path = validatePathValue(request.path());
+        } catch (Exception e) {
+            logger.warn("Item path validation failed for {}: {}", id, e.getMessage());
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+        }
+
+        return eventProcessorHelper.processAndLogEvent(new ItemPathChangedEvent(id, path))
+                .thenApply(result -> ResponseEntity.ok().<Void>build())
+                .exceptionally(ex -> {
+                    logger.error("Error updating path for item {}", id, ex.getCause());
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build();
+                });
+    }
+
+    private List<String> validatePathValue(Object value) {
+        if (!(value instanceof List<?> rawPath)
+                || rawPath.stream().anyMatch(entry -> !(entry instanceof String))) {
+            throw new IllegalArgumentException("Path must be a list of strings.");
+        }
+        return itemService.validatePath(rawPath.stream().map(String.class::cast).toList());
     }
 
     @BlockInDemo

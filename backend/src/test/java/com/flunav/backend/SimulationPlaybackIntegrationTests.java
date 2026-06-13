@@ -16,6 +16,7 @@ import com.flunav.backend.test.SimulationTestHarness;
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemPathChangedEvent;
 import flunav.events.LocationCreatedEvent;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
@@ -105,6 +106,7 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         stopAndDestroy("sim-present-fastforward");
         stopAndDestroy("sim-future-clickhouse");
         stopAndDestroy("sim-clock");
+        stopAndDestroy("sim-empty-path");
         stopAndDestroy("sim-reschedule-speed");
         stopAndDestroy("sim-ready-speed");
         stopAndDestroy("sim-paused-speed");
@@ -387,6 +389,37 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         assertEquals("future-state-end", item.getLocationId(),
                 "Future simulation should project item state at the requested future timestamp");
         assertTrue(item.getProgress() >= 0.99, "Item should have completed conveyor travel in projected future state");
+    }
+
+    @Test
+    void explicitEmptyPathSurvivesHistoricalReplayWithoutShortestPathRegeneration() throws Exception {
+        clickHouseService.saveEventAsync(new LocationCreatedEvent(
+                "empty-path-start", "Start", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new LocationCreatedEvent(
+                "empty-path-end", "End", true, 1.0, 1.0, LocationType.GENERIC, 100, new HashMap<>()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new ConnectionCreatedEvent(
+                "empty-path-conveyor", "empty-path-start", "empty-path-end", 10.0, 1.0, 0.0, null, true,
+                "Empty Path Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()));
+        Thread.sleep(5);
+
+        Instant itemCreatedAt = Instant.now();
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "empty-path-item", "Empty Path Item", 1.0, true, "empty-path-start", PositionType.LOCATION,
+                0.0, "empty-path-end", new HashMap<>(), itemCreatedAt));
+        Thread.sleep(5);
+        Instant pathChangedAt = Instant.now();
+        clickHouseService.saveEventAsync(new ItemPathChangedEvent("empty-path-item", List.of(), pathChangedAt));
+        clickHouseService.flushEvents();
+
+        Instant restorePoint = pathChangedAt.plusMillis(100);
+        simulationService.getOrCreateSimulation("sim-empty-path", restorePoint);
+        waitForStatus("sim-empty-path", SimulationStatus.READY);
+
+        ItemResponse item = getSimulationItem("sim-empty-path", restorePoint, "empty-path-item").orElseThrow();
+        assertEquals("empty-path-end", item.getDestinationId());
+        assertEquals(List.of(), item.getPath());
     }
 
     @Test

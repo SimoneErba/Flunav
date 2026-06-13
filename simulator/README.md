@@ -1,27 +1,46 @@
-# Installation
- 
-remeber to "mvn clean install" on the commons
+# Flumen Simulator
 
-mvn exec:java -Dexec.mainClass="flunav.simulator.App"
+Install the shared event artifact before building or running the simulator:
 
+```bash
+mvn -f ../commons/pom.xml install
+mvn package
+```
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="line"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="line"
+Run a scenario through RabbitMQ:
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="loop"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="loop"
+```bash
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="line"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="loop"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="multi"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="large"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="stress"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="future"
+```
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="multi"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="multi"
+The realistic routing scenarios are RabbitMQ-only:
 
+```bash
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="sorting-hub"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="airport-baggage"
+```
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="large"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="large"
+Aliases:
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="stress"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="stress"
+- `hub` selects `sorting-hub`.
+- `airport` selects `airport-baggage`.
+- `long` and `future-long` select `future`.
+- `performance` and `perf` select `stress`.
 
-SIMULATION_MODE="rabbit" mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="future"
-SIMULATION_MODE="rabbit" SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass="flunav.simulator.App" -Dexec.args="future"
+Destroy a scenario by setting `SIMULATION_ACTION=destroy`:
 
-Aliases: future, long, future-long
+```bash
+SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java \
+  -Dexec.mainClass=flunav.simulator.App -Dexec.args="sorting-hub"
+
+SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java \
+  -Dexec.mainClass=flunav.simulator.App -Dexec.args="airport-baggage"
+```
+
+Destruction removes conveyors in reverse declaration order, then locations in reverse declaration order, and
+publishes item deletion events for the scenario prefix. Set `SIMULATOR_CLEANUP_ITEMS` to control the cleanup range.

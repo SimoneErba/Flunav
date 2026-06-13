@@ -114,7 +114,7 @@ public class LiveItemRepository {
             updates.put("d", destinationId);
         }
 
-        if (path != null && !path.isEmpty()) {
+        if (path != null) {
             try {
                 updates.put("p", objectMapper.writeValueAsString(path));
             } catch (Exception e) {
@@ -124,6 +124,15 @@ public class LiveItemRepository {
 
         if (!updates.isEmpty()) {
             redis.opsForHash().putAll(itemKey, updates);
+        }
+    }
+
+    public void updatePath(String itemId, List<String> path) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        try {
+            redis.opsForHash().put(itemKey, "p", objectMapper.writeValueAsString(path));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialize path for item " + itemId, e);
         }
     }
 

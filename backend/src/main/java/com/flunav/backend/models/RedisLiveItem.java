@@ -12,7 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +51,7 @@ public class RedisLiveItem {
         if (name != null)
             data.put("n", name);
 
-        if (path != null && !path.isEmpty()) {
+        if (path != null) {
             try {
                 data.put("p", objectMapper.writeValueAsString(path));
             } catch (JsonProcessingException e) {
@@ -111,17 +110,14 @@ public class RedisLiveItem {
 
         // 6. Path (JSON)
         String pathStr = hash.get("p");
-        if (pathStr != null && !pathStr.isEmpty() && !pathStr.equals("[]")) {
+        if (pathStr != null && !pathStr.isEmpty()) {
             try {
                 List<String> pathList = objectMapper.readValue(pathStr, new TypeReference<List<String>>() {
                 });
                 builder.path(pathList);
             } catch (Exception e) {
                 logger.warn("Failed to parse path JSON for item {}: {}", id, pathStr);
-                builder.path(new ArrayList<>());
             }
-        } else {
-            builder.path(new ArrayList<>());
         }
 
         return builder.build();

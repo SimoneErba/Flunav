@@ -194,6 +194,39 @@ public class ItemService {
         redisRepository.updateDestinationAndPath(itemId, destinationId, path);
     }
 
+    public void updateItemPath(String itemId, List<String> path) {
+        redisRepository.updatePath(itemId, path);
+    }
+
+    public List<String> validatePath(List<String> path) {
+        if (path == null) {
+            throw new IllegalArgumentException("Path is required.");
+        }
+
+        List<String> validatedPath = List.copyOf(path);
+        for (String locationId : validatedPath) {
+            if (locationId == null || locationId.isBlank()) {
+                throw new IllegalArgumentException("Path location IDs must be nonblank.");
+            }
+            if (topologyProvider.getLocationById(locationId) == null) {
+                throw new IllegalArgumentException("Path location does not exist: " + locationId);
+            }
+        }
+
+        for (int index = 0; index < validatedPath.size() - 1; index++) {
+            String sourceId = validatedPath.get(index);
+            String targetId = validatedPath.get(index + 1);
+            boolean connected = topologyProvider.getOutgoingConveyors(sourceId).stream()
+                    .anyMatch(conveyor -> targetId.equals(conveyor.getTargetLocationId()));
+            if (!connected) {
+                throw new IllegalArgumentException(
+                        "Path locations are not connected by a directed conveyor: " + sourceId + " -> " + targetId);
+            }
+        }
+
+        return validatedPath;
+    }
+
     public Item updateItem(UpdateModel model) {
         // Standard property update (OrientDB)
         Item updatedItem = vertexToLocation(this.updateService.updateVertex(model));
