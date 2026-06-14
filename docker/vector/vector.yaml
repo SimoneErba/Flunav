@@ -5,6 +5,8 @@ sources:
     type: file
     include:
       - /var/log/flumen/*.json
+      - /var/log/flumen-host/*.json
+      - /var/log/flumen-backend-host/*.json
     read_from: beginning
     fingerprint:
       strategy: device_and_inode

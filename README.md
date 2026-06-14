@@ -87,7 +87,29 @@ Playback speed changes are rescheduled through the same pause/resume cancellatio
 
 ## Logging
 
-The backend emits JSON logs to the console and writes `INFO+` records asynchronously to `LOG_PATH` (`logs` by default). Docker Compose mounts that directory into Vector, which buffers records on disk and forwards them to `default.logs` in ClickHouse. ClickHouse retains operational logs for 30 days.
+The backend emits JSON logs to the console and writes `INFO+` records asynchronously to `LOG_PATH` (`logs` by default). Vector buffers records on disk and forwards them to `default.logs` in ClickHouse, where operational logs are retained for 30 days.
+
+Docker Compose watches three log locations:
+
+- `/var/log/flumen/*.json` from the `backend-logs` volume used by the Docker backend.
+- `logs/*.json` for a backend started from the repository root.
+- `backend/logs/*.json` for a backend started from the `backend` directory.
+
+The two host directories are mounted read-only into Vector. Vector reads existing files from the beginning on first discovery and stores file checkpoints plus its ClickHouse sink buffer in the `vector-data` volume, so recreating the container does not normally duplicate acknowledged records.
+
+Useful ingestion diagnostics:
+
+```bash
+docker compose config
+docker compose exec vector vector validate /etc/vector/vector.yaml
+docker compose logs --tail=100 vector
+docker compose exec clickhouse sh -c 'clickhouse-client \
+  --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
+  --query "SELECT count(), min(timestamp), max(timestamp) FROM default.logs"'
+docker compose exec clickhouse sh -c 'clickhouse-client \
+  --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
+  --query "SELECT timestamp, level, environment, logger, message FROM default.logs ORDER BY timestamp DESC LIMIT 20"'
+```
 
 The default levels are `WARN` globally and `INFO` for `com.flunav`. To isolate EventProcessor logs at startup:
 

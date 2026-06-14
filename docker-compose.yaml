@@ -56,6 +56,8 @@ services:
     volumes:
       - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
       - backend-logs:/var/log/flumen:ro
+      - ./logs:/var/log/flumen-host:ro
+      - ./backend/logs:/var/log/flumen-backend-host:ro
       - vector-data:/var/lib/vector
     command: ["--config", "/etc/vector/vector.yaml"]
     networks:

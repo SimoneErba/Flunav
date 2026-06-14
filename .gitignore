@@ -54,7 +54,10 @@ Icon?
 
 # === Logs ===
 *.log
-logs/
+/logs/*
+/backend/logs/*
+!/logs/.gitkeep
+!/backend/logs/.gitkeep
 *.log.*
 
 # === Test Reports ===
