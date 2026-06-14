@@ -1,9 +1,9 @@
 package com.flunav.backend.e2e;
 
+import com.flunav.backend.test.ClickHouseTestContainerFactory;
 import com.redis.testcontainers.RedisContainer;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.testcontainers.clickhouse.ClickHouseContainer;
@@ -17,16 +17,7 @@ public final class TestContainersEnvironment {
     private static final RedisContainer REDIS_CONTAINER =
             new RedisContainer(DockerImageName.parse("redis:7.0-alpine"));
 
-    private static final ClickHouseContainer CLICKHOUSE_CONTAINER =
-            new ClickHouseContainer("clickhouse/clickhouse-server:25.3")
-                    .withInitScripts(List.of(
-                            "init-clickhouse/001_init_snapshot.sql",
-                            "init-clickhouse/002_init_events.sql",
-                            "init-clickhouse/003_analytics_count.sql",
-                            "init-clickhouse/005_component_analytics.sql",
-                            "init-clickhouse/007_item_summary.sql",
-                            "init-clickhouse/010_logs.sql",
-                            "init-clickhouse/004_analytics_count_mv.sql"));
+    private static final ClickHouseContainer CLICKHOUSE_CONTAINER = ClickHouseTestContainerFactory.create();
 
     private static final OrientDBContainer ORIENTDB_CONTAINER =
             new OrientDBContainer("orientdb:3.2.0-tp3")

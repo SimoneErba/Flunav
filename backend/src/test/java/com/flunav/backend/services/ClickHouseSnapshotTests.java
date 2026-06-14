@@ -6,6 +6,7 @@ import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
+import com.flunav.backend.test.ClickHouseTestContainerFactory;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 import org.junit.jupiter.api.AfterAll;
@@ -28,9 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClickHouseSnapshotTests {
 
-    private static final ClickHouseContainer CLICKHOUSE = new ClickHouseContainer(
-            "clickhouse/clickhouse-server:25.3")
-            .withInitScript("init-clickhouse/001_init_snapshot.sql");
+    private static final ClickHouseContainer CLICKHOUSE = ClickHouseTestContainerFactory.createSnapshotContainer();
 
     private static ClickHouseService clickHouseService;
 

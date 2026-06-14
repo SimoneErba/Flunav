@@ -55,12 +55,10 @@ public class HistoricalEventPlayer {
                 .enterSimulationContext(simulationId)) {
             SimulationState state = simulationService.getSimulationState(simulationId);
 
-            // --- Initial State Setup ---
-            state.setStatus(SimulationStatus.PLAYING);
-            state.setSpeedFactor(initialSpeedFactor);
-            state.setLastProcessedTimestamp(simulationStartTime); // Initialize progress
-            simulationService.updateLastProcessedTimestamp(simulationId, simulationStartTime);
-            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
+            if (state.getStatus() != SimulationStatus.PLAYING) {
+                logger.info("Playback for simulation {} was cancelled before its worker started.", simulationId);
+                return new AsyncResult<>(null);
+            }
 
             Instant currentSimulationTime = simulationStartTime;
             Instant externalEventsLoadedThrough = simulationStartTime;

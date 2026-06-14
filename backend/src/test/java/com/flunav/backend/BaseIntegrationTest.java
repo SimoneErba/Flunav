@@ -10,8 +10,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.List;
-
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.clickhouse.ClickHouseContainer;
@@ -23,15 +21,8 @@ import org.testcontainers.utility.MountableFile;
 public abstract class BaseIntegrationTest {
 
         static final RedisContainer REDIS_CONTAINER = new RedisContainer(DockerImageName.parse("redis:7.0-alpine"));
-        static final ClickHouseContainer CLICKHOUSE_CONTAINER = new ClickHouseContainer(
-                        "clickhouse/clickhouse-server:25.3")
-                        .withInitScripts(List.of("init-clickhouse/001_init_snapshot.sql",
-                                        "init-clickhouse/002_init_events.sql",
-                                        "init-clickhouse/003_analytics_count.sql",
-                                        "init-clickhouse/005_component_analytics.sql",
-                                        "init-clickhouse/007_item_summary.sql",
-                                        "init-clickhouse/010_logs.sql",
-                                        "init-clickhouse/004_analytics_count_mv.sql"));
+        static final ClickHouseContainer CLICKHOUSE_CONTAINER =
+                        com.flunav.backend.test.ClickHouseTestContainerFactory.create();
         static final OrientDBContainer ORIENTDB_CONTAINER = new OrientDBContainer("orientdb:3.2.0-tp3")
                         .withCopyFileToContainer(MountableFile.forClasspathResource("init-orientdb/01-create-db.sh"),
                                         "/docker-entrypoint-initdb.d/init.sh");

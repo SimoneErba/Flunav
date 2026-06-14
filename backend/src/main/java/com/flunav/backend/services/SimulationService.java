@@ -118,7 +118,9 @@ public class SimulationService {
             double speedFactor) {
         state.setStatus(SimulationStatus.PLAYING);
         state.setSpeedFactor(speedFactor);
+        state.setLastProcessedTimestamp(simulationStartTime);
         persistState(state);
+        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
         var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
         activePlaybacks.put(simulationId, playbackFuture);
     }
