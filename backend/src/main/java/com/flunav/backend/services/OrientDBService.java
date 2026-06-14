@@ -20,6 +20,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.lang.reflect.Proxy;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap; // CHANGED
@@ -27,6 +28,13 @@ import java.util.concurrent.ConcurrentMap; // CHANGED
 @Service
 public class OrientDBService {
     private static final Logger logger = LoggerFactory.getLogger(OrientDBService.class);
+    private static final List<String> TEST_DATA_CLASSES = List.of(
+            "Conveyor",
+            "Item",
+            "Location",
+            "DisplayRules",
+            "RefreshToken",
+            "User");
 
     private OrientDB orientDB;
     // CHANGED: From a single pool to a map of pools
@@ -298,30 +306,31 @@ public class OrientDBService {
     }
 
     /**
-     * Completely destroys and recreates the main database.
-     * Perfect for completely resetting the state between tests.
+     * Clears application records while preserving the test database schema and indexes.
      */
     public void resetMainDatabaseForTests(String dbName) {
-        logger.info("Wiping OrientDB test database: {}", dbName);
+        logger.info("Truncating OrientDB test database: {}", dbName);
 
-        // 1. Close the current connection pool
-        ODatabasePool pool = databasePools.remove(dbName);
-        if (pool != null) {
-            pool.close();
+        if (!orientDB.exists(dbName)) {
+            orientDB.create(dbName, ODatabaseType.PLOCAL);
+            databasePools.put(dbName, new ODatabasePool(orientDB, dbName, username, password));
+            ensureSchemaExists(dbName);
+            logger.info("Test database '{}' was initialized and is ready for the next test.", dbName);
+            return;
         }
 
-        // 2. Nuke the database from the server
-        if (orientDB.exists(dbName)) {
-            orientDB.drop(dbName);
+        databasePools.computeIfAbsent(
+                dbName,
+                name -> new ODatabasePool(orientDB, name, username, password));
+
+        try (ODatabaseSession session = getSession(dbName)) {
+            for (String className : TEST_DATA_CLASSES) {
+                if (session.getClass(className) != null) {
+                    session.command("TRUNCATE CLASS `" + className + "` UNSAFE").close();
+                }
+            }
         }
 
-        // 3. Recreate it fresh
-        orientDB.create(dbName, ODatabaseType.PLOCAL);
-
-        // 4. Re-initialize the connection pool and rebuild the schema
-        databasePools.put(dbName, new ODatabasePool(orientDB, dbName, username, password));
-        ensureSchemaExists(dbName);
-
-        logger.info("Test database '{}' has been completely wiped and is ready for the next test.", dbName);
+        logger.info("Test database '{}' has been truncated and is ready for the next test.", dbName);
     }
 }
