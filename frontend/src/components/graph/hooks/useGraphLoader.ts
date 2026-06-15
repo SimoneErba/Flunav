@@ -3,10 +3,12 @@ import { useLoadGraph, useSigma } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { GraphData, ConveyorResponse, ItemResponse, DisplayRuleColorResult } from "../../../api-client/api";
 import { hashToNumber } from "../utils/graphUtils";
+import { getItemPriorityVisualAttributes, isHighPriorityItem } from "../utils/itemPriority";
 
 export const useGraphLoader = (
     initialGraphData: GraphData,
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
+    onHighPriorityCountChange?: (count: number) => void,
     colorOverrides?: DisplayRuleColorResult | null
 ) => {
     const loadGraph = useLoadGraph();
@@ -107,15 +109,22 @@ export const useGraphLoader = (
             graph.addNode(item.id, {
                 x: startX, y: startY, label: item.name, size: 6,
                 color: item.customColor || "#FF0000",
-                type: "square", id: item.id, isItem: true,
+                type: "borderedSquare", id: item.id, isItem: true,
                 path: item.path, properties: item.properties,
                 destinations: item.destinations, selectedExitId: item.selectedExitId,
                 isActive: item.active, customColor: item.customColor,
+                ...getItemPriorityVisualAttributes(item),
             });
         });
 
+        let highPriorityCount = 0;
+        activeItemsRef.current.forEach((item) => {
+            if (isHighPriorityItem(item)) highPriorityCount++;
+        });
+        onHighPriorityCountChange?.(highPriorityCount);
+
         loadGraph(graph);
-    }, [activeItemsRef, initialGraphData, loadGraph]);
+    }, [activeItemsRef, initialGraphData, loadGraph, onHighPriorityCountChange]);
 
     // --- NEW: Patch colors only — no graph reload, no position reset ---
     useEffect(() => {

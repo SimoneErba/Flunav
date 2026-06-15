@@ -4,11 +4,13 @@ import { ItemResponse } from "../../../api-client/api";
 import type { Attributes } from "graphology-types";
 import { findNextEdge } from "../utils/graphUtils";
 import { dischargeItemToChute } from "../utils/chuteUtils";
+import { isHighPriorityItem } from "../utils/itemPriority";
 
 export const useGraphAnimation = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
     simTime: number,
-    draggedNodeRef: React.MutableRefObject<string | null>
+    draggedNodeRef: React.MutableRefObject<string | null>,
+    onHighPriorityCountChange?: (count: number) => void
 ) => {
     const sigma = useSigma();
     const animationFrameId = useRef<number | null>(null);
@@ -78,6 +80,11 @@ export const useGraphAnimation = (
                             // 1. CHECK FOR CHUTE (Discharge)
                             if (targetNode.locationType === "CHUTE") {
                                 dischargeItemToChute(graph, activeItemsRef.current, itemId, targetId);
+                                let highPriorityCount = 0;
+                                activeItemsRef.current.forEach((activeItem) => {
+                                    if (isHighPriorityItem(activeItem)) highPriorityCount++;
+                                });
+                                onHighPriorityCountChange?.(highPriorityCount);
                                 needsRefresh = true;
                                 return;
                             }
@@ -175,5 +182,5 @@ export const useGraphAnimation = (
 
         animationFrameId.current = requestAnimationFrame(animate);
         return () => { if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current); };
-    }, [activeItemsRef, draggedNodeRef, sigma, simTime]);
+    }, [activeItemsRef, draggedNodeRef, onHighPriorityCountChange, sigma, simTime]);
 };

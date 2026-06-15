@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl, useSigma } from "@react-sigma/core";
 import { DisplayRuleColorResult, GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "../editors/edge.editor";
@@ -35,7 +35,7 @@ const GraphTestApiBridge = ({
 }: {
   activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>;
   simTime: number;
-}) => {
+}): null => {
   const sigma = useSigma();
 
   useEffect(() => {
@@ -121,12 +121,21 @@ export const GraphEvents = ({
     hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData, colorOverrides
 }: GraphEventsProps) => {
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
+  const [highPriorityCount, setHighPriorityCount] = useState(0);
+  const handleHighPriorityCountChange = useCallback((count: number) => {
+    setHighPriorityCount(count);
+  }, []);
   
   // 1. Load Data
-  useGraphLoader(initialGraphData, activeItemsRef, colorOverrides);
+  useGraphLoader(initialGraphData, activeItemsRef, handleHighPriorityCountChange, colorOverrides);
 
   // 2. Handle WebSockets & Speed Adjustments
-  const { adjustItemsForSpeedChange } = useGraphLiveEvents(activeItemsRef, simulationId, simTime);
+  const { adjustItemsForSpeedChange } = useGraphLiveEvents(
+    activeItemsRef,
+    simulationId,
+    simTime,
+    handleHighPriorityCountChange
+  );
 
   // 3. Handle Interactions (Drag, Drop, Edit)
   const { 
@@ -136,7 +145,7 @@ export const GraphEvents = ({
   } = useGraphInteractions(adjustItemsForSpeedChange, { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
-  useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);
+  useGraphAnimation(activeItemsRef, simTime, draggedNodeRef, handleHighPriorityCountChange);
 
 
   const handleNodeClose = useCallback(() => setSelectedNodeData(null), [setSelectedNodeData]);
@@ -148,6 +157,11 @@ export const GraphEvents = ({
       {import.meta.env.VITE_GRAPH_TEST_API === "true" && (
         <GraphTestApiBridge activeItemsRef={activeItemsRef} simTime={simTime} />
       )}
+
+      <div className="absolute left-4 top-4 z-[110] rounded-lg border border-yellow-400/70 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-800 shadow-lg backdrop-blur dark:bg-gray-900/90 dark:text-gray-100">
+        <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-yellow-400" />
+        High priority: {highPriorityCount}
+      </div>
 
       {/* SVG Line for Edge Creation */}
       {/* Converted inline styles to Tailwind classes */}

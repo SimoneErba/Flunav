@@ -907,6 +907,7 @@ export interface Location {
 
 export const LocationTypeEnum = {
     Junction: 'JUNCTION',
+    DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
     Road: 'ROAD',
@@ -991,6 +992,7 @@ export interface LocationInput {
 
 export const LocationInputTypeEnum = {
     Junction: 'JUNCTION',
+    DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
     Road: 'ROAD',
@@ -1063,6 +1065,7 @@ export interface LocationResponse {
 
 export const LocationResponseTypeEnum = {
     Junction: 'JUNCTION',
+    DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
     Road: 'ROAD',

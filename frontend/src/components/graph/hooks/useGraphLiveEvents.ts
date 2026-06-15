@@ -5,6 +5,7 @@ import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents"
 import { hashToNumber } from "../utils/graphUtils";
 import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
+import { getItemPriorityVisualAttributes, isHighPriorityItem } from "../utils/itemPriority";
 
 const asNumber = (value: unknown): number | null => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -18,7 +19,8 @@ const asNumber = (value: unknown): number | null => {
 export const useGraphLiveEvents = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
     simulationId: string | undefined,
-    simTime: number
+    simTime: number,
+    onHighPriorityCountChange?: (count: number) => void
 ) => {
     const sigma = useSigma();
     const {
@@ -39,6 +41,14 @@ export const useGraphLiveEvents = (
     // Ref to access current simTime inside callbacks without re-subscribing
     const simTimeRef = useRef(simTime);
     simTimeRef.current = simTime;
+
+    const refreshHighPriorityCount = useCallback(() => {
+        let highPriorityCount = 0;
+        activeItemsRef.current.forEach((item) => {
+            if (isHighPriorityItem(item)) highPriorityCount++;
+        });
+        onHighPriorityCountChange?.(highPriorityCount);
+    }, [activeItemsRef, onHighPriorityCountChange]);
 
     // Helper to adjust items when speed changes to prevent teleporting
     const adjustItemsForSpeedChange = useCallback((edgeId: string, newSpeed: number, effectiveTime?: number) => {
@@ -82,6 +92,7 @@ export const useGraphLiveEvents = (
             if (update.status === 'LOST') {
                 graph.dropNode(update.itemId);
                 activeItemsRef.current.delete(update.itemId);
+                refreshHighPriorityCount();
                 return;
             }
 
@@ -105,6 +116,7 @@ export const useGraphLiveEvents = (
                 } else {
                     dischargeItemToChute(graph, activeItemsRef.current, update.itemId, update.edgeId);
                 }
+                refreshHighPriorityCount();
                 sigma.refresh();
                 return;
             }
@@ -139,6 +151,7 @@ export const useGraphLiveEvents = (
                 };
                 
                 activeItemsRef.current.set(update.itemId, updatedItem);
+                refreshHighPriorityCount();
 
                 // Update graph node logical state for highlighting/interactions
                 graph.setNodeAttribute(update.itemId, "currentEdgeId", updatedItem.currentEdgeId);
@@ -207,7 +220,7 @@ export const useGraphLiveEvents = (
                 label: item.name, 
                 size: 6, 
                 color: item.customColor || "#FF0000", 
-                type: "square", 
+                type: "borderedSquare",
                 id: item.id, 
                 isItem: true,
                 hidden: isHidden, // Start invisible if location unknown
@@ -216,7 +229,8 @@ export const useGraphLiveEvents = (
                 customColor: item.customColor,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
-                path: item.path
+                path: item.path,
+                ...getItemPriorityVisualAttributes(item)
             });
 
             const edgeKey = item.locationId
@@ -238,7 +252,7 @@ export const useGraphLiveEvents = (
             }
             
             // Update Logic State
-            activeItemsRef.current.set(item.id!, {
+            const liveItem = {
                 id: item.id, 
                 name: item.name, 
                 active: item.active,
@@ -251,13 +265,16 @@ export const useGraphLiveEvents = (
                 selectedExitId: item.selectedExitId,
                 path: item.path,
                 properties: item.properties
-            });
+            };
+            activeItemsRef.current.set(item.id!, liveItem);
+            refreshHighPriorityCount();
         }, simulationId));
 
         unsubscribers.push(subscribeToItemDeleted((itemId) => {
             if (graph.hasNode(itemId)) {
                 graph.dropNode(itemId);
                 activeItemsRef.current.delete(itemId);
+                refreshHighPriorityCount();
             }
         }, simulationId));
 
@@ -280,7 +297,14 @@ export const useGraphLiveEvents = (
                 // Update internal ref state
                 const currentItem = activeItemsRef.current.get(update.id);
                 if (currentItem) {
-                    activeItemsRef.current.set(update.id, { ...currentItem, ...update.properties });
+                    const updatedItem = { ...currentItem, ...update.properties };
+                    activeItemsRef.current.set(update.id, updatedItem);
+                    const priorityAttrs = getItemPriorityVisualAttributes(updatedItem);
+                    graph.setNodeAttribute(update.id, "highPriority", priorityAttrs.highPriority);
+                    graph.setNodeAttribute(update.id, "borderColor", priorityAttrs.borderColor);
+                    graph.setNodeAttribute(update.id, "borderSize", priorityAttrs.borderSize);
+                    graph.setNodeAttribute(update.id, "type", "borderedSquare");
+                    refreshHighPriorityCount();
                 }
             }
         }, simulationId));
@@ -394,6 +418,7 @@ export const useGraphLiveEvents = (
         activeItemsRef,
         adjustItemsForSpeedChange,
         connected,
+        refreshHighPriorityCount,
         sigma,
         simulationId,
         subscribeToAllItemUpdates,

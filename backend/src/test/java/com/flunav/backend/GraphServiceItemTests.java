@@ -5,6 +5,7 @@ import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.services.DestinationMappingService;
 import com.flunav.backend.services.DestinationExitMappingService;
@@ -17,6 +18,7 @@ import flunav.events.DestinationMappingRecord;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
+import flunav.events.ItemPositionChangedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
 import flunav.types.DataType;
@@ -58,6 +60,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final GraphService graphService;
     private final ItemService itemService;
     private final LiveItemRepository liveItemRepository;
+    private final LiveLocationRepository liveLocationRepository;
     private final StaleItemCleanupService staleItemCleanupService;
     private final EventProcessor eventProcessor;
     private final DestinationMappingService destinationMappingService;
@@ -73,6 +76,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             GraphService graphService,
             ItemService itemService,
             LiveItemRepository liveItemRepository,
+            LiveLocationRepository liveLocationRepository,
             StaleItemCleanupService staleItemCleanupService,
             EventProcessor eventProcessor,
             DestinationMappingService destinationMappingService,
@@ -86,6 +90,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.graphService = graphService;
         this.itemService = itemService;
         this.liveItemRepository = liveItemRepository;
+        this.liveLocationRepository = liveLocationRepository;
         this.staleItemCleanupService = staleItemCleanupService;
         this.eventProcessor = eventProcessor;
         this.destinationMappingService = destinationMappingService;
@@ -472,6 +477,74 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void normalPriorityItemSelectsAnotherChuteWhenTheShortestChuteIsAlmostFull() {
+        Instant now = Instant.now();
+        createLocation("capacity-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("capacity-stopped", "Stopped Chute", LocationType.CHUTE, 10);
+        createLocation("capacity-near", "Near Chute", LocationType.CHUTE, 10);
+        createLocation("capacity-far", "Far Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("capacity-stopped-conveyor", "capacity-start", "capacity-stopped",
+                "Stopped", 0.5, 0.0, 0.0, false, true);
+        conveyorService.createConveyor("capacity-near-conveyor", "capacity-start", "capacity-near",
+                "Near", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("capacity-far-conveyor", "capacity-start", "capacity-far",
+                "Far", 5.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("capacity-near", "occupant-" + index);
+        }
+
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("capacity-destination",
+                        List.of("capacity-stopped", "capacity-near", "capacity-far")))));
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "capacity-normal-item", "Normal Item", 1.0, true, "capacity-start",
+                PositionType.LOCATION, 0.0, List.of("capacity-destination"),
+                Map.of("priority", "NORMAL"), now));
+
+        var item = itemService.getItemById("capacity-normal-item");
+        assertEquals("capacity-far", item.getSelectedExitId());
+        assertEquals(List.of("capacity-start", "capacity-far"), item.getPath());
+    }
+
+    @Test
+    void decisionPointUsesMainPathForNormalPriorityAndExitForHighPriority() {
+        Instant now = Instant.now();
+        createLocation("decision-point", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("decision-chute", "Chute", LocationType.CHUTE, 10);
+        createLocation("decision-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("decision-exit-conveyor", "decision-point", "decision-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("decision-main-conveyor", "decision-point", "decision-loop",
+                "Main", 2.0, 1.0, 0.0, true, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("decision-chute", "decision-occupant-" + index);
+        }
+
+        createItem("decision-normal", "Normal", "decision-point", now, Map.of("priority", "NORMAL"));
+        liveItemRepository.updateRouting(
+                "decision-normal", List.of("decision-chute"), null, null);
+        eventProcessor.process(
+                new ItemPositionChangedEvent("decision-normal", "decision-point", 0.0, now), true).join();
+
+        var normalItem = waitForPath("decision-normal", List.of("decision-point", "decision-loop"));
+        assertNull(normalItem.getSelectedExitId());
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+
+        createItem("decision-high", "High", "decision-point", now, Map.of("priority", "HIGH"));
+        liveItemRepository.updateRouting(
+                "decision-high", List.of("decision-chute"), null, null);
+        eventProcessor.process(
+                new ItemPositionChangedEvent("decision-high", "decision-point", 0.0, now), true).join();
+
+        var highItem = waitForPath("decision-high", List.of("decision-point", "decision-chute"));
+        assertEquals("decision-chute", highItem.getSelectedExitId());
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+    }
+
+    @Test
     void destinationExitMappingsReplaceClearValidateAndStaySimulationIsolated() {
         destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
                 new DestinationExitMappingRecord("live", List.of("exit-a", "exit-a", "exit-b")))));
@@ -495,8 +568,32 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     private void createLocation(String id, String name) {
-        locationService.createLocation(new LocationInput(id, name, 0.0, 0.0, null, null, LocationType.GENERIC, 100,
+        createLocation(id, name, LocationType.GENERIC, 100);
+    }
+
+    private void createLocation(String id, String name, LocationType type, int capacity) {
+        locationService.createLocation(new LocationInput(id, name, 0.0, 0.0, null, null, type, capacity,
                 true, false, Map.of()));
+    }
+
+    private com.flunav.backend.domain.Item waitForPath(String itemId, List<String> expectedPath) {
+        long deadline = System.currentTimeMillis() + 2_000;
+        com.flunav.backend.domain.Item item = null;
+        while (System.currentTimeMillis() < deadline) {
+            item = itemService.getItemById(itemId);
+            if (item != null && expectedPath.equals(item.getPath())) {
+                return item;
+            }
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertNotNull(item);
+        assertEquals(expectedPath, item.getPath());
+        return item;
     }
 
     private void createMappedCommandTopology(String startId, String destinationId) {

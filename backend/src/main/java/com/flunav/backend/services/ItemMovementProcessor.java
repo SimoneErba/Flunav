@@ -8,6 +8,7 @@ import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.context.DatabaseContextHolder;
 import flunav.events.DomainEvent;
 import flunav.events.ItemPositionChangedEvent;
+import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
@@ -228,6 +229,15 @@ public class ItemMovementProcessor {
 
         if (location.getType() == LocationType.CHUTE) {
             liveLocationRepository.addItemToLocation(locationId, itemId);
+            return;
+        }
+
+        if (!manageLogic) {
+            return;
+        }
+
+        if (location.getType() == LocationType.DECISION_POINT) {
+            scheduleEvent(new ItemRoutingDecisionRequestedEvent(itemId, locationId, timestamp));
         } else {
             // Not a chute, move to next conveyor
             String nextConveyorId = calculateNextConveyor(itemId, locationId, null);

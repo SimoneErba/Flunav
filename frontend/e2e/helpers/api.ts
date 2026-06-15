@@ -11,7 +11,7 @@ export type LocationSeed = {
   name: string;
   latitude: number;
   longitude: number;
-  type?: "GENERIC" | "JUNCTION" | "CHUTE" | "ACCUMULATION";
+  type?: "GENERIC" | "JUNCTION" | "DECISION_POINT" | "CHUTE" | "ACCUMULATION";
   capacity?: number;
 };
 

@@ -7,6 +7,7 @@ import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
 import { GraphEvents } from "./GraphEvents";
 import { GraphHighlighter } from "./GraphHighlighter";
 import { ItemEditorData } from "../editors/item.editor";
+import { NodeBorderedSquareProgram } from "./rendering/NodeBorderedSquareProgram";
 
 interface DisplayGraphProps {
     initialGraphData: GraphData;
@@ -35,7 +36,7 @@ export const DisplayGraph = ({
     const highlightedItem = selectedItemData;
 
     const settings = useMemo(() => ({
-        nodeProgramClasses: { square: NodeSquareProgram }, 
+        nodeProgramClasses: { square: NodeSquareProgram, borderedSquare: NodeBorderedSquareProgram },
         enableEdgeEvents: true,
         autoRescale: true,
         renderEdgeLabels: true, 

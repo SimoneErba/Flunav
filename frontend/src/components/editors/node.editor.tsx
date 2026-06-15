@@ -7,6 +7,7 @@ import { ItemResponse } from "../../../api-client/api";
 
 const LOCATION_TYPES = [
   { value: "JUNCTION", label: "Junction" },
+  { value: "DECISION_POINT", label: "Decision point" },
   { value: "CHUTE", label: "Chute" },
   { value: "ACCUMULATION", label: "Accumulation" },
   { value: "ROAD", label: "Road" },

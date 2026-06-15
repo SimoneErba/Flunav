@@ -15,6 +15,9 @@ public enum LocationType {
     // Typically has no physical dimensions (length/speed).
     JUNCTION("JUNCTION"),
 
+    // Represents a routing boundary where the backend selects the next conveyor.
+    DECISION_POINT("DECISION_POINT"),
+
     // Represents a final destination point where items exit the active system.
     CHUTE("CHUTE"),
 

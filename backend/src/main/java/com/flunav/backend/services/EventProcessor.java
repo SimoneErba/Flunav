@@ -64,6 +64,7 @@ public class EventProcessor {
     private final ItemMovementProcessor itemMovementProcessor;
     private final DestinationMappingService destinationMappingService;
     private final DestinationExitMappingService destinationExitMappingService;
+    private final RoutingDecisionService routingDecisionService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -91,6 +92,7 @@ public class EventProcessor {
             ItemMovementProcessor itemMovementProcessor,
             DestinationMappingService destinationMappingService,
             DestinationExitMappingService destinationExitMappingService,
+            RoutingDecisionService routingDecisionService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -112,6 +114,7 @@ public class EventProcessor {
         this.itemMovementProcessor = itemMovementProcessor;
         this.destinationMappingService = destinationMappingService;
         this.destinationExitMappingService = destinationExitMappingService;
+        this.routingDecisionService = routingDecisionService;
         this.manageLogic = manageLogic;
     }
 
@@ -456,30 +459,53 @@ public class EventProcessor {
                     if (item == null) {
                         throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
                     }
-                    List<String> calculatedPath = item.getPositionId() == null
-                            ? List.of()
-                            : pathfindingService.calculateShortestPath(
+                    RoutingDecisionService.RoutingDecision decision = item.getPositionId() == null
+                            ? RoutingDecisionService.RoutingDecision.none()
+                            : routingDecisionService.selectRouteToExit(
+                                    item,
                                     item.getPositionId(),
                                     item.getPositionType() != null ? item.getPositionType() : PositionType.LOCATION,
                                     e.getLocationId());
 
-                    item.setSelectedExitId(e.getLocationId());
-                    item.setPath(calculatedPath);
-                    var oldEvent = itemMovementProcessor.getScheduledEvent(item.getId());
-                    itemMovementProcessor.cancelScheduledEvent(item.getId());
-                    if (!calculatedPath.isEmpty() && oldEvent != null) {
-                        itemMovementProcessor.scheduleEvent(new ItemPositionChangedEvent(
-                                item.getId(), calculatedPath.getFirst(), 0.0, oldEvent.getTimestamp()));
-                    }
+                    item.setSelectedExitId(decision.selectedExitId());
+                    item.setPath(decision.path());
                     itemService.updateItemRouting(
-                            item.getId(), item.getDestinations(), item.getSelectedExitId(), calculatedPath);
+                            item.getId(), item.getDestinations(), item.getSelectedExitId(), decision.path());
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), Map.of(
-                                "selectedExitId", e.getLocationId(),
-                                "path", calculatedPath)), e.getTimestamp());
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("selectedExitId", decision.selectedExitId());
+                        updates.put("path", decision.path());
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ItemRoutingDecisionRequestedEvent e -> {
+                    var item = itemService.getItemById(e.getEntityId());
+                    if (item == null) {
+                        throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
+                    }
+                    if (!manageLogic) {
+                        yield Map.of("status", "IGNORED_MANAGED_LOGIC_DISABLED");
+                    }
+
+                    RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
+                            item, e.getDecisionPointId(), PositionType.LOCATION);
+                    itemService.updateItemRouting(
+                            item.getId(), item.getDestinations(), decision.selectedExitId(), decision.path());
+
+                    if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("selectedExitId", decision.selectedExitId());
+                        updates.put("path", decision.path());
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
+                    }
+
+                    yield Map.of(
+                            "status", "PROCESSED_SUCCESSFULLY",
+                            "nextConveyorId", Objects.toString(decision.nextConveyorId(), ""),
+                            "selectedExitId", Objects.toString(decision.selectedExitId(), ""));
                 }
 
                 case ItemPathChangedEvent e -> {
@@ -731,30 +757,14 @@ public class EventProcessor {
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
-        // Ordered first-reachable selection is temporary; future routing should score all
-        // compatible exits by operational convenience such as capacity and congestion.
-        for (String destination : destinations) {
-            List<String> mappedExits = destinationExitMappingService.getExits(destination);
-            List<String> candidateExits = mappedExits.isEmpty()
-                    && topologyProvider.getLocationById(destination) != null
-                            ? List.of(destination)
-                            : mappedExits;
-            for (String exitId : candidateExits) {
-                if (topologyProvider.getLocationById(exitId) == null) {
-                    continue;
-                }
-                List<String> path = pathfindingService.calculateShortestPath(
-                        item.getLocationId(), positionType, exitId);
-                if (!path.isEmpty()) {
-                    item.setSelectedExitId(exitId);
-                    item.setPath(path);
-                    return new AppliedDestination(destinations, exitId, path, explicit);
-                }
-            }
-        }
-        item.setSelectedExitId(null);
-        item.setPath(null);
-        return new AppliedDestination(destinations, null, null, explicit);
+        com.flunav.backend.domain.Item routingItem = new com.flunav.backend.domain.Item(
+                item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), item.getProperties());
+        routingItem.setDestinations(destinations);
+        RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
+                routingItem, item.getLocationId(), positionType);
+        item.setSelectedExitId(decision.selectedExitId());
+        item.setPath(decision.path());
+        return new AppliedDestination(destinations, decision.selectedExitId(), decision.path(), explicit);
     }
 
     private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
