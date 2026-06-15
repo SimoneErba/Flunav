@@ -387,7 +387,7 @@ const MappingSection = ({
       <div className="flex flex-wrap gap-2">
         <button onClick={onAdd} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-sm">Add Row</button>
         <button onClick={onReload} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Reload</button>
-        <button onClick={onImport} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm">Import CSV</button>
+        <button onClick={onImport} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Import CSV</button>
         <button onClick={onSave} disabled={saving} className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-semibold text-sm disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={event => {
           const file = event.target.files?.[0];

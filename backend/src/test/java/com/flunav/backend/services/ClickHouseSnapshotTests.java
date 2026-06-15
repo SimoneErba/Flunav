@@ -141,8 +141,11 @@ class ClickHouseSnapshotTests {
             assertTrue(resultSet.getString(1).startsWith("Array(Tuple("));
             assertTrue(resultSet.getString(2).startsWith("Array(Tuple("));
             assertTrue(resultSet.getString(3).startsWith("Array(Tuple("));
+            assertTrue(resultSet.getString(3).contains("destinations Array(String)"));
+            assertTrue(resultSet.getString(3).contains("selectedExitId Nullable(String)"));
             assertEquals("String", resultSet.getString(4));
             assertTrue(resultSet.getString(5).contains("Nullable(String)"));
         }
     }
+
 }

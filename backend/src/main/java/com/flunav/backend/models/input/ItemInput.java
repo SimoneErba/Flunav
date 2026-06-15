@@ -1,9 +1,11 @@
 package com.flunav.backend.models.input;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -16,9 +18,11 @@ public class ItemInput {
     private String locationId;
     private flunav.types.PositionType positionType;
     private Double progress;
-    private java.util.List<String> destinations;
+    private List<String> destinations;
+    @JsonIgnore
     private String selectedExitId;
-    private java.util.List<String> path;
+    @JsonIgnore
+    private List<String> path;
     private Map<String, Object> properties;
     private Instant timestamp;
 
