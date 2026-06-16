@@ -11,6 +11,7 @@ import com.flunav.backend.services.DestinationMappingService;
 import com.flunav.backend.services.DestinationExitMappingService;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.GraphService;
+import com.flunav.backend.services.ItemMovementProcessor;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.StaleItemCleanupService;
@@ -63,6 +64,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final LiveLocationRepository liveLocationRepository;
     private final StaleItemCleanupService staleItemCleanupService;
     private final EventProcessor eventProcessor;
+    private final ItemMovementProcessor itemMovementProcessor;
     private final DestinationMappingService destinationMappingService;
     private final DestinationExitMappingService destinationExitMappingService;
     private final com.flunav.backend.services.LocationService locationService;
@@ -79,6 +81,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             LiveLocationRepository liveLocationRepository,
             StaleItemCleanupService staleItemCleanupService,
             EventProcessor eventProcessor,
+            ItemMovementProcessor itemMovementProcessor,
             DestinationMappingService destinationMappingService,
             DestinationExitMappingService destinationExitMappingService,
             com.flunav.backend.services.LocationService locationService,
@@ -93,6 +96,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.liveLocationRepository = liveLocationRepository;
         this.staleItemCleanupService = staleItemCleanupService;
         this.eventProcessor = eventProcessor;
+        this.itemMovementProcessor = itemMovementProcessor;
         this.destinationMappingService = destinationMappingService;
         this.destinationExitMappingService = destinationExitMappingService;
         this.locationService = locationService;
@@ -529,6 +533,119 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void rapidNormalItemsReserveNoMoreThanProjectedChuteCapacity() {
+        Instant now = Instant.now();
+        createLocation("rapid-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("rapid-chute", "Chute", LocationType.CHUTE, 4);
+        conveyorService.createConveyor("rapid-exit-conveyor", "rapid-start", "rapid-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 6; index++) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "rapid-item-" + index, "Rapid Item " + index, 1.0, true, "rapid-start",
+                    PositionType.LOCATION, 0.0, List.of("rapid-chute"),
+                    Map.of("priority", "NORMAL"), now.plusMillis(index)));
+        }
+
+        long selectedCount = itemService.getAllItems().stream()
+                .filter(item -> "rapid-chute".equals(item.getSelectedExitId()))
+                .count();
+
+        assertEquals(4, selectedCount);
+        assertNull(itemService.getItemById("rapid-item-4").getSelectedExitId());
+        assertNull(itemService.getItemById("rapid-item-5").getSelectedExitId());
+    }
+
+    @Test
+    void projectedOccupancyCountsItemsAssignedBeforeTheyPhysicallyArrive() {
+        Instant now = Instant.now();
+        createLocation("projected-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("projected-chute", "Chute", LocationType.CHUTE, 2);
+        conveyorService.createConveyor("projected-exit-conveyor", "projected-start", "projected-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 2; index++) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "projected-item-" + index, "Projected Item " + index, 1.0, true, "projected-start",
+                    PositionType.LOCATION, 0.0, List.of("projected-chute"),
+                    Map.of("priority", "NORMAL"), now.plusMillis(index)));
+        }
+        assertEquals(0, liveLocationRepository.getItemCount("projected-chute"));
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "projected-item-2", "Projected Item 2", 1.0, true, "projected-start",
+                PositionType.LOCATION, 0.0, List.of("projected-chute"),
+                Map.of("priority", "NORMAL"), now.plusMillis(2)));
+
+        assertEquals("projected-chute", itemService.getItemById("projected-item-0").getSelectedExitId());
+        assertEquals("projected-chute", itemService.getItemById("projected-item-1").getSelectedExitId());
+        assertNull(itemService.getItemById("projected-item-2").getSelectedExitId());
+    }
+
+    @Test
+    void highPriorityCanUseReservedSpaceButCannotExceedProjectedHardCapacity() {
+        Instant now = Instant.now();
+        createLocation("priority-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("priority-chute", "Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("priority-exit-conveyor", "priority-start", "priority-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("priority-chute", "priority-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "priority-normal", "Normal", 1.0, true, "priority-start",
+                PositionType.LOCATION, 0.0, List.of("priority-chute"),
+                Map.of("priority", "NORMAL"), now));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "priority-high", "High", 1.0, true, "priority-start",
+                PositionType.LOCATION, 0.0, List.of("priority-chute"),
+                Map.of("priority", "HIGH"), now.plusMillis(1)));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "priority-high-overflow", "High Overflow", 1.0, true, "priority-start",
+                PositionType.LOCATION, 0.0, List.of("priority-chute"),
+                Map.of("priority", "HIGH"), now.plusMillis(2)));
+
+        assertNull(itemService.getItemById("priority-normal").getSelectedExitId());
+        assertEquals("priority-chute", itemService.getItemById("priority-high").getSelectedExitId());
+        assertNull(itemService.getItemById("priority-high-overflow").getSelectedExitId());
+    }
+
+    @Test
+    void chuteEntryGuardBlocksStraightMultiHopArrivalWhenProjectedCapacityIsFull() {
+        Instant future = Instant.now().plusSeconds(60);
+        createLocation("guard-a", "A", LocationType.JUNCTION, 0);
+        createLocation("guard-b", "B", LocationType.JUNCTION, 0);
+        createLocation("guard-c", "C", LocationType.JUNCTION, 0);
+        createLocation("guard-d", "D", LocationType.CHUTE, 1);
+        conveyorService.createConveyor("guard-ab", "guard-a", "guard-b", "AB", 10.0, 1.0, 1.0, true, true);
+        conveyorService.createConveyor("guard-bc", "guard-b", "guard-c", "BC", 10.0, 1.0, 1.0, true, true);
+        conveyorService.createConveyor("guard-cd", "guard-c", "guard-d", "CD", 10.0, 1.0, 1.0, true, true);
+
+        createItem("guard-reserved", "Reserved", "guard-b", future, Map.of("priority", "NORMAL"));
+        liveItemRepository.updatePosition("guard-reserved", "guard-bc", PositionType.CONVEYOR, future, 0.0, null);
+        liveItemRepository.updateRouting("guard-reserved", List.of("guard-d"), "guard-d",
+                List.of("guard-b", "guard-c", "guard-d"));
+
+        createItem("guard-extra", "Extra", "guard-c", future, Map.of("priority", "NORMAL"));
+        liveItemRepository.updatePosition("guard-extra", "guard-cd", PositionType.CONVEYOR, future, 0.0, null);
+        liveItemRepository.updateRouting("guard-extra", List.of("guard-d"), "guard-d",
+                List.of("guard-c", "guard-d"));
+
+        try {
+            itemMovementProcessor.handleItemEntryToConveyor("guard-extra", "guard-cd", future, 0.0, null);
+
+            ItemPositionChangedEvent scheduled = assertInstanceOf(ItemPositionChangedEvent.class,
+                    itemMovementProcessor.getScheduledEvent("guard-extra"));
+            assertEquals("guard-cd", scheduled.getLocationId());
+            assertTrue(scheduled.getProgress() < 100.0);
+        } finally {
+            itemMovementProcessor.cancelScheduledEvent("guard-extra");
+        }
+    }
+
+    @Test
     void decisionPointUsesMainPathForNormalPriorityAndExitForHighPriority() {
         Instant now = Instant.now();
         createLocation("decision-point", "Decision", LocationType.DECISION_POINT, 0);
@@ -561,6 +678,38 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         var highItem = waitForPath("decision-high", List.of("decision-point", "decision-chute"));
         assertEquals("decision-chute", highItem.getSelectedExitId());
+        assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+    }
+
+    @Test
+    void decisionPointSelectsFreeCompatibleChuteBeforeRecirculatingNormalPriorityItem() {
+        Instant now = Instant.now();
+        createLocation("free-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("free-reserved-chute", "Reserved Chute", LocationType.CHUTE, 10);
+        createLocation("free-open-chute", "Open Chute", LocationType.CHUTE, 10);
+        createLocation("free-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("free-reserved-conveyor", "free-decision", "free-reserved-chute",
+                "Reserved", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("free-open-conveyor", "free-decision", "free-open-chute",
+                "Open", 2.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("free-main-conveyor", "free-decision", "free-loop",
+                "Main", 3.0, 1.0, 0.0, true, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("free-reserved-chute", "free-reserved-occupant-" + index);
+        }
+
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("free-destination",
+                        List.of("free-reserved-chute", "free-open-chute")))));
+
+        createItem("free-normal", "Normal", "free-decision", now, Map.of("priority", "NORMAL"));
+        liveItemRepository.updateRouting("free-normal", List.of("free-destination"), null, null);
+        eventProcessor.process(
+                new ItemPositionChangedEvent("free-normal", "free-decision", 0.0, now), true).join();
+
+        var normalItem = waitForPath("free-normal", List.of("free-decision", "free-open-chute"));
+        assertEquals("free-open-chute", normalItem.getSelectedExitId());
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
     }
 

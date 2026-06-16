@@ -3,6 +3,7 @@ package com.flunav.backend.services;
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.domain.Location;
+import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -26,14 +27,17 @@ public class RoutingDecisionService {
 
     private final TopologyProvider topologyProvider;
     private final DestinationExitMappingService destinationExitMappingService;
+    private final LiveItemRepository liveItemRepository;
     private final LiveLocationRepository liveLocationRepository;
 
     public RoutingDecisionService(
             TopologyProvider topologyProvider,
             DestinationExitMappingService destinationExitMappingService,
+            LiveItemRepository liveItemRepository,
             LiveLocationRepository liveLocationRepository) {
         this.topologyProvider = topologyProvider;
         this.destinationExitMappingService = destinationExitMappingService;
+        this.liveItemRepository = liveItemRepository;
         this.liveLocationRepository = liveLocationRepository;
     }
 
@@ -55,7 +59,7 @@ public class RoutingDecisionService {
                 continue;
             }
 
-            CapacityState capacity = capacityState(exit);
+            CapacityState capacity = capacityState(exit, item.getId());
             if (!capacity.canAccept(highPriority)) {
                 continue;
             }
@@ -93,7 +97,7 @@ public class RoutingDecisionService {
         String sourceLocationId = resolveSourceLocation(sourceId, sourceType);
         Location exit = findLocation(exitId);
         if (sourceLocationId == null || exit == null
-                || !capacityState(exit).canAccept(isHighPriority(item))) {
+                || !capacityState(exit, item.getId()).canAccept(isHighPriority(item))) {
             return sourceLocationId == null ? RoutingDecision.none() : fallbackDecision(sourceLocationId);
         }
 
@@ -245,12 +249,13 @@ public class RoutingDecisionService {
         return Math.max(length / conveyor.getSpeed(), 0.001);
     }
 
-    private CapacityState capacityState(Location exit) {
+    private CapacityState capacityState(Location exit, String itemId) {
         if (exit.getType() != LocationType.CHUTE) {
             return new CapacityState(0, null);
         }
         Integer capacity = exit.getCapacity();
-        long occupancy = liveLocationRepository.getItemCount(exit.getId());
+        long occupancy = liveLocationRepository.getItemCount(exit.getId())
+                + liveItemRepository.countItemsAssignedToExit(exit.getId(), itemId);
         if (capacity == null || capacity <= 0) {
             return new CapacityState(occupancy, null);
         }

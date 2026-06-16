@@ -257,6 +257,19 @@ public class LiveItemRepository {
         return size != null ? size : 0;
     }
 
+    public long countItemsAssignedToExit(String exitId, String excludedItemId) {
+        if (exitId == null) {
+            return 0;
+        }
+
+        return getAllActiveItems().stream()
+                .filter(item -> item != null)
+                .filter(item -> excludedItemId == null || !excludedItemId.equals(item.getId()))
+                .filter(item -> exitId.equals(item.getSelectedExitId()))
+                .filter(item -> !exitId.equals(item.getPositionId()))
+                .count();
+    }
+
     public int deleteLiveItemsOlderThan(Instant cutoff) {
         if (cutoff == null) {
             return 0;

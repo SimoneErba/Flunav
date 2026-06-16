@@ -122,15 +122,15 @@ public class ItemMovementProcessor {
         if (nextConveyorId != null) {
             Conveyor nextConv = topologyProvider.getConveyorById(nextConveyorId);
 
-            if (isNextSegmentBlocked(nextConv)) {
-                String alternativeId = findRecirculationPath(conveyor.getTargetLocationId(), nextConveyorId);
+            if (isNextSegmentBlocked(nextConv, itemId)) {
+                String alternativeId = findRecirculationPath(conveyor.getTargetLocationId(), nextConveyorId, itemId);
                 if (alternativeId != null) {
                     nextConveyorId = alternativeId;
                     nextConv = topologyProvider.getConveyorById(nextConveyorId);
                 }
             }
 
-            if (isNextSegmentBlocked(nextConv)) {
+            if (isNextSegmentBlocked(nextConv, itemId)) {
                 double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
                 Double nextTail = liveConveyorRepository.getTailPosition(nextConveyorId);
                 if (nextTail == null)
@@ -166,8 +166,8 @@ public class ItemMovementProcessor {
             var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
             if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
                 Integer capacity = targetLocation.getCapacity();
-                Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId());
-                if (capacity != null && currentOccupancy >= capacity) {
+                long projectedOccupancy = projectedChuteOccupancy(targetLocation.getId(), itemId);
+                if (capacity != null && capacity > 0 && projectedOccupancy >= capacity) {
                     double effectiveMinDist = (minDistance != null) ? minDistance : 0.0;
                     double stopAt = length - effectiveMinDist;
                     long timeToStop = (long) (((stopAt - length * (progress / 100.0)) / speed) * 1000);
@@ -183,6 +183,10 @@ public class ItemMovementProcessor {
     }
 
     public boolean isNextSegmentBlocked(Conveyor nextConv) {
+        return isNextSegmentBlocked(nextConv, null);
+    }
+
+    private boolean isNextSegmentBlocked(Conveyor nextConv, String itemId) {
         if (nextConv == null)
             return true;
         if (!nextConv.isActive())
@@ -191,10 +195,15 @@ public class ItemMovementProcessor {
         var targetLocation = topologyProvider.getLocationById(nextConv.getTargetLocationId());
         if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
             Integer capacity = targetLocation.getCapacity();
-            Long currentOccupancy = liveLocationRepository.getItemCount(targetLocation.getId());
-            return (capacity != null && currentOccupancy >= capacity);
+            long projectedOccupancy = projectedChuteOccupancy(targetLocation.getId(), itemId);
+            return capacity != null && capacity > 0 && projectedOccupancy >= capacity;
         }
         return false;
+    }
+
+    private long projectedChuteOccupancy(String chuteId, String itemId) {
+        return liveLocationRepository.getItemCount(chuteId)
+                + liveItemRepository.countItemsAssignedToExit(chuteId, itemId);
     }
 
     public void wakeUpPrecedingConveyors(String locationId) {
@@ -296,7 +305,7 @@ public class ItemMovementProcessor {
 
         if (targetConveyorId != null) {
             Conveyor target = topologyProvider.getConveyorById(targetConveyorId);
-            if (target != null && isNextSegmentBlocked(target)) {
+            if (target != null && isNextSegmentBlocked(target, itemId)) {
                 return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
                         .orElse(targetConveyorId);
             }
@@ -306,12 +315,12 @@ public class ItemMovementProcessor {
                 .orElse(outgoing.get(0).getId());
     }
 
-    private String findRecirculationPath(String currentLocationId, String blockedConveyorId) {
+    private String findRecirculationPath(String currentLocationId, String blockedConveyorId, String itemId) {
         return topologyProvider.getOutgoingConveyors(currentLocationId).stream()
                 .filter(Conveyor::isActive)
                 .filter(c -> c.isMainPath())
                 .filter(c -> !c.getId().equals(blockedConveyorId))
-                .filter(c -> !isNextSegmentBlocked(c))
+                .filter(c -> !isNextSegmentBlocked(c, itemId))
                 .map(Conveyor::getId)
                 .findFirst()
                 .orElse(null);

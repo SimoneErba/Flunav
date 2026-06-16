@@ -1,12 +1,13 @@
 package flunav.simulator;
 
 import flunav.events.ChuteEmptyEvent;
+import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
+import flunav.events.MapDestinationExitsEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,11 +27,11 @@ class PriorityCapacitySimulation implements Simulation {
     private static final String LOOP_2 = "PC-LOOP-2";
     private static final String RESERVED_CHUTE = "PC-RESERVED-CHUTE";
     private static final String OPEN_CHUTE = "PC-OPEN-CHUTE";
+    private static final String LOGICAL_DESTINATION = "PC-DESTINATION";
     private static final String ITEM_PREFIX = "PC-Item-";
     private static final int RESERVED_CHUTE_CAPACITY = 10;
     private static final int OPEN_CHUTE_CAPACITY = 4;
 
-    private final List<String> activeTrafficItems = new ArrayList<>();
     private long itemSequence;
     private long cycle;
 
@@ -57,15 +58,22 @@ class PriorityCapacitySimulation implements Simulation {
         createConveyor(LOOP_0, LOOP_1, 3.0, 2.0, true);
         createConveyor(LOOP_1, LOOP_2, 3.0, 2.0, true);
         createConveyor(LOOP_2, DECISION, 3.0, 2.0, true);
+
+        sendEvent(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord(LOGICAL_DESTINATION, List.of(RESERVED_CHUTE, OPEN_CHUTE)))), "PUT");
     }
 
     @Override
     public void run() throws Exception {
         requireRabbitMode();
-        logger.info("--- Starting priority reserved-capacity demo cycle ---");
+        logger.info("--- Starting continuous priority reserved-capacity demo flow ---");
+        resetChutes();
+        prefillReservedChute(9);
         while (true) {
-            runCycle();
-            Thread.sleep(6000);
+            injectFlowItem();
+            drainOpenChuteIfNeeded();
+            refreshReservedCapacityIfNeeded();
+            Thread.sleep(800);
         }
     }
 
@@ -93,36 +101,12 @@ class PriorityCapacitySimulation implements Simulation {
         cleanupItems();
     }
 
-    private void runCycle() throws Exception {
+    private void injectFlowItem() throws Exception {
         cycle++;
-        logger.info("Priority capacity cycle " + cycle
-                + ": normal items should recirculate at 9/10, high priority should use the reserved slot.");
-
-        resetChutes();
-        deleteActiveTrafficItems();
-        prefillReservedChute(9);
-        Thread.sleep(1000);
-
-        createTrafficItem("normal-reserved-a", RESERVED_CHUTE, "NORMAL");
-        Thread.sleep(1200);
-        createTrafficItem("normal-reserved-b", RESERVED_CHUTE, "NORMAL");
-        Thread.sleep(1200);
-        createTrafficItem("normal-reserved-c", RESERVED_CHUTE, "NORMAL");
-        Thread.sleep(7000);
-
-        createTrafficItem("high-reserved-slot", RESERVED_CHUTE, "HIGH");
-        Thread.sleep(1500);
-        createTrafficItem("normal-open-chute", OPEN_CHUTE, "NORMAL");
-        Thread.sleep(7000);
-
-        logger.info("Resetting reserved chute to 8/10 so a normal-priority item can exit.");
-        deleteActiveTrafficItems();
-        resetChutes();
-        prefillReservedChute(8);
-        Thread.sleep(1000);
-
-        createTrafficItem("normal-reserved-below-threshold", RESERVED_CHUTE, "NORMAL");
-        Thread.sleep(7000);
+        boolean highPriority = cycle % 7 == 0;
+        String priority = highPriority ? "HIGH" : "NORMAL";
+        String label = highPriority ? "high-reserved-slot" : "normal-compatible-exit";
+        createTrafficItem(label, priority);
     }
 
     private void resetChutes() throws Exception {
@@ -135,18 +119,35 @@ class PriorityCapacitySimulation implements Simulation {
     private void prefillReservedChute(int count) throws Exception {
         logger.info("Prefilling " + RESERVED_CHUTE + " to " + count + "/" + RESERVED_CHUTE_CAPACITY);
         for (int index = 0; index < count; index++) {
-            createItem("reserved-fill-" + index, RESERVED_CHUTE, null, "FILLER");
+            createItem("reserved-fill-" + index, RESERVED_CHUTE, List.of(RESERVED_CHUTE), "FILLER");
             Thread.sleep(100);
         }
     }
 
-    private void createTrafficItem(String label, String destination, String priority) throws Exception {
-        String itemId = createItem(label, ENTRY, destination, priority);
-        activeTrafficItems.add(itemId);
-        logger.info("Injected " + itemId + " priority=" + priority + " destination=" + destination);
+    private void drainOpenChuteIfNeeded() throws Exception {
+        if (cycle % 9 == 0) {
+            logger.info("Draining " + OPEN_CHUTE + " to keep normal-priority flow moving.");
+            sendEvent(new ChuteEmptyEvent(OPEN_CHUTE), "PUT");
+        }
     }
 
-    private String createItem(String label, String locationId, String destination, String priority) throws Exception {
+    private void refreshReservedCapacityIfNeeded() throws Exception {
+        if (cycle % 24 == 0) {
+            logger.info("Refreshing " + RESERVED_CHUTE + " back to reserved capacity 9/" + RESERVED_CHUTE_CAPACITY);
+            sendEvent(new ChuteEmptyEvent(RESERVED_CHUTE), "PUT");
+            Thread.sleep(500);
+            prefillReservedChute(9);
+        }
+    }
+
+    private void createTrafficItem(String label, String priority) throws Exception {
+        List<String> destinations = List.of(RESERVED_CHUTE, OPEN_CHUTE);
+        String itemId = createItem(label, ENTRY, destinations, priority);
+        logger.info("Injected " + itemId + " priority=" + priority + " destinations=" + destinations);
+    }
+
+    private String createItem(String label, String locationId, List<String> destinations, String priority)
+            throws Exception {
         String itemId = ITEM_PREFIX + (++itemSequence);
         sendEvent(new ItemDeletedEvent(itemId), "DELETE");
 
@@ -156,7 +157,6 @@ class PriorityCapacitySimulation implements Simulation {
         properties.put("priority", priority);
         properties.put("cycle", cycle);
 
-        List<String> destinations = destination == null ? null : List.of(destination);
         sendEvent(new ItemCreatedEvent(
                 itemId,
                 label,
@@ -168,13 +168,6 @@ class PriorityCapacitySimulation implements Simulation {
                 destinations,
                 properties), "POST");
         return itemId;
-    }
-
-    private void deleteActiveTrafficItems() throws Exception {
-        for (String itemId : activeTrafficItems) {
-            sendEvent(new ItemDeletedEvent(itemId), "DELETE");
-        }
-        activeTrafficItems.clear();
     }
 
     private void cleanupItems() throws Exception {
