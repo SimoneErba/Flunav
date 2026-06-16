@@ -18,11 +18,12 @@ SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexe
 SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="future"
 ```
 
-The realistic routing scenarios are RabbitMQ-only:
+The deterministic routing scenarios are RabbitMQ-only:
 
 ```bash
 SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="sorting-hub"
 SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="airport-baggage"
+SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="priority-capacity"
 ```
 
 Aliases:
@@ -31,6 +32,7 @@ Aliases:
 - `airport` selects `airport-baggage`.
 - `long` and `future-long` select `future`.
 - `performance` and `perf` select `stress`.
+- `priority` and `reserved-capacity` select `priority-capacity`.
 
 Destroy a scenario by setting `SIMULATION_ACTION=destroy`:
 
@@ -40,6 +42,9 @@ SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java \
 
 SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java \
   -Dexec.mainClass=flunav.simulator.App -Dexec.args="airport-baggage"
+
+SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java \
+  -Dexec.mainClass=flunav.simulator.App -Dexec.args="priority-capacity"
 ```
 
 Destruction removes conveyors in reverse declaration order, then locations in reverse declaration order, and

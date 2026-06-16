@@ -205,6 +205,26 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void itemCreatedWithoutResolvedDestinationDoesNotPersistFallbackPath() {
+        Instant now = Instant.now();
+        createLocation("destinationless-start", "Start");
+        createLocation("destinationless-loop", "Loop");
+        conveyorService.createConveyor("destinationless-main", "destinationless-start", "destinationless-loop",
+                "Main Conveyor", 10.0, 1.0, 0.0, true, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-destinationless",
+                "Destinationless Item", 1.0, true, "destinationless-start", PositionType.LOCATION, 0.0,
+                Map.of("flight_number", "999"), now));
+
+        var item = itemService.getItemById("item-destinationless");
+
+        assertNotNull(item);
+        assertEquals(List.of(), item.getDestinations());
+        assertNull(item.getSelectedExitId());
+        assertNull(item.getPath());
+    }
+
+    @Test
     void explicitItemDestinationBypassesDestinationMappingFallback() {
         Instant now = Instant.now();
         createLocation("explicit-start", "Start");

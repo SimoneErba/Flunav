@@ -8,7 +8,7 @@ public class App {
         if (args.length == 0) {
             SimulatorUtils.logger.severe(
                     "Please specify a simulation to run. Usage: java App "
-                            + "<line|loop|multi|large|perf|future|sorting-hub|hub|airport-baggage|airport>");
+                            + "<line|loop|multi|large|perf|future|sorting-hub|hub|airport-baggage|airport|priority-capacity>");
             return;
         }
 
@@ -63,6 +63,12 @@ public class App {
                 case "airport":
                     SimulatorUtils.logger.info("--- Selected: AIRPORT BAGGAGE Simulation ---");
                     simulation = new AirportBaggageSimulation();
+                    break;
+                case "priority":
+                case "priority-capacity":
+                case "reserved-capacity":
+                    SimulatorUtils.logger.info("--- Selected: PRIORITY CAPACITY Simulation ---");
+                    simulation = new PriorityCapacitySimulation();
                     break;
                 default:
                     SimulatorUtils.logger.severe("Unknown simulation type: " + simulationType);

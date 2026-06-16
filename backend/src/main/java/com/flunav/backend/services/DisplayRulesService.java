@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -64,12 +65,15 @@ public class DisplayRulesService {
             Map<String, Object> properties,
             List<DisplayRule> rules) {
 
-        if (properties == null)
+        if (properties == null || rules == null || rules.isEmpty()) {
             return null;
+        }
+
         return rules.stream()
                 .sorted(Comparator.comparingInt(DisplayRule::getPriority))
                 .filter(rule -> applies(properties, rule))
                 .map(DisplayRule::getColor)
+                .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
     }

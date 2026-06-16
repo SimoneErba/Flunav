@@ -87,6 +87,8 @@ When modifying processing code:
 
 Keep these boundaries intact. For example, item position in motion belongs in Redis for live speed, but replay needs enough event history and snapshot data to reconstruct it.
 
+When debugging live or test behavior, it is acceptable to inspect Redis and ClickHouse directly from the terminal to understand current runtime state, event history, snapshots, and analytics rows. Prefer read-only queries unless the task explicitly requires cleanup or state repair, and keep any manual cleanup scoped to the affected test or simulation data.
+
 ### Frontend Shape
 
 The frontend is a React 18, Vite, TypeScript, Tailwind app centered on the graph visualization.
@@ -115,7 +117,7 @@ Allowed test tools:
 
 Verification guidance:
 
-- Tests are slow. Run the narrowest relevant test class or method for the change.
+- Tests are slow. Run the narrowest relevant test class or method for the change, and prefer repeating the focused tests already used in the current chat when they cover the touched behavior.
 - Do not run the full backend suite by default unless the change touches shared event processing, persistence configuration, replay semantics, or cross-module contracts.
 - For frontend changes, run the relevant lint/build or focused browser check for the touched surface.
 - If a useful verification step cannot be run because Docker, Testcontainers, network, or credentials are unavailable, report that clearly.

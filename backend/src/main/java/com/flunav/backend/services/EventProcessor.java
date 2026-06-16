@@ -659,17 +659,24 @@ public class EventProcessor {
 
                 case ConnectionPropertiesUpdatedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
+
                     conveyor.setProperties(e.getUpdatedProperties());
                     conveyorService.updateConveyor(conveyor);
 
                     if (shouldBroadcast) {
+                        var customColor = this.displayRulesService.applyDisplayRules(
+                                conveyor.getProperties(),
+                                this.displayRulesService.getDisplayRules());
+
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("properties", e.getUpdatedProperties());
+                        updates.put("customColor", customColor);
+
                         webSocketService.broadcastConnectionUpdated(
-                                new UpdateModel(conveyor.getId(),
-                                        Map.of("properties", e.getUpdatedProperties(), "customColor",
-                                                this.displayRulesService.applyDisplayRules(conveyor.getProperties(),
-                                                        this.displayRulesService.getDisplayRules()))),
+                                new UpdateModel(conveyor.getId(), updates),
                                 e.getTimestamp());
                     }
+
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -752,6 +759,11 @@ public class EventProcessor {
                 ? explicitDestinations
                 : destinationMappingService.resolveDestinations(item.getProperties(), timestamp);
         item.setDestinations(destinations);
+        if (destinations.isEmpty()) {
+            item.setSelectedExitId(null);
+            item.setPath(null);
+            return new AppliedDestination(destinations, null, null, explicit);
+        }
         if (item.getLocationId() == null) {
             return new AppliedDestination(destinations, null, null, explicit);
         }
