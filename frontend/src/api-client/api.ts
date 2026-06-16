@@ -119,6 +119,58 @@ export const ConveyorTypeEnum = {
 
 export type ConveyorTypeEnum = typeof ConveyorTypeEnum[keyof typeof ConveyorTypeEnum];
 
+export const EntityEventType = {
+    Item: 'ITEM',
+    Location: 'LOCATION',
+    Conveyor: 'CONVEYOR'
+} as const;
+
+export type EntityEventType = typeof EntityEventType[keyof typeof EntityEventType];
+
+/**
+ * 
+ * @export
+ * @interface EntityEventRecord
+ */
+export interface EntityEventRecord {
+    /**
+     * 
+     * @type {string}
+     * @memberof EntityEventRecord
+     */
+    'eventId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof EntityEventRecord
+     */
+    'eventType'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof EntityEventRecord
+     */
+    'entityId'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof EntityEventRecord
+     */
+    'timestampReceived'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof EntityEventRecord
+     */
+    'timestampProcessed'?: string;
+    /**
+     * 
+     * @type {{ [key: string]: unknown; }}
+     * @memberof EntityEventRecord
+     */
+    'payload'?: { [key: string]: unknown; };
+}
+
 /**
  * 
  * @export
@@ -1283,6 +1335,54 @@ export const AnalyticsControllerApiAxiosParamCreator = function (configuration?:
     return {
         /**
          * 
+         * @param {EntityEventType} entityType 
+         * @param {string} entityId 
+         * @param {number} [limit] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getEntityEvents: async (entityType: EntityEventType, entityId: string, limit?: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'entityType' is not null or undefined
+            assertParamExists('getEntityEvents', 'entityType', entityType)
+            // verify required parameter 'entityId' is not null or undefined
+            assertParamExists('getEntityEvents', 'entityId', entityId)
+            const localVarPath = `/api/analytics/entity-events`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (entityType !== undefined) {
+                localVarQueryParameter['entityType'] = entityType;
+            }
+
+            if (entityId !== undefined) {
+                localVarQueryParameter['entityId'] = entityId;
+            }
+
+            if (limit !== undefined) {
+                localVarQueryParameter['limit'] = limit;
+            }
+
+
+    
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @param {number} [hours] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -1327,6 +1427,20 @@ export const AnalyticsControllerApiFp = function(configuration?: Configuration) 
     return {
         /**
          * 
+         * @param {EntityEventType} entityType 
+         * @param {string} entityId 
+         * @param {number} [limit] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getEntityEvents(entityType: EntityEventType, entityId: string, limit?: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<EntityEventRecord>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getEntityEvents(entityType, entityId, limit, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['AnalyticsControllerApi.getEntityEvents']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @param {number} [hours] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -1349,6 +1463,17 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
     return {
         /**
          * 
+         * @param {EntityEventType} entityType 
+         * @param {string} entityId 
+         * @param {number} [limit] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getEntityEvents(entityType: EntityEventType, entityId: string, limit?: number, options?: RawAxiosRequestConfig): AxiosPromise<Array<EntityEventRecord>> {
+            return localVarFp.getEntityEvents(entityType, entityId, limit, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @param {number} [hours] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -1366,6 +1491,19 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
  * @extends {BaseAPI}
  */
 export class AnalyticsControllerApi extends BaseAPI {
+    /**
+     * 
+     * @param {EntityEventType} entityType 
+     * @param {string} entityId 
+     * @param {number} [limit] 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AnalyticsControllerApi
+     */
+    public getEntityEvents(entityType: EntityEventType, entityId: string, limit?: number, options?: RawAxiosRequestConfig) {
+        return AnalyticsControllerApiFp(this.configuration).getEntityEvents(entityType, entityId, limit, options).then((request) => request(this.axios, this.basePath));
+    }
+
     /**
      * 
      * @param {number} [hours] 

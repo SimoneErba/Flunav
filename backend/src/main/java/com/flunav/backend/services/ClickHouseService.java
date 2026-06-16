@@ -6,10 +6,12 @@ import com.clickhouse.data.ClickHouseFormat;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.flunav.backend.models.analytics.EntityEventType;
 import com.flunav.backend.models.analytics.MetricEvent;
 import com.flunav.backend.models.analytics.ThroughputDto;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
+import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.ThroughputMetric;
 
 import flunav.events.DomainEvent;
@@ -33,6 +35,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -399,6 +402,94 @@ public class ClickHouseService {
             }
             return metrics;
         });
+    }
+
+    public CompletableFuture<List<EntityEventRecord>> getEntityEvents(
+            EntityEventType entityType,
+            String entityId,
+            int limit) {
+        String eventTypeFilter = switch (entityType) {
+            case ITEM -> "(startsWith(event_type, 'ITEM_') OR event_type = 'PATH_TRAVERSED')";
+            case LOCATION -> "(startsWith(event_type, 'LOCATION_') OR event_type = 'CHUTE_EMPTY')";
+            case CONVEYOR -> "startsWith(event_type, 'CONNECTION_')";
+        };
+
+        String sql = """
+                SELECT
+                    event_id,
+                    event_type,
+                    entity_id,
+                    timestamp_received,
+                    timestamp_processed,
+                    data
+                FROM (
+                    SELECT
+                        event_id,
+                        event_type,
+                        entity_id,
+                        timestamp_received,
+                        timestamp_processed,
+                        data
+                    FROM Events
+                    WHERE entity_id = {entityId:String}
+                      AND %s
+                    ORDER BY timestamp_received DESC, timestamp_processed DESC, event_id DESC
+                    LIMIT {limit:UInt32}
+                )
+                ORDER BY timestamp_received ASC, timestamp_processed ASC, event_id ASC
+                FORMAT JSONEachRow
+                SETTINGS
+                    date_time_output_format = 'iso',
+                    output_format_json_quote_64bit_integers = 0
+                """.formatted(eventTypeFilter);
+
+        return CompletableFuture.supplyAsync(() -> {
+            List<EntityEventRecord> events = new ArrayList<>();
+            try (QueryResponse response = client.query(sql, Map.of("entityId", entityId, "limit", limit)).get();
+                    InputStream inputStream = response.getInputStream()) {
+                var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
+                MappingIterator<Map<String, Object>> iterator = objectMapper.readerFor(mapType).readValues(inputStream);
+
+                while (iterator.hasNext()) {
+                    Map<String, Object> row = iterator.next();
+                    events.add(new EntityEventRecord(
+                            String.valueOf(row.get("event_id")),
+                            String.valueOf(row.get("event_type")),
+                            String.valueOf(row.get("entity_id")),
+                            parseClickHouseInstant(row.get("timestamp_received")),
+                            parseClickHouseInstant(row.get("timestamp_processed")),
+                            asPayload(row.get("data"))));
+                }
+
+                return events;
+            } catch (Exception e) {
+                logger.error("Failed to fetch {} events for entity {}", entityType, entityId, e);
+                throw new RuntimeException("Failed to fetch entity events", e);
+            }
+        });
+    }
+
+    private Instant parseClickHouseInstant(Object value) {
+        if (value instanceof String text) {
+            try {
+                return Instant.parse(text);
+            } catch (Exception ignored) {
+                LocalDateTime localDateTime = LocalDateTime.parse(text, CLICKHOUSE_FORMATTER);
+                return localDateTime.toInstant(ZoneOffset.UTC);
+            }
+        }
+        throw new IllegalArgumentException("Unsupported ClickHouse timestamp value: " + value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asPayload(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return new LinkedHashMap<>((Map<String, Object>) map);
+        }
+        if (value == null) {
+            return Map.of();
+        }
+        return Map.of("value", value);
     }
 
     private long asLong(Object value) {

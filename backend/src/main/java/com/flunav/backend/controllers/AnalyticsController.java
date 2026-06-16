@@ -3,12 +3,17 @@ package com.flunav.backend.controllers;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.flunav.backend.models.analytics.EntityEventType;
+import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.services.ClickHouseService;
 
@@ -26,6 +31,22 @@ public class AnalyticsController {
     public CompletableFuture<ResponseEntity<List<ThroughputMetric>>> getThroughputHistory(
             @RequestParam(defaultValue = "24") int hours) {
         return clickHouseService.getThroughputHistory(hours)
+                .thenApply(ResponseEntity::ok);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @GetMapping("/entity-events")
+    public CompletableFuture<ResponseEntity<List<EntityEventRecord>>> getEntityEvents(
+            @RequestParam EntityEventType entityType,
+            @RequestParam String entityId,
+            @RequestParam(defaultValue = "200") int limit) {
+        String normalizedEntityId = entityId == null ? "" : entityId.trim();
+        if (normalizedEntityId.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "entityId must not be blank");
+        }
+
+        int clampedLimit = Math.max(1, Math.min(limit, 1000));
+        return clickHouseService.getEntityEvents(entityType, normalizedEntityId, clampedLimit)
                 .thenApply(ResponseEntity::ok);
     }
 }

@@ -9,6 +9,7 @@ import LiveAnalysisPanel from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { UserManagement } from './components/admin/UserManagement';
 import { DestinationMappingManagement } from './components/admin/DestinationMappingManagement';
+import { BiEntityEvents } from './components/admin/BiEntityEvents';
 import { AppHeader } from './components/AppHeader';
 
 // --- HOOKS & UTILS ---
@@ -57,6 +58,7 @@ function LiveWorkspace() {
    const { activeSimulation, setActiveSimulation } = useSimulationContext();
    const canAccessUsers = user?.role === 'SUPERADMIN';
    const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+   const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
 
    // --- Simulation State ---
    const [selectedDate, setSelectedDate] = useState(new Date());
@@ -309,6 +311,7 @@ function LiveWorkspace() {
          {navButton('Live', '/live', true, true)}
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
+         {navButton('BI', '/admin/bi', false, canAccessBi)}
       </div>
    );
 
@@ -374,8 +377,10 @@ const AdminWorkspace = () => {
     const location = useLocation();
     const canAccessUsers = user?.role === 'SUPERADMIN';
     const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+    const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
     const isDestinationMappings = location.pathname === '/admin/destination-mappings';
-    const title = isDestinationMappings ? 'Destination Mappings' : 'User Management';
+    const isBi = location.pathname === '/admin/bi';
+    const title = isDestinationMappings ? 'Destination Mappings' : isBi ? 'BI' : 'User Management';
     const adminNavButton = (label: string, path: string, active: boolean, enabled: boolean) => (
         <button
             type="button"
@@ -410,12 +415,21 @@ const AdminWorkspace = () => {
             >
                 Live
             </button>
-            {adminNavButton('Users', '/admin', !isDestinationMappings, canAccessUsers)}
+            {adminNavButton('Users', '/admin', !isDestinationMappings && !isBi, canAccessUsers)}
             {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
+            {adminNavButton('BI', '/admin/bi', isBi, canAccessBi)}
         </div>
     );
 
-    const content = isDestinationMappings ? (
+    const content = isBi ? (
+        canAccessBi ? (
+            <BiEntityEvents />
+        ) : (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
+                You do not have permission to access BI.
+            </div>
+        )
+    ) : isDestinationMappings ? (
         canAccessDestinationMappings ? (
             <DestinationMappingManagement />
         ) : (
@@ -438,7 +452,7 @@ const AdminWorkspace = () => {
             <AppHeader centerContent={centerContent} leftActions={leftActions} />
 
             <div className="flex-1 overflow-y-auto p-8">
-                <div className={`${isDestinationMappings ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto space-y-8`}>
+                <div className={`${isDestinationMappings || isBi ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto space-y-8`}>
                     {content}
                 </div>
             </div>
@@ -473,6 +487,7 @@ function App() {
                   {/* Admin View (Tables/Forms) */}
                   <Route path="/admin" element={<AdminWorkspace />} />
                   <Route path="/admin/destination-mappings" element={<AdminWorkspace />} />
+                  <Route path="/admin/bi" element={<AdminWorkspace />} />
                 </Route>
 
                 {/* Catch All */}
