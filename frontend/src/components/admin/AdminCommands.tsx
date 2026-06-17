@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { AxiosError } from "axios";
 import toast from "react-hot-toast";
+import { v4 as uuidv4 } from "uuid";
 import { useApi } from "../../hooks/useApi";
 import { LocationTypeEnum } from "../../api-client";
 import { axiosInstance } from "../../api/axiosInstance";
@@ -28,17 +29,12 @@ export const AdminCommands = ({
   embedded?: boolean;
   dockSide?: "left" | "right" | "bottom";
 }) => {
-  const { conveyorsApi, locationApi, clientId } = useApi();
+  const { conveyorsApi, locationApi } = useApi();
   const { activeSimulation } = useSimulationContext();
   const [action, setAction] = useState<CommandAction>("START_CONVEYOR");
   const [target, setTarget] = useState("");
   const [loading, setLoading] = useState(false);
   const isBottomEmbedded = embedded && dockSide === "bottom";
-
-  const requestHeaders = {
-    "X-Sender-ID": clientId,
-    ...(activeSimulation?.id ? { "X-Simulation-ID": activeSimulation.id } : {}),
-  };
 
   const resolveConveyorId = async (value: string) => {
     const response = await conveyorsApi.getAllConveyors();
@@ -58,6 +54,13 @@ export const AdminCommands = ({
     if (!normalizedTarget) return;
 
     setLoading(true);
+
+    // Generate a random sender ID for each request to ensure we receive WebSocket notifications.
+    // The backend suppresses notifications for the sender ID that initiated the action.
+    const requestHeaders = {
+      "X-Sender-ID": uuidv4(),
+      ...(activeSimulation?.id ? { "X-Simulation-ID": activeSimulation.id } : {}),
+    };
 
     try {
       if (action === "EMPTY_CHUTE") {
