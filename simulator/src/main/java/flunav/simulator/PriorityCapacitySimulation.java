@@ -2,10 +2,16 @@ package flunav.simulator;
 
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.DestinationExitMappingRecord;
+import flunav.events.DestinationMappingRecord;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
 import flunav.events.MapDestinationExitsEvent;
+import flunav.events.MapDestinationsEvent;
+import flunav.events.MapDisplayRulesEvent;
+import flunav.types.DataType;
+import flunav.types.DisplayRule;
 import flunav.types.LocationType;
+import flunav.types.OperatorType;
 import flunav.types.PositionType;
 
 import java.util.HashMap;
@@ -18,6 +24,8 @@ import static flunav.simulator.SimulatorUtils.deleteConveyor;
 import static flunav.simulator.SimulatorUtils.deleteLocation;
 import static flunav.simulator.SimulatorUtils.logger;
 import static flunav.simulator.SimulatorUtils.sendEvent;
+import static flunav.simulator.SimulatorUtils.sendRawHttp;
+import static flunav.simulator.SimulatorUtils.toJson;
 
 class PriorityCapacitySimulation implements Simulation {
     private static final String ENTRY = "PC-ENTRY";
@@ -59,7 +67,26 @@ class PriorityCapacitySimulation implements Simulation {
         createConveyor(LOOP_1, LOOP_2, 3.0, 2.0, true);
         createConveyor(LOOP_2, DECISION, 3.0, 2.0, true);
 
+        // 1. Send Display Rules for Flight colors
+        logger.info("Sending flight-based display rules...");
+        List<DisplayRule> rules = List.of(
+            new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 1, "#3b82f6", 1), // Blue for Flight 1
+            new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 2, "#22c55e", 1)  // Green for Flight 2
+        );
+        sendEvent(new MapDisplayRulesEvent(rules), "PUT");
+
+        // 2. Send Destination Mappings (Routing logic based on flight)
+        logger.info("Sending flight-based destination mappings...");
+        sendEvent(new MapDestinationsEvent("flight", List.of(
+            new DestinationMappingRecord("flight", DataType.NUMBER, OperatorType.EQUAL, "1", List.of("FLIGHT-1-CHUTE"), null, null),
+            new DestinationMappingRecord("flight", DataType.NUMBER, OperatorType.EQUAL, "2", List.of("FLIGHT-2-CHUTE"), null, null)
+        )), "PUT");
+
+        // 3. Map Logical Destinations to Physical Exits
+        logger.info("Mapping logical flight chutes to physical exits...");
         sendEvent(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("FLIGHT-1-CHUTE", List.of(RESERVED_CHUTE)),
+                new DestinationExitMappingRecord("FLIGHT-2-CHUTE", List.of(OPEN_CHUTE)),
                 new DestinationExitMappingRecord(LOGICAL_DESTINATION, List.of(RESERVED_CHUTE, OPEN_CHUTE)))), "PUT");
     }
 
@@ -103,10 +130,11 @@ class PriorityCapacitySimulation implements Simulation {
 
     private void injectFlowItem() throws Exception {
         cycle++;
+        int flight = (cycle % 2 == 0) ? 1 : 2;
         boolean highPriority = cycle % 7 == 0;
         String priority = highPriority ? "HIGH" : "NORMAL";
-        String label = highPriority ? "high-reserved-slot" : "normal-compatible-exit";
-        createTrafficItem(label, priority);
+        String label = "Flight-" + flight + "-" + priority;
+        createTrafficItem(label, priority, flight);
     }
 
     private void resetChutes() throws Exception {
@@ -119,7 +147,7 @@ class PriorityCapacitySimulation implements Simulation {
     private void prefillReservedChute(int count) throws Exception {
         logger.info("Prefilling " + RESERVED_CHUTE + " to " + count + "/" + RESERVED_CHUTE_CAPACITY);
         for (int index = 0; index < count; index++) {
-            createItem("reserved-fill-" + index, RESERVED_CHUTE, List.of(RESERVED_CHUTE), "FILLER");
+            createItem("reserved-fill-" + index, RESERVED_CHUTE, List.of(RESERVED_CHUTE), "FILLER", 0);
             Thread.sleep(100);
         }
     }
@@ -140,13 +168,16 @@ class PriorityCapacitySimulation implements Simulation {
         }
     }
 
-    private void createTrafficItem(String label, String priority) throws Exception {
-        List<String> destinations = List.of(RESERVED_CHUTE, OPEN_CHUTE);
-        String itemId = createItem(label, ENTRY, destinations, priority);
-        logger.info("Injected " + itemId + " priority=" + priority + " destinations=" + destinations);
+    private void createTrafficItem(String label, String priority, int flight) throws Exception {
+        // Destination is now based on flight (mapped logically)
+        String logicalDestination = (flight == 1) ? "FLIGHT-1-CHUTE" : "FLIGHT-2-CHUTE";
+        List<String> destinations = List.of(logicalDestination);
+        
+        String itemId = createItem(label, ENTRY, destinations, priority, flight);
+        logger.info("Injected " + itemId + " flight=" + flight + " priority=" + priority + " destinations=" + destinations);
     }
 
-    private String createItem(String label, String locationId, List<String> destinations, String priority)
+    private String createItem(String label, String locationId, List<String> destinations, String priority, int flight)
             throws Exception {
         String itemId = ITEM_PREFIX + (++itemSequence);
         sendEvent(new ItemDeletedEvent(itemId), "DELETE");
@@ -155,6 +186,7 @@ class PriorityCapacitySimulation implements Simulation {
         properties.put("scenario", "priority-capacity");
         properties.put("label", label);
         properties.put("priority", priority);
+        properties.put("flight", flight);
         properties.put("cycle", cycle);
 
         sendEvent(new ItemCreatedEvent(

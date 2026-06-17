@@ -18,6 +18,9 @@ import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.events.LocationCreatedEvent;
 import flunav.events.LocationDeletedEvent;
+import flunav.events.MapDestinationExitsEvent;
+import flunav.events.MapDestinationsEvent;
+import flunav.events.MapDisplayRulesEvent;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 
@@ -98,25 +101,44 @@ public final class SimulatorUtils {
             }
 
             String json = objectMapper.writeValueAsString(toApiPayload(event));
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                    .uri(new URI(BASE_URL + endpoint))
-                    .header("Content-Type", "application/json")
-                    .method(httpMethod, HttpRequest.BodyPublishers.ofString(json));
-
-            if (AUTH_TOKEN != null && !AUTH_TOKEN.isBlank()) {
-                requestBuilder.header("Authorization", "Bearer " + AUTH_TOKEN);
-            }
-
-            HttpRequest request = requestBuilder.build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 300) {
-                logger.warning(() -> "Failed to send event to API: " + response.statusCode() + " " + response.body());
-            }
+            sendRawHttp(endpoint, httpMethod, json);
         }
     }
 
+    public static void sendRawHttp(String endpoint, String httpMethod, String json) throws Exception {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(new URI(BASE_URL + endpoint))
+                .header("Content-Type", "application/json")
+                .method(httpMethod, HttpRequest.BodyPublishers.ofString(json));
+
+        if (AUTH_TOKEN != null && !AUTH_TOKEN.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + AUTH_TOKEN);
+        }
+
+        HttpRequest request = requestBuilder.build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 300) {
+            logger.warning(() -> "Failed to send request to " + endpoint + ": " + response.statusCode() + " " + response.body());
+        } else if (!quietEventLogs) {
+            logger.info(() -> "Successfully sent request to " + endpoint + ": " + response.statusCode());
+        }
+    }
+
+    public static String toJson(Object obj) throws Exception {
+        return objectMapper.writeValueAsString(obj);
+    }
+
     private static Object toApiPayload(DomainEvent event) {
+        if (event instanceof MapDestinationExitsEvent e) {
+            return e.getMappings();
+        }
+        if (event instanceof MapDestinationsEvent e) {
+            return e.getMappings();
+        }
+        if (event instanceof MapDisplayRulesEvent e) {
+            return e.getRules();
+        }
         if (event instanceof LocationCreatedEvent e) {
             HashMap<String, Object> payload = new HashMap<>();
             payload.put("id", e.getEntityId());
@@ -164,6 +186,15 @@ public final class SimulatorUtils {
     }
 
     private static String getEndpointForEvent(DomainEvent event) {
+        if (event instanceof MapDestinationExitsEvent) {
+            return "/destination-exit-mappings";
+        }
+        if (event instanceof MapDestinationsEvent) {
+            return "/destination-mappings";
+        }
+        if (event instanceof MapDisplayRulesEvent) {
+            return "/display-rules";
+        }
         if (event instanceof ItemCreatedEvent) {
             return "/items";
         }

@@ -15,6 +15,7 @@ import flunav.types.DisplayRule;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import com.flunav.backend.context.DatabaseContextHolder;
 
@@ -42,7 +43,7 @@ public class GraphService {
             LiveItemRepository redisRepository,
             PathfindingService pathfindingService,
             DisplayRulesService displayRulesService,
-            SimulationService simulationService,
+            @Lazy SimulationService simulationService,
             TimeService timeService,
             org.modelmapper.ModelMapper modelMapper,
             TopologyProvider topologyProvider,

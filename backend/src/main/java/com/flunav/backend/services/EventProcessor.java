@@ -8,6 +8,7 @@ import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
+import com.flunav.backend.models.response.DisplayRuleColorResult;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
@@ -54,6 +55,7 @@ public class EventProcessor {
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final DisplayRulesService displayRulesService;
+    private final GraphService graphService;
     private final AmqpTemplate amqpTemplate;
     private final String itemEventsRoutingKey;
     private final String commandsQueue;
@@ -83,6 +85,7 @@ public class EventProcessor {
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             DisplayRulesService displayRulesService,
+            @Lazy GraphService graphService,
             LocationService locationService,
             AmqpTemplate amqpTemplate,
             @Value("${rabbitmq.routing-key.item-events}") String itemEventsRoutingKey,
@@ -106,6 +109,7 @@ public class EventProcessor {
         this.locationService = locationService;
         this.liveSystemScheduler = liveSystemScheduler;
         this.displayRulesService = displayRulesService;
+        this.graphService = graphService;
         this.amqpTemplate = amqpTemplate;
         this.itemEventsRoutingKey = itemEventsRoutingKey;
         this.commandsQueue = commandsQueue;
@@ -192,7 +196,8 @@ public class EventProcessor {
 
             try {
                 boolean persistAfterProcessing = event instanceof MapDestinationsEvent
-                        || event instanceof MapDestinationExitsEvent;
+                        || event instanceof MapDestinationExitsEvent
+                        || event instanceof MapDisplayRulesEvent;
                 if (simulationId == null && !persistAfterProcessing) {
                     clickHouseService.saveEventAsync(event);
                 }
@@ -309,6 +314,11 @@ public class EventProcessor {
 
                 case MapDestinationExitsEvent e -> {
                     destinationExitMappingService.saveMappings(e);
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case MapDisplayRulesEvent e -> {
+                    displayRulesService.updateDisplayRules(e.getRules());
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 

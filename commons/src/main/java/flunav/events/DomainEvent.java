@@ -49,8 +49,11 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
         // --- DESTINATION MAP EVENTS ---
         @JsonSubTypes.Type(value = MapDestinationsEvent.class, name = "MAP_DESTINATIONS"),
-        @JsonSubTypes.Type(value = MapDestinationsEvent.class, name = "map_destinations"),
         @JsonSubTypes.Type(value = MapDestinationExitsEvent.class, name = "MAP_DESTINATION_EXITS"),
+
+        // --- DISPLAY RULES ---
+        @JsonSubTypes.Type(value = MapDisplayRulesEvent.class, name = "MAP_DISPLAY_RULES"),
+
 })
 public abstract class DomainEvent {
     private final String eventId;
