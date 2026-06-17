@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
@@ -8,7 +9,6 @@ import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.context.DatabaseContextHolder;
 import flunav.events.DomainEvent;
 import flunav.events.ItemPositionChangedEvent;
-import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
@@ -33,6 +33,7 @@ public class ItemMovementProcessor {
     private final LiveLocationRepository liveLocationRepository;
     private final TopologyProvider topologyProvider;
     private final ItemService itemService;
+    private final RoutingDecisionService routingDecisionService;
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final TimeService timeService;
@@ -46,6 +47,7 @@ public class ItemMovementProcessor {
             LiveLocationRepository liveLocationRepository,
             TopologyProvider topologyProvider,
             ItemService itemService,
+            RoutingDecisionService routingDecisionService,
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             TimeService timeService,
@@ -57,6 +59,7 @@ public class ItemMovementProcessor {
         this.liveLocationRepository = liveLocationRepository;
         this.topologyProvider = topologyProvider;
         this.itemService = itemService;
+        this.routingDecisionService = routingDecisionService;
         this.simulationService = simulationService;
         this.liveSystemScheduler = liveSystemScheduler;
         this.timeService = timeService;
@@ -245,18 +248,21 @@ public class ItemMovementProcessor {
             return;
         }
 
-        if (location.getType() == LocationType.DECISION_POINT) {
-            scheduleEvent(new ItemRoutingDecisionRequestedEvent(itemId, locationId, timestamp));
-        } else {
-            // Not a chute, move to next conveyor
-            String nextConveyorId = calculateNextConveyor(itemId, locationId, null);
-            if (nextConveyorId != null) {
-                // Update item position to the start of this conveyor
-                itemService.updateItemPosition(itemId, nextConveyorId, PositionType.CONVEYOR, timestamp, 0.0, null);
-                liveConveyorRepository.addItemToConveyor(nextConveyorId, itemId, timestamp);
-                handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId);
-            }
+        String nextConveyorId = calculateNextConveyor(itemId, locationId, null);
+        if (nextConveyorId != null) {
+            itemService.updateItemPosition(itemId, nextConveyorId, PositionType.CONVEYOR, timestamp, 0.0, null);
+            liveConveyorRepository.addItemToConveyor(nextConveyorId, itemId, timestamp);
+            handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId);
         }
+    }
+
+    private Item recalculateDecisionPointRoute(Item item, String locationId) {
+        var decision = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION);
+        itemService.updateItemRouting(item.getId(), item.getDestinations(), decision.selectedExitId(),
+                decision.path());
+        item.setSelectedExitId(decision.selectedExitId());
+        item.setPath(decision.path());
+        return item;
     }
 
     public void scheduleEvent(DomainEvent event) {
@@ -288,6 +294,10 @@ public class ItemMovementProcessor {
         var item = itemService.getItemById(itemId);
         if (item == null)
             return null;
+        var currentLocation = topologyProvider.getLocationById(currentLocationId);
+        if (manageLogic && currentLocation != null && currentLocation.getType() == LocationType.DECISION_POINT) {
+            item = recalculateDecisionPointRoute(item, currentLocationId);
+        }
         List<Conveyor> outgoing = topologyProvider.getOutgoingConveyors(currentLocationId).stream()
                 .filter(Conveyor::isActive).toList();
         if (outgoing.isEmpty())

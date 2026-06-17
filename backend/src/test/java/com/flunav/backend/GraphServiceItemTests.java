@@ -4,6 +4,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ItemResponse;
+import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.services.ConveyorService;
@@ -13,8 +14,13 @@ import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.GraphService;
 import com.flunav.backend.services.ItemMovementProcessor;
 import com.flunav.backend.services.ItemService;
+import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.RoutingDecisionService;
+import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.StaleItemCleanupService;
+import com.flunav.backend.services.TimeService;
+import com.flunav.backend.services.TopologyProvider;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ItemCreatedEvent;
@@ -60,13 +66,19 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     private final GraphService graphService;
     private final ItemService itemService;
+    private final LiveConveyorRepository liveConveyorRepository;
     private final LiveItemRepository liveItemRepository;
     private final LiveLocationRepository liveLocationRepository;
     private final StaleItemCleanupService staleItemCleanupService;
     private final EventProcessor eventProcessor;
     private final ItemMovementProcessor itemMovementProcessor;
+    private final RoutingDecisionService routingDecisionService;
     private final DestinationMappingService destinationMappingService;
     private final DestinationExitMappingService destinationExitMappingService;
+    private final TopologyProvider topologyProvider;
+    private final SimulationService simulationService;
+    private final LiveSystemScheduler liveSystemScheduler;
+    private final TimeService timeService;
     private final com.flunav.backend.services.LocationService locationService;
     private final ConveyorService conveyorService;
     private final OrientDBService orientDBService;
@@ -77,13 +89,19 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     GraphServiceItemTests(
             GraphService graphService,
             ItemService itemService,
+            LiveConveyorRepository liveConveyorRepository,
             LiveItemRepository liveItemRepository,
             LiveLocationRepository liveLocationRepository,
             StaleItemCleanupService staleItemCleanupService,
             EventProcessor eventProcessor,
             ItemMovementProcessor itemMovementProcessor,
+            RoutingDecisionService routingDecisionService,
             DestinationMappingService destinationMappingService,
             DestinationExitMappingService destinationExitMappingService,
+            TopologyProvider topologyProvider,
+            SimulationService simulationService,
+            LiveSystemScheduler liveSystemScheduler,
+            TimeService timeService,
             com.flunav.backend.services.LocationService locationService,
             ConveyorService conveyorService,
             OrientDBService orientDBService,
@@ -92,13 +110,19 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             AmqpAdmin amqpAdmin) {
         this.graphService = graphService;
         this.itemService = itemService;
+        this.liveConveyorRepository = liveConveyorRepository;
         this.liveItemRepository = liveItemRepository;
         this.liveLocationRepository = liveLocationRepository;
         this.staleItemCleanupService = staleItemCleanupService;
         this.eventProcessor = eventProcessor;
         this.itemMovementProcessor = itemMovementProcessor;
+        this.routingDecisionService = routingDecisionService;
         this.destinationMappingService = destinationMappingService;
         this.destinationExitMappingService = destinationExitMappingService;
+        this.topologyProvider = topologyProvider;
+        this.simulationService = simulationService;
+        this.liveSystemScheduler = liveSystemScheduler;
+        this.timeService = timeService;
         this.locationService = locationService;
         this.conveyorService = conveyorService;
         this.orientDBService = orientDBService;
@@ -643,6 +667,130 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         } finally {
             itemMovementProcessor.cancelScheduledEvent("guard-extra");
         }
+    }
+
+    @Test
+    void logicalDestinationMappingKeepsLogicalDestinationAndStoresPhysicalRouteThroughRoutingBuffer() {
+        Instant now = timeService.physicalNow();
+        createLocation("logical-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("logical-routing-buffer", "Routing Buffer", LocationType.JUNCTION, 0);
+        createLocation("logical-reserved-chute", "Reserved Chute", LocationType.CHUTE, 10);
+        createLocation("logical-open-chute", "Open Chute", LocationType.CHUTE, 10);
+        createLocation("logical-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("logical-decision-buffer", "logical-decision", "logical-routing-buffer",
+                "Decision Buffer", 2.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("logical-decision-loop", "logical-decision", "logical-loop",
+                "Decision Loop", 2.0, 1.0, 0.0, true, true);
+        conveyorService.createConveyor("logical-buffer-reserved", "logical-routing-buffer",
+                "logical-reserved-chute", "Reserved", 2.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("logical-buffer-open", "logical-routing-buffer",
+                "logical-open-chute", "Open", 2.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("logical-reserved-chute", "logical-occupant-" + index);
+        }
+
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("logical-destination",
+                        List.of("logical-reserved-chute", "logical-open-chute")))));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "logical-item", "Logical Item", 1.0, true, "logical-decision",
+                PositionType.LOCATION, 0.0, List.of("logical-destination"),
+                Map.of("priority", "NORMAL"), now));
+
+        var item = itemService.getItemById("logical-item");
+        assertNotNull(item);
+        assertEquals(List.of("logical-destination"), item.getDestinations());
+        assertEquals("logical-open-chute", item.getSelectedExitId());
+        assertEquals(List.of("logical-decision", "logical-routing-buffer", "logical-open-chute"),
+                item.getPath());
+    }
+
+    @Test
+    void scheduledDecisionPointTransitionRecalculatesFallbackLogicalDestinationRoute() {
+        Instant now = timeService.physicalNow();
+        createLocation("scheduled-entry", "Entry", LocationType.JUNCTION, 0);
+        createLocation("scheduled-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("scheduled-routing-buffer", "Routing Buffer", LocationType.JUNCTION, 0);
+        createLocation("scheduled-chute", "Chute", LocationType.CHUTE, 10);
+        createLocation("scheduled-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("scheduled-entry-decision", "scheduled-entry", "scheduled-decision",
+                "Entry Decision", 2.0, 1.0, 0.0, true, true);
+        conveyorService.createConveyor("scheduled-decision-buffer", "scheduled-decision",
+                "scheduled-routing-buffer", "Decision Buffer", 2.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("scheduled-decision-loop", "scheduled-decision", "scheduled-loop",
+                "Decision Loop", 2.0, 1.0, 0.0, true, true);
+        conveyorService.createConveyor("scheduled-buffer-chute", "scheduled-routing-buffer",
+                "scheduled-chute", "Chute", 2.0, 1.0, 0.0, false, true);
+
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("scheduled-destination", List.of("scheduled-chute")))));
+        ItemInput item = new ItemInput();
+        item.setId("scheduled-item");
+        item.setName("Scheduled Item");
+        item.setActive(true);
+        item.setLocationId("scheduled-entry-decision");
+        item.setPositionType(PositionType.CONVEYOR);
+        item.setProgress(0.0);
+        item.setTimestamp(now);
+        item.setDestinations(List.of("scheduled-destination"));
+        item.setSelectedExitId(null);
+        item.setPath(List.of("scheduled-entry", "scheduled-decision"));
+        item.setProperties(Map.of("priority", "NORMAL"));
+        itemService.createItem(item);
+        liveConveyorRepository.addItemToConveyor("scheduled-entry-decision", "scheduled-item", now);
+
+        itemMovementProcessor.handleItemEntryToConveyor("scheduled-item", "scheduled-entry-decision", now, 0.0,
+                null);
+
+        var scheduled = assertInstanceOf(ItemPositionChangedEvent.class,
+                itemMovementProcessor.getScheduledEvent("scheduled-item"));
+        assertEquals("scheduled-decision-buffer", scheduled.getLocationId());
+
+        var routedItem = itemService.getItemById("scheduled-item");
+        assertNotNull(routedItem);
+        assertEquals(List.of("scheduled-destination"), routedItem.getDestinations());
+        assertEquals("scheduled-chute", routedItem.getSelectedExitId());
+        assertEquals(List.of("scheduled-decision", "scheduled-routing-buffer", "scheduled-chute"),
+                routedItem.getPath());
+    }
+
+    @Test
+    void decisionPointPositionUpdateDoesNotRecalculateRoutingWhenManageLogicDisabled() {
+        Instant now = timeService.physicalNow();
+        createLocation("disabled-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("disabled-chute", "Chute", LocationType.CHUTE, 1);
+        createLocation("disabled-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("disabled-exit-conveyor", "disabled-decision", "disabled-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("disabled-main-conveyor", "disabled-decision", "disabled-loop",
+                "Main", 2.0, 1.0, 0.0, true, true);
+
+        createItem("disabled-item", "Item", "disabled-decision", now, Map.of("priority", "NORMAL"));
+        List<String> existingPath = List.of("disabled-decision", "disabled-loop");
+        liveItemRepository.updateRouting("disabled-item", List.of("disabled-chute"), null, existingPath);
+        itemService.updateItemPosition("disabled-item", "disabled-decision", PositionType.LOCATION, now, 0.0, null);
+
+        ItemMovementProcessor disabledProcessor = new ItemMovementProcessor(
+                amqpTemplate,
+                "1",
+                liveConveyorRepository,
+                liveItemRepository,
+                liveLocationRepository,
+                topologyProvider,
+                itemService,
+                routingDecisionService,
+                simulationService,
+                liveSystemScheduler,
+                timeService,
+                false);
+        disabledProcessor.processLocationEntry("disabled-item", "disabled-decision", now);
+
+        var item = itemService.getItemById("disabled-item");
+        assertNotNull(item);
+        assertNull(item.getSelectedExitId());
+        assertEquals(existingPath, item.getPath());
+        assertNull(disabledProcessor.getScheduledEvent("disabled-item"));
     }
 
     @Test
