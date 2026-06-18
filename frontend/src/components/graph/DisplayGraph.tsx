@@ -35,6 +35,11 @@ export const DisplayGraph = ({
     
     const highlightedItem = selectedItemData;
 
+    /**
+     * Keeps Sigma renderer settings stable across graph data updates.
+     * Node program registration should not be recreated on every render because
+     * graph hooks mutate the existing Sigma instance incrementally.
+     */
     const settings = useMemo(() => ({
         nodeProgramClasses: { square: NodeSquareProgram, borderedSquare: NodeBorderedSquareProgram },
         enableEdgeEvents: true,

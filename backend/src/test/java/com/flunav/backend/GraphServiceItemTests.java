@@ -23,15 +23,20 @@ import com.flunav.backend.services.TimeService;
 import com.flunav.backend.services.TopologyProvider;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.DestinationExitMappingRecord;
+import flunav.events.ChuteEmptyEvent;
+import flunav.events.ConnectionActivatedEvent;
+import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
+import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
 import flunav.types.DataType;
 import flunav.types.LocationType;
 import flunav.types.OperatorType;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -637,6 +642,249 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void fractionalPriorityUsesProportionalReservedCapacity() {
+        Instant now = Instant.now();
+        createLocation("fractional-capacity-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("fractional-capacity-chute", "Chute", LocationType.CHUTE, 100);
+        conveyorService.createConveyor("fractional-capacity-exit", "fractional-capacity-start",
+                "fractional-capacity-chute", "Exit", 1.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 94; index++) {
+            liveLocationRepository.addItemToLocation("fractional-capacity-chute",
+                    "fractional-capacity-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "fractional-capacity-item", "Fractional", 1.0, true, "fractional-capacity-start",
+                PositionType.LOCATION, 0.0, List.of("fractional-capacity-chute"),
+                Map.of("priority", 0.45), now));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "fractional-capacity-overflow", "Fractional Overflow", 1.0, true,
+                "fractional-capacity-start", PositionType.LOCATION, 0.0,
+                List.of("fractional-capacity-chute"), Map.of("priority", 0.45), now.plusMillis(1)));
+
+        assertEquals("fractional-capacity-chute",
+                itemService.getItemById("fractional-capacity-item").getSelectedExitId());
+        var overflow = itemService.getItemById("fractional-capacity-overflow");
+        assertNull(overflow.getSelectedExitId());
+        assertEquals(RoutingStatus.WAITING_FOR_CAPACITY, overflow.getRoutingStatus());
+    }
+
+    @Test
+    void fractionalPriorityBlendsUtilizationAndTravelTime() {
+        Instant now = Instant.now();
+        createLocation("fractional-route-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("fractional-route-near", "Near Chute", LocationType.CHUTE, 10);
+        createLocation("fractional-route-far", "Far Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("fractional-route-near-conveyor", "fractional-route-start",
+                "fractional-route-near", "Near", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("fractional-route-far-conveyor", "fractional-route-start",
+                "fractional-route-far", "Far", 5.0, 1.0, 0.0, false, true);
+
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("fractional-route-near",
+                    "fractional-route-near-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "fractional-route-balanced", "Balanced Priority", 1.0, true, "fractional-route-start",
+                PositionType.LOCATION, 0.0, List.of("fractional-route-near", "fractional-route-far"),
+                Map.of("priority", 0.45), now));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "fractional-route-urgent", "Urgent Priority", 1.0, true, "fractional-route-start",
+                PositionType.LOCATION, 0.0, List.of("fractional-route-near", "fractional-route-far"),
+                Map.of("priority", 0.80), now.plusMillis(1)));
+
+        assertEquals("fractional-route-far",
+                itemService.getItemById("fractional-route-balanced").getSelectedExitId());
+        assertEquals("fractional-route-near",
+                itemService.getItemById("fractional-route-urgent").getSelectedExitId());
+    }
+
+    @Test
+    void highPriorityWaitsForCapacityWhenAllCandidateChutesAreFull() {
+        Instant now = Instant.now();
+        createLocation("wait-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("wait-chute-a", "Chute A", LocationType.CHUTE, 1);
+        createLocation("wait-chute-b", "Chute B", LocationType.CHUTE, 1);
+        createLocation("wait-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("wait-a", "wait-start", "wait-chute-a", "A", 10_000.0, 1.0, 0.0,
+                false, true);
+        conveyorService.createConveyor("wait-b", "wait-start", "wait-chute-b", "B", 10_000.0, 1.0, 0.0,
+                false, true);
+        conveyorService.createConveyor("wait-loop-conveyor", "wait-start", "wait-loop", "Loop", 10_000.0, 1.0,
+                0.0, true, true);
+        liveLocationRepository.addItemToLocation("wait-chute-a", "occupant-a");
+        liveLocationRepository.addItemToLocation("wait-chute-b", "occupant-b");
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "wait-high", "High", 1.0, true, "wait-start", PositionType.LOCATION, 0.0,
+                List.of("wait-chute-a", "wait-chute-b"), Map.of("priority", "HIGH"), now));
+
+        var item = itemService.getItemById("wait-high");
+        assertNull(item.getSelectedExitId());
+        assertEquals(RoutingStatus.WAITING_FOR_CAPACITY, item.getRoutingStatus());
+        assertEquals(List.of("wait-start", "wait-loop"), item.getPath());
+    }
+
+    @Test
+    void chuteEmptyAssignsWaitingHighPriorityBeforeNewNormalItemConsumesFreedSlot() {
+        Instant now = Instant.now();
+        createLocation("retry-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("retry-chute", "Chute", LocationType.CHUTE, 1);
+        createLocation("retry-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("retry-exit", "retry-start", "retry-chute", "Exit", 10_000.0, 1.0, 0.0,
+                false, true);
+        conveyorService.createConveyor("retry-loop-conveyor", "retry-start", "retry-loop", "Loop", 10_000.0, 1.0,
+                0.0, true, true);
+        conveyorService.createConveyor("retry-loop-back", "retry-loop", "retry-start", "Loop Back", 10_000.0, 1.0,
+                0.0, true, true);
+        liveLocationRepository.addItemToLocation("retry-chute", "retry-occupant");
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "retry-high", "High", 1.0, true, "retry-start", PositionType.LOCATION, 0.0,
+                List.of("retry-chute"), Map.of("priority", "HIGH"), now));
+        assertEquals(RoutingStatus.WAITING_FOR_CAPACITY, itemService.getItemById("retry-high").getRoutingStatus());
+
+        eventProcessor.processEventWithoutBroadcast(new ChuteEmptyEvent("retry-chute", now.plusSeconds(1)));
+        var high = itemService.getItemById("retry-high");
+        assertEquals("retry-chute", high.getSelectedExitId());
+        assertEquals(RoutingStatus.ASSIGNED, high.getRoutingStatus());
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "retry-normal", "Normal", 1.0, true, "retry-start", PositionType.LOCATION, 0.0,
+                List.of("retry-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(2)));
+        assertNull(itemService.getItemById("retry-normal").getSelectedExitId());
+    }
+
+    @Test
+    void normalItemIsBlockedByOverlappingPendingHighPriorityReservation() {
+        Instant now = Instant.now();
+        createLocation("pending-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("pending-chute", "Chute", LocationType.CHUTE, 10);
+        createLocation("pending-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("pending-exit", "pending-start", "pending-chute", "Exit", 10_000.0, 1.0,
+                0.0, false, true);
+        conveyorService.createConveyor("pending-loop-conveyor", "pending-start", "pending-loop", "Loop", 10_000.0,
+                1.0, 0.0, true, true);
+        for (int index = 0; index < 10; index++) {
+            liveLocationRepository.addItemToLocation("pending-chute", "pending-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "pending-high", "High", 1.0, true, "pending-start", PositionType.LOCATION, 0.0,
+                List.of("pending-chute"), Map.of("priority", "HIGH"), now));
+        for (int index = 0; index < 1; index++) {
+            liveLocationRepository.removeItemFromLocation("pending-chute", "pending-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "pending-normal", "Normal", 1.0, true, "pending-start", PositionType.LOCATION, 0.0,
+                List.of("pending-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+
+        assertNull(itemService.getItemById("pending-normal").getSelectedExitId());
+        assertEquals(RoutingStatus.UNROUTED, itemService.getItemById("pending-normal").getRoutingStatus());
+    }
+
+    @Test
+    void pendingReservationsUseOneBestCandidateInsteadOfEveryCandidateExit() {
+        Instant now = Instant.now();
+        createLocation("split-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("split-chute-a", "Chute A", LocationType.CHUTE, 10);
+        createLocation("split-chute-b", "Chute B", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("split-a", "split-start", "split-chute-a", "A", 10_000.0, 1.0, 0.0,
+                false, true);
+        conveyorService.createConveyor("split-b", "split-start", "split-chute-b", "B", 20_000.0, 1.0, 0.0,
+                false, true);
+        for (String chuteId : List.of("split-chute-a", "split-chute-b")) {
+            for (int index = 0; index < 10; index++) {
+                liveLocationRepository.addItemToLocation(chuteId, chuteId + "-occupant-" + index);
+            }
+        }
+
+        for (int index = 0; index < 2; index++) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "split-high-" + index, "High " + index, 1.0, true, "split-start", PositionType.LOCATION,
+                    0.0, List.of("split-chute-a", "split-chute-b"), Map.of("priority", "HIGH"),
+                    now.plusMillis(index)));
+        }
+        for (String chuteId : List.of("split-chute-a", "split-chute-b")) {
+            for (int index = 0; index < 3; index++) {
+                liveLocationRepository.removeItemFromLocation(chuteId, chuteId + "-occupant-" + index);
+            }
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "split-normal", "Normal", 1.0, true, "split-start", PositionType.LOCATION, 0.0,
+                List.of("split-chute-a", "split-chute-b"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+
+        assertNotNull(itemService.getItemById("split-normal").getSelectedExitId());
+    }
+
+    @Test
+    void pendingReservationCapPreventsHighPriorityFloodFromBlockingAllNormalRouting() {
+        Instant now = Instant.now();
+        createLocation("cap-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("cap-chute", "Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("cap-exit", "cap-start", "cap-chute", "Exit", 10_000.0, 1.0, 0.0,
+                false, true);
+        for (int index = 0; index < 10; index++) {
+            liveLocationRepository.addItemToLocation("cap-chute", "cap-occupant-" + index);
+        }
+        for (int index = 0; index < 6; index++) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "cap-high-" + index, "High " + index, 1.0, true, "cap-start", PositionType.LOCATION, 0.0,
+                    List.of("cap-chute"), Map.of("priority", "HIGH"), now.plusMillis(index)));
+        }
+        for (int index = 0; index < 5; index++) {
+            liveLocationRepository.removeItemFromLocation("cap-chute", "cap-occupant-" + index);
+        }
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "cap-normal", "Normal", 1.0, true, "cap-start", PositionType.LOCATION, 0.0,
+                List.of("cap-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+
+        assertEquals("cap-chute", itemService.getItemById("cap-normal").getSelectedExitId());
+    }
+
+    @Test
+    void simulationPendingReservationsDoNotConsumeLiveCapacity() {
+        Instant now = Instant.now();
+        createLocation("sim-live-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("sim-live-chute", "Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("sim-live-exit", "sim-live-start", "sim-live-chute", "Exit", 10_000.0, 1.0,
+                0.0, false, true);
+        for (int index = 0; index < 10; index++) {
+            liveLocationRepository.addItemToLocation("sim-live-chute", "sim-live-occupant-" + index);
+        }
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "sim-live-high", "High", 1.0, true, "sim-live-start", PositionType.LOCATION, 0.0,
+                List.of("sim-live-chute"), Map.of("priority", "HIGH"), now));
+        for (int index = 0; index < 1; index++) {
+            liveLocationRepository.removeItemFromLocation("sim-live-chute", "sim-live-occupant-" + index);
+        }
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "sim-live-normal", "Normal", 1.0, true, "sim-live-start", PositionType.LOCATION, 0.0,
+                List.of("sim-live-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+        assertNull(itemService.getItemById("sim-live-normal").getSelectedExitId());
+
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("sim-start", "Start", LocationType.JUNCTION, 0);
+            createLocation("sim-chute", "Chute", LocationType.CHUTE, 10);
+            conveyorService.createConveyor("sim-exit", "sim-start", "sim-chute", "Exit", 10_000.0, 1.0,
+                    0.0, false, true);
+            for (int index = 0; index < 8; index++) {
+                liveLocationRepository.addItemToLocation("sim-chute", "sim-occupant-" + index);
+            }
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "sim-normal", "Normal", 1.0, true, "sim-start", PositionType.LOCATION, 0.0,
+                    List.of("sim-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(2)));
+            assertEquals("sim-chute", itemService.getItemById("sim-normal").getSelectedExitId());
+        }
+    }
+
+    @Test
     void chuteEntryGuardBlocksStraightMultiHopArrivalWhenProjectedCapacityIsFull() {
         Instant future = Instant.now().plusSeconds(60);
         createLocation("guard-a", "A", LocationType.JUNCTION, 0);
@@ -780,6 +1028,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 topologyProvider,
                 itemService,
                 routingDecisionService,
+                new com.flunav.backend.services.RoutingCoordinator(),
                 simulationService,
                 liveSystemScheduler,
                 timeService,
@@ -859,6 +1108,71 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         var normalItem = waitForPath("free-normal", List.of("free-decision", "free-open-chute"));
         assertEquals("free-open-chute", normalItem.getSelectedExitId());
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+    }
+
+    @Test
+    void stoppedExitConveyorAtDecisionPointReroutesAssignedItemToAvailableExit() {
+        Instant now = Instant.now();
+        createLocation("stop-route-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("stop-route-preferred", "Preferred Chute", LocationType.CHUTE, 10);
+        createLocation("stop-route-alternate", "Alternate Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("stop-route-preferred-conveyor", "stop-route-decision",
+                "stop-route-preferred", "Preferred", 10_000.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("stop-route-alternate-conveyor", "stop-route-decision",
+                "stop-route-alternate", "Alternate", 20_000.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "stop-route-item", "Stop Route Item", 1.0, true, "stop-route-decision",
+                PositionType.LOCATION, 0.0, List.of("stop-route-preferred", "stop-route-alternate"),
+                Map.of("priority", "NORMAL"), now));
+
+        var initiallyRouted = itemService.getItemById("stop-route-item");
+        assertEquals("stop-route-preferred", initiallyRouted.getSelectedExitId());
+        assertEquals(RoutingStatus.ASSIGNED, initiallyRouted.getRoutingStatus());
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionDeactivatedEvent("stop-route-preferred-conveyor"));
+        eventProcessor.processEventWithoutBroadcast(
+                new ItemRoutingDecisionRequestedEvent("stop-route-item", "stop-route-decision"));
+
+        var rerouted = itemService.getItemById("stop-route-item");
+        assertEquals("stop-route-alternate", rerouted.getSelectedExitId());
+        assertEquals(List.of("stop-route-decision", "stop-route-alternate"), rerouted.getPath());
+        assertEquals(RoutingStatus.ASSIGNED, rerouted.getRoutingStatus());
+        assertNotNull(rerouted.getRoutingStatusUpdatedAt());
+    }
+
+    @Test
+    void reactivatedExitConveyorAtDecisionPointBecomesEligibleForLaterRouting() {
+        Instant now = Instant.now();
+        createLocation("reactivate-route-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("reactivate-route-preferred", "Preferred Chute", LocationType.CHUTE, 10);
+        createLocation("reactivate-route-alternate", "Alternate Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("reactivate-route-preferred-conveyor", "reactivate-route-decision",
+                "reactivate-route-preferred", "Preferred", 10_000.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("reactivate-route-alternate-conveyor", "reactivate-route-decision",
+                "reactivate-route-alternate", "Alternate", 20_000.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionDeactivatedEvent("reactivate-route-preferred-conveyor"));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "reactivate-route-first", "First Item", 1.0, true, "reactivate-route-decision",
+                PositionType.LOCATION, 0.0, List.of("reactivate-route-preferred", "reactivate-route-alternate"),
+                Map.of("priority", "NORMAL"), now));
+
+        var first = itemService.getItemById("reactivate-route-first");
+        assertEquals("reactivate-route-alternate", first.getSelectedExitId());
+        assertEquals(RoutingStatus.ASSIGNED, first.getRoutingStatus());
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionActivatedEvent("reactivate-route-preferred-conveyor"));
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "reactivate-route-second", "Second Item", 1.0, true, "reactivate-route-decision",
+                PositionType.LOCATION, 0.0, List.of("reactivate-route-preferred", "reactivate-route-alternate"),
+                Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+
+        var second = itemService.getItemById("reactivate-route-second");
+        assertEquals("reactivate-route-preferred", second.getSelectedExitId());
+        assertEquals(List.of("reactivate-route-decision", "reactivate-route-preferred"), second.getPath());
+        assertEquals(RoutingStatus.ASSIGNED, second.getRoutingStatus());
+        assertNotNull(second.getRoutingStatusUpdatedAt());
     }
 
     @Test

@@ -44,6 +44,11 @@ public class HistoricalEventPlayer {
         this.timeService = timeService;
     }
 
+    /**
+     * Plays a simulation forward from a virtual timestamp at the requested speed.
+     * The worker stays inside simulation context so replayed events update isolated
+     * Redis and OrientDB state instead of live state.
+     */
     @SuppressWarnings("deprecation")
     @Async("taskExecutor")
     public Future<Void> playEvents(String simulationId, Instant simulationStartTime, double initialSpeedFactor) {
@@ -112,6 +117,11 @@ public class HistoricalEventPlayer {
         return new AsyncResult<>(null);
     }
 
+    /**
+     * Converts worker interruption into the intended playback state.
+     * Reschedules and pauses are expected cancellations, while other interruptions
+     * stop playback so clients do not keep seeing a stale PLAYING state.
+     */
     private void handlePlaybackInterruption(String simulationId) {
         SimulationState state = null;
         try {
@@ -247,6 +257,11 @@ public class HistoricalEventPlayer {
         return event != null && !event.getTimestamp().isAfter(timestamp);
     }
 
+    /**
+     * Chooses replay order inside one playback window.
+     * External history wins ties because observed events should override predicted
+     * internal movement scheduled at the same instant.
+     */
     private boolean shouldProcessExternalBeforeInternal(DomainEvent externalEvent, DomainEvent internalEvent,
             Instant windowEndTime) {
         if (internalEvent == null || internalEvent.getTimestamp().isAfter(windowEndTime)) {
@@ -261,6 +276,11 @@ public class HistoricalEventPlayer {
         waitUntilScheduledSimulationTime(state, windowWallClockStartNs, windowStartTime, event.getTimestamp());
     }
 
+    /**
+     * Maps simulation time to wall-clock delay for playback.
+     * The speed factor changes delay only, not event timestamps, which preserves
+     * deterministic replay while allowing interactive speed changes.
+     */
     private void waitUntilScheduledSimulationTime(SimulationState state, long windowWallClockStartNs,
             Instant windowStartTime, Instant targetSimulationTime)
             throws InterruptedException {
@@ -285,6 +305,11 @@ public class HistoricalEventPlayer {
         }
     }
 
+    /**
+     * Processes one playback event under virtual time.
+     * EventProcessor receives the original timestamp through TimeService so any
+     * derived state written during replay is deterministic.
+     */
     private void processEvent(String simulationId, DomainEvent event) {
         try {
             try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {

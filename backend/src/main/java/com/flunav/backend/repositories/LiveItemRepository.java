@@ -5,6 +5,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.RedisLiveItem;
 
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,6 +28,11 @@ public class LiveItemRepository {
     }
 
     // --- MULTI-TENANCY HELPER ---
+    /**
+     * Routes every hot-state key through the active simulation context.
+     * This keeps live Redis data and simulation Redis data isolated while allowing
+     * service code to use the same repository methods in both modes.
+     */
     private String getNamespacedKey(String baseKey) {
         String simId = DatabaseContextHolder.getSimulationId();
         return (simId != null) ? "sim:" + simId + ":" + baseKey : baseKey;
@@ -37,6 +43,18 @@ public class LiveItemRepository {
     public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime,
             double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
             List<String> path) {
+        saveItemState(itemId, positionId, type, entryTime, accumulatedDistance, name, destinations, selectedExitId,
+                inferRoutingStatus(selectedExitId), entryTime, path);
+    }
+
+    /**
+     * Stores a complete item hot-state snapshot and indexes it as active.
+     * The active set is maintained with the hash so graph reads can bulk-load only
+     * items that currently have live or simulation position state.
+     */
+    public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime,
+            double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
+            RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path) {
 
         // Create the object
         RedisLiveItem item = RedisLiveItem.builder()
@@ -48,6 +66,8 @@ public class LiveItemRepository {
                 .name(name)
                 .destinations(destinations)
                 .selectedExitId(selectedExitId)
+                .routingStatus(routingStatus)
+                .routingStatusUpdatedAt(routingStatusUpdatedAt)
                 .path(path)
                 .build();
 
@@ -59,6 +79,11 @@ public class LiveItemRepository {
         redis.opsForSet().add(setKey, itemId);
     }
 
+    /**
+     * Updates only the movement fields for a hot item.
+     * The offset is stored as accumulated conveyor distance so future projections
+     * can resume from a physical checkpoint instead of a rendered percentage.
+     */
     public void updatePosition(String itemId, String positionId, PositionType type, Instant entryTime,
             double offsetMeters, List<String> path) {
 
@@ -95,6 +120,11 @@ public class LiveItemRepository {
         deleteItems(idsToDelete);
     }
 
+    /**
+     * Advances the item's physics checkpoint without changing its assigned segment.
+     * Simulation replay and conveyor speed changes use this to preserve distance
+     * already traveled before rescheduling the next internal event.
+     */
     public void checkpointPhysics(String itemId, Instant timestamp, double currentDistance) {
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
@@ -109,6 +139,16 @@ public class LiveItemRepository {
     }
 
     public void updateRouting(String itemId, List<String> destinations, String selectedExitId, List<String> path) {
+        updateRouting(itemId, destinations, selectedExitId, inferRoutingStatus(selectedExitId), null, path);
+    }
+
+    /**
+     * Replaces the routing fields while preserving the current movement checkpoint.
+     * Null exit or path values deliberately delete the old Redis fields so stale
+     * assignments do not survive rerouting or failure states.
+     */
+    public void updateRouting(String itemId, List<String> destinations, String selectedExitId,
+            RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path) {
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
 
@@ -119,6 +159,12 @@ public class LiveItemRepository {
         }
         if (selectedExitId != null) {
             updates.put("d", selectedExitId);
+        }
+        if (routingStatus != null) {
+            updates.put("rs", routingStatus.name());
+        }
+        if (routingStatusUpdatedAt != null) {
+            updates.put("rst", String.valueOf(routingStatusUpdatedAt.toEpochMilli()));
         }
         if (path != null) {
             try {
@@ -158,6 +204,11 @@ public class LiveItemRepository {
         deleteItem(itemId, DatabaseContextHolder.getSimulationId());
     }
 
+    /**
+     * Deletes an item from its hash, active index, and positional membership set.
+     * The explicit simulation id variant is used by cleanup/recovery code that must
+     * remove state from a namespace without relying on the current ThreadLocal.
+     */
     public void deleteItem(String itemId, String simulationId) {
         // 1. Get state to find where the item is
         RedisLiveItem item = getItemState(itemId, simulationId);
@@ -201,6 +252,11 @@ public class LiveItemRepository {
         return RedisLiveItem.fromRedisMap(itemId, hash, objectMapper);
     }
 
+    /**
+     * Bulk-loads active item hashes through a Redis pipeline.
+     * Empty hashes are removed from the active set to repair partial deletes before
+     * graph projection or routing decisions consume the active item list.
+     */
     public List<RedisLiveItem> getAllActiveItems() {
         String setKey = getNamespacedKey("active_items");
         Set<String> activeIds = redis.opsForSet().members(setKey);
@@ -257,6 +313,11 @@ public class LiveItemRepository {
         return size != null ? size : 0;
     }
 
+    /**
+     * Counts in-flight assignments to a chute that have not physically arrived.
+     * Routing capacity uses this projected occupancy so multiple items cannot be
+     * assigned into the same future slot.
+     */
     public long countItemsAssignedToExit(String exitId, String excludedItemId) {
         if (exitId == null) {
             return 0;
@@ -270,6 +331,15 @@ public class LiveItemRepository {
                 .count();
     }
 
+    private RoutingStatus inferRoutingStatus(String selectedExitId) {
+        return selectedExitId == null ? RoutingStatus.UNROUTED : RoutingStatus.ASSIGNED;
+    }
+
+    /**
+     * Removes stale live-mode hot state only.
+     * Startup and cleanup jobs call the explicit live namespace so simulations are
+     * not affected by age-based operational cleanup.
+     */
     public int deleteLiveItemsOlderThan(Instant cutoff) {
         if (cutoff == null) {
             return 0;
@@ -300,6 +370,11 @@ public class LiveItemRepository {
 
     // --- CLEANUP HELPER ---
 
+    /**
+     * Deletes every Redis key owned by one simulation namespace.
+     * This broad prefix cleanup is scoped to a simulation id so live data and other
+     * simulations keep their independent hot state.
+     */
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;

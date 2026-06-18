@@ -12,6 +12,8 @@ export interface ItemEditorData {
   locationId?: string | null;
   currentEdgeId?: string | null;
   customColor?: string | null;
+  routingStatus?: string | null;
+  routingStatusUpdatedAt?: string | null;
 }
 
 interface ItemEditorProps {
@@ -88,6 +90,25 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
           <div className={`font-bold text-sm ${data.isActive ? 'text-green-600' : 'text-amber-600'}`}>
               {data.isActive ? "ACTIVE": "INACTIVE"}
           </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Routing
+          </label>
+          <div className="font-mono text-xs text-gray-700 dark:text-gray-200 break-words">
+            {data.routingStatus ?? "UNROUTED"}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Updated
+          </label>
+          <div className="font-mono text-xs text-gray-700 dark:text-gray-200 break-words">
+            {data.routingStatusUpdatedAt ? new Date(data.routingStatusUpdatedAt).toLocaleString() : ""}
+          </div>
+        </div>
       </div>
 
       {/* Unified Properties Editor */}

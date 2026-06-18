@@ -7,6 +7,11 @@ import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
 import { getItemPriorityVisualAttributes, isHighPriorityItem } from "../utils/itemPriority";
 
+/**
+ * Narrows websocket property values before applying them to graph coordinates.
+ * Backend update payloads can carry numbers as strings, so graph mutation stays
+ * defensive at the integration boundary.
+ */
 const asNumber = (value: unknown): number | null => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string") {
@@ -38,10 +43,16 @@ export const useGraphLiveEvents = (
         subscribeToChuteEmptied
     } = useWebSocketEvents();
 
-    // Ref to access current simTime inside callbacks without re-subscribing
+    // WebSocket handlers are registered once per subscription set, so this ref
+    // gives them current simulation time without constantly tearing down topics.
     const simTimeRef = useRef(simTime);
     simTimeRef.current = simTime;
 
+    /**
+     * Recounts high-priority items from the source-of-truth item ref.
+     * Graph nodes can be hidden or dropped for chute display, so counting the ref
+     * avoids mixing visual representation with live item state.
+     */
     const refreshHighPriorityCount = useCallback(() => {
         let highPriorityCount = 0;
         activeItemsRef.current.forEach((item) => {
@@ -50,7 +61,11 @@ export const useGraphLiveEvents = (
         onHighPriorityCountChange?.(highPriorityCount);
     }, [activeItemsRef, onHighPriorityCountChange]);
 
-    // Helper to adjust items when speed changes to prevent teleporting
+    /**
+     * Reanchors conveyor item entry timestamps after a speed change.
+     * The visible progress at the effective event time is preserved, then the entry
+     * timestamp is recalculated so the animation loop continues smoothly.
+     */
     const adjustItemsForSpeedChange = useCallback((edgeId: string, newSpeed: number, effectiveTime?: number) => {
         const graph = sigma.getGraph();
         if (!graph.hasEdge(edgeId)) return;
@@ -84,7 +99,8 @@ export const useGraphLiveEvents = (
         const graph = sigma.getGraph();
         const unsubscribers: (() => void)[] = [];
 
-        // 1. Position Update
+        // Position updates carry event timestamps, not browser arrival time, so the
+        // handler converts progress back into the entry timestamp used by animation.
         unsubscribers.push(subscribeToPositionUpdates((update) => {
             if (!graph.hasNode(update.itemId)) return;
 
@@ -166,7 +182,8 @@ export const useGraphLiveEvents = (
             }
         }, simulationId));
 
-        // 2. Item CRUD
+        // Item creation may arrive for a location or conveyor id. The handler
+        // resolves both forms so graph state matches the backend position model.
         unsubscribers.push(subscribeToItemCreated((item, timestamp) => {
             if (graph.hasNode(item.id)) return;
 
@@ -229,6 +246,8 @@ export const useGraphLiveEvents = (
                 customColor: item.customColor,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
+                routingStatus: item.routingStatus,
+                routingStatusUpdatedAt: item.routingStatusUpdatedAt,
                 path: item.path,
                 ...getItemPriorityVisualAttributes(item)
             });
@@ -263,6 +282,8 @@ export const useGraphLiveEvents = (
                 customColor: item.customColor,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
+                routingStatus: item.routingStatus,
+                routingStatusUpdatedAt: item.routingStatusUpdatedAt,
                 path: item.path,
                 properties: item.properties
             };
@@ -278,7 +299,8 @@ export const useGraphLiveEvents = (
             }
         }, simulationId));
 
-        // FIX: Added Item Properties Update Handler
+        // Item updates patch graph attributes and the active item ref together so
+        // rendering, highlighting, and the editor all see the same properties.
         unsubscribers.push(subscribeToAllItemUpdates((update) => {
             if (update.id && graph.hasNode(update.id) && update.properties) {
                 Object.keys(update.properties).forEach(key => {
@@ -345,7 +367,8 @@ export const useGraphLiveEvents = (
             }
         }, simulationId));
 
-        // 4. Conveyor CRUD
+        // Conveyor updates can affect both topology visuals and item physics, so
+        // speed/active changes are applied before generic attribute patching.
         unsubscribers.push(subscribeToConnectionCreated((conn) => {
             const { from, to, data } = conn;
             if (graph.hasNode(from) && graph.hasNode(to) && !graph.hasEdge(from, to)) {

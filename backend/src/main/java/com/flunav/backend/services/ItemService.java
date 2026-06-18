@@ -14,6 +14,7 @@ import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,8 @@ public class ItemService {
                 item.updatePosition(posId, type, time, dist);
                 item.setDestinations(state.getDestinations());
                 item.setSelectedExitId(state.getSelectedExitId());
+                item.setRoutingStatus(effectiveRoutingStatus(state.getRoutingStatus(), state.getSelectedExitId()));
+                item.setRoutingStatusUpdatedAt(state.getRoutingStatusUpdatedAt());
                 item.setPath(state.getPath());
             }
         }
@@ -98,6 +101,11 @@ public class ItemService {
         return items;
     }
 
+    /**
+     * Loads durable item metadata and overlays the current hot position state.
+     * Keeping OrientDB and Redis reads separate preserves the boundary between
+     * replayable item identity and transient movement state.
+     */
     public Item getItemById(String id) {
         // 1. Fetch Metadata
         Item item = null;
@@ -123,12 +131,19 @@ public class ItemService {
 
             item.setDestinations(redisState.getDestinations());
             item.setSelectedExitId(redisState.getSelectedExitId());
+            item.setRoutingStatus(effectiveRoutingStatus(redisState.getRoutingStatus(), redisState.getSelectedExitId()));
+            item.setRoutingStatusUpdatedAt(redisState.getRoutingStatusUpdatedAt());
             item.setPath(redisState.getPath());
         }
 
         return item;
     }
 
+    /**
+     * Creates the durable item record and its initial hot state together.
+     * OrientDB owns metadata, while Redis receives the movement checkpoint needed
+     * for live projection and future replay-derived graph reads.
+     */
     public void createItem(ItemInput itemInput) {
         try {
             orientDBService.withTransaction(db -> {
@@ -172,6 +187,9 @@ public class ItemService {
                         itemInput.getName(),
                         itemInput.getDestinations(),
                         itemInput.getSelectedExitId(),
+                        itemInput.getRoutingStatus(),
+                        itemInput.getRoutingStatusUpdatedAt() != null ? itemInput.getRoutingStatusUpdatedAt()
+                                : entryTime,
                         itemInput.getPath());
             });
         } catch (DuplicateItemException e) {
@@ -197,10 +215,32 @@ public class ItemService {
         redisRepository.updateRouting(itemId, destinations, selectedExitId, path);
     }
 
+    /**
+     * Persists the current routing assignment in Redis hot state.
+     * Routing status lives with position state because capacity and retry decisions
+     * depend on the latest assignment rather than historical metadata alone.
+     */
+    public void updateItemRouting(String itemId, List<String> destinations, String selectedExitId,
+            RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path) {
+        redisRepository.updateRouting(itemId, destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path);
+    }
+
     public void updateItemPath(String itemId, List<String> path) {
         redisRepository.updatePath(itemId, path);
     }
 
+    private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
+        if (status != null) {
+            return status;
+        }
+        return selectedExitId == null ? RoutingStatus.UNROUTED : RoutingStatus.ASSIGNED;
+    }
+
+    /**
+     * Validates that an externally supplied path is a directed location path.
+     * The method rejects nonexistent or disconnected locations before Redis stores a
+     * path that GraphService and movement scheduling would later try to follow.
+     */
     public List<String> validatePath(List<String> path) {
         if (path == null) {
             throw new IllegalArgumentException("Path is required.");
@@ -243,6 +283,11 @@ public class ItemService {
         return updatedItem;
     }
 
+    /**
+     * Applies a full item update across durable metadata and hot position state.
+     * This is reserved for full replacements because most movement updates should
+     * touch Redis only to avoid unnecessary OrientDB churn.
+     */
     public Item fullUpdateItem(Item item) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex itemVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getId());
@@ -277,6 +322,11 @@ public class ItemService {
         }
     }
 
+    /**
+     * Removes an item from both Redis hot state and OrientDB metadata.
+     * Redis is cleared first so live graph reads stop projecting the item even if
+     * the durable delete fails and the caller has to retry.
+     */
     public void deleteItem(String id) {
         redisRepository.deleteItem(id);
 

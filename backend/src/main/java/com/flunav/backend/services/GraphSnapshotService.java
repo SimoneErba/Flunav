@@ -41,6 +41,11 @@ public class GraphSnapshotService {
         this.snapshotInterval = snapshotInterval;
     }
 
+    /**
+     * Starts snapshotting only after startup recovery has had a chance to restore
+     * live state. The one-shot guard prevents duplicate schedules if the ready event
+     * is observed more than once in tests or embedded contexts.
+     */
     @EventListener(ApplicationReadyEvent.class)
     @Order(Ordered.LOWEST_PRECEDENCE)
     public void takeInitialSnapshotAfterRecovery() {
@@ -54,6 +59,11 @@ public class GraphSnapshotService {
         logger.info("Scheduled graph snapshots every {} after startup recovery.", snapshotInterval);
     }
 
+    /**
+     * Persists a graph snapshot built from the current domain clock.
+     * Snapshots give historical restore a compact baseline so replay only needs the
+     * ClickHouse event delta after the snapshot timestamp.
+     */
     private void takeSnapshot() {
         try {
             logger.info("Starting graph snapshot process...");

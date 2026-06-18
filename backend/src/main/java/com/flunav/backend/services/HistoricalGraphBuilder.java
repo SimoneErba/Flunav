@@ -52,6 +52,12 @@ public class HistoricalGraphBuilder {
         this.timeService = timeService;
     }
 
+    /**
+     * Reconstructs a simulation database at the requested restore point.
+     * Real ClickHouse history is replayed only up to physical now, then future
+     * state is projected from internal events so simulations never read future
+     * live history.
+     */
     @Async("taskExecutor")
     public void build(String simulationId, Instant restorePoint, Semaphore buildPermits) {
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
@@ -110,6 +116,11 @@ public class HistoricalGraphBuilder {
         }
     }
 
+    /**
+     * Merges replayed external events with projected internal movement events.
+     * External events win timestamp ties so observed history can override scheduled
+     * projections before those projections are applied.
+     */
     private void replayEventsAndInternalQueue(String simulationId, List<DomainEvent> externalEvents,
             Instant replayEnd, BuildProgressTracker progressTracker) {
         SimulationState state = simulationService.getSimulationState(simulationId);
@@ -139,6 +150,11 @@ public class HistoricalGraphBuilder {
         });
     }
 
+    /**
+     * Projects queued internal events from physical now to the future restore point.
+     * A final checkpoint records item physics at the exact target time even if the
+     * last processed event happened earlier.
+     */
     private void processInternalEventsUntil(String simulationId, Instant targetTime,
             BuildProgressTracker progressTracker) {
         SimulationState state = simulationService.getSimulationState(simulationId);
@@ -170,6 +186,11 @@ public class HistoricalGraphBuilder {
         return event != null && !event.getTimestamp().isAfter(timestamp);
     }
 
+    /**
+     * Decides replay ordering between real history and projected movement.
+     * ClickHouse events are processed first on equal timestamps because real
+     * observations should cancel or replace predictions made earlier.
+     */
     private boolean shouldProcessExternalBeforeInternal(DomainEvent externalEvent, DomainEvent internalEvent,
             Instant replayEnd) {
         if (internalEvent == null || internalEvent.getTimestamp().isAfter(replayEnd)) {
@@ -178,6 +199,11 @@ public class HistoricalGraphBuilder {
         return !externalEvent.getTimestamp().isAfter(internalEvent.getTimestamp());
     }
 
+    /**
+     * Applies one historical event under virtual time without broadcasting.
+     * Replay updates the simulation's derived stores but must not look like a live
+     * operator update to connected clients.
+     */
     private void processExternalEvent(DomainEvent event) {
         try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
             eventProcessor.processEventWithoutBroadcast(event);
@@ -224,6 +250,11 @@ public class HistoricalGraphBuilder {
         return (int) Math.floor(Math.max(0.0, Math.min(100.0, progress)));
     }
 
+    /**
+     * Restores the OrientDB and Redis baseline from a ClickHouse graph snapshot.
+     * OrientDB rebuilds durable topology and item metadata while Redis receives hot
+     * item positions so GraphService can project movement immediately after replay.
+     */
     public void restoreFromSnapshotData(GraphData graphData) {
         orientDBService.withSession(session -> {
             logger.warn("Executing snapshot restore on context DB: {}", session.getName());
@@ -301,6 +332,8 @@ public class HistoricalGraphBuilder {
                         itemVertex.setProperty("currentEdgeId", itemData.getCurrentEdgeId());
                         itemVertex.setProperty("destinations", itemData.getDestinations());
                         itemVertex.setProperty("selectedExitId", itemData.getSelectedExitId());
+                        itemVertex.setProperty("routingStatus", itemData.getRoutingStatus());
+                        itemVertex.setProperty("routingStatusUpdatedAt", itemData.getRoutingStatusUpdatedAt());
                         itemVertex.setProperty("locationId", itemData.getLocationId());
                         itemVertex.setProperty("path", itemData.getPath());
 
@@ -329,6 +362,11 @@ public class HistoricalGraphBuilder {
         });
     }
 
+    /**
+     * Rehydrates a snapshot item into Redis hot state.
+     * Conveyor progress is converted back to accumulated distance because movement
+     * projection depends on distance checkpoints rather than rendered progress.
+     */
     private void restoreItemToRedis(ItemResponse itemData, Map<String, ConveyorResponse> conveyorMap,
             Instant snapshotTimestamp) {
         String positionId;
@@ -358,6 +396,8 @@ public class HistoricalGraphBuilder {
                     itemData.getName(),
                     itemData.getDestinations(),
                     itemData.getSelectedExitId(),
+                    itemData.getRoutingStatus(),
+                    itemData.getRoutingStatusUpdatedAt(),
                     itemData.getPath());
         }
     }

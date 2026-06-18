@@ -14,6 +14,11 @@ const SimulationContext = createContext<SimulationContextType>({
 
 export const useSimulationContext = () => useContext(SimulationContext);
 
+/**
+ * Stores the currently selected simulation for components outside the graph tree.
+ * Graph rendering still receives the simulation id explicitly so websocket and API
+ * calls can choose live or simulation topics without reading hidden globals.
+ */
 export const SimulationProvider = ({ children }: { children: ReactNode }) => {
     const [activeSimulation, setActiveSimulation] = useState<SimulationStateResponse | null>(null);
 

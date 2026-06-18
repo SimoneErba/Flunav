@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import flunav.types.RoutingStatus;
+
 @Getter
 @Setter
 public class ItemInput {
@@ -21,6 +23,10 @@ public class ItemInput {
     private List<String> destinations;
     @JsonIgnore
     private String selectedExitId;
+    @JsonIgnore
+    private RoutingStatus routingStatus;
+    @JsonIgnore
+    private Instant routingStatusUpdatedAt;
     @JsonIgnore
     private List<String> path;
     private Map<String, Object> properties;

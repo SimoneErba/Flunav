@@ -49,17 +49,17 @@ class AccumulationTests extends BaseIntegrationTest {
                 // start -> (conv1) -> junction
                 // junction -> (conv_chute) -> chute (FULL)
                 // junction -> (conv_main) -> end (RECIRCULATION)
-                sim.stubLocation("start", "Start", LocationType.GENERIC);
-                sim.stubLocation("junction", "Junction", LocationType.JUNCTION);
+                sim.createLocation("start", "Start", LocationType.GENERIC);
+                sim.createLocation("junction", "Junction", LocationType.JUNCTION);
 
-                // Stub chute with capacity 1
-                sim.stubLocation("chute", "Chute", LocationType.CHUTE);
+                // Create chute with capacity 1
+                sim.createLocation("chute", "Chute", LocationType.CHUTE);
 
-                sim.stubLocation("end", "End", LocationType.GENERIC);
+                sim.createLocation("end", "End", LocationType.GENERIC);
 
-                sim.stubConveyor("conv1", "start", "junction", 10.0, 1.0, false);
-                sim.stubConveyor("conv_chute", "junction", "chute", 10.0, 1.0, false);
-                sim.stubConveyor("conv_main", "junction", "end", 10.0, 1.0, true);
+                sim.createConveyor("conv1", "start", "junction", 10.0, 1.0, false);
+                sim.createConveyor("conv_chute", "junction", "chute", 10.0, 1.0, false);
+                sim.createConveyor("conv_main", "junction", "end", 10.0, 1.0, true);
 
                 // Make chute full by adding many items
                 for (int i = 0; i < 101; i++) {
@@ -92,11 +92,11 @@ class AccumulationTests extends BaseIntegrationTest {
 
                 sim.startAt(start);
 
-                sim.stubLocation("start", "Start", LocationType.GENERIC);
+                sim.createLocation("start", "Start", LocationType.GENERIC);
 
-                sim.stubLocation("end", "End", LocationType.GENERIC);
+                sim.createLocation("end", "End", LocationType.GENERIC);
 
-                sim.stubConveyor("conv1", "start", "end", 10.0, 0.0, false); // STOPPED
+                sim.createConveyor("conv1", "start", "end", 10.0, 0.0, false); // STOPPED
 
                 // Item enters conv1 at 50% progress (e.g. from a teleport or late event)
 

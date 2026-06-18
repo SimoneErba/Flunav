@@ -13,6 +13,7 @@ import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import flunav.types.DisplayRule;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -79,6 +80,11 @@ public class GraphService {
         return getGraphData(now, shouldCleanup, simulationId, false);
     }
 
+    /**
+     * Builds the graph snapshot for the requested clock and context.
+     * The simulation context is entered here so topology, Redis item state, and
+     * display rules are read from the same live or simulation namespace.
+     */
     public GraphData getGraphData(Instant now, boolean shouldCleanup, String simulationId, boolean includeFinished) {
         String timer = stopwatchService.start();
         try (var ctx = (simulationId != null) ? DatabaseContextHolder.enterSimulationContext(simulationId) : null) {
@@ -124,7 +130,9 @@ public class GraphService {
 
     private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now, boolean shouldCleanup,
             String simulationId, boolean includeFinished) {
-        // Fetch properties from OrientDB
+        // Projects Redis hot state into frontend item DTOs at the requested clock.
+        // Cleanup is limited to live mode because simulation state must remain
+        // replayable while future projections are still being built.
         Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
 
         List<RedisLiveItem> liveRawItems = redisRepository.getAllActiveItems();
@@ -143,6 +151,8 @@ public class GraphService {
                 Instant entryTime = rawItem.getEntryTime();
                 List<String> destinations = rawItem.getDestinations();
                 String selectedExitId = rawItem.getSelectedExitId();
+                RoutingStatus routingStatus = effectiveRoutingStatus(rawItem.getRoutingStatus(), selectedExitId);
+                Instant routingStatusUpdatedAt = rawItem.getRoutingStatusUpdatedAt();
                 Double accDist = rawItem.getAccumulatedDistance();
 
                 if (positionId == null || entryTime == null)
@@ -172,6 +182,8 @@ public class GraphService {
                     simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
                     simulatedItem.setDestinations(destinations);
                     simulatedItem.setSelectedExitId(selectedExitId);
+                    simulatedItem.setRoutingStatus(routingStatus);
+                    simulatedItem.setRoutingStatusUpdatedAt(routingStatusUpdatedAt);
                     simulatedItem.setPath(path);
                     activeItems.add(simulatedItem);
                 } else {
@@ -183,6 +195,8 @@ public class GraphService {
                         finished.setProgress(1.0);
                         finished.setCurrentEdgeId(positionId);
                         finished.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
+                        finished.setRoutingStatus(RoutingStatus.COMPLETED);
+                        finished.setRoutingStatusUpdatedAt(now);
                         activeItems.add(finished);
                     }
                     if (shouldCleanup && simulationId == null) {
@@ -256,6 +270,9 @@ public class GraphService {
     private ItemResponse calculateCurrentState(
             String itemId, String startId, PositionType startType, Instant lastUpdate,
             List<String> path, Topology topo, Instant now, Double accDist) {
+        // Replays movement from the last checkpoint instead of trusting a stored
+        // screen position, so live, historical, and simulated graph reads derive
+        // the same visible state from timestamped movement data.
         Duration timeElapsed = Duration.between(lastUpdate, now);
         if (timeElapsed.isNegative())
             timeElapsed = Duration.ZERO;
@@ -320,6 +337,8 @@ public class GraphService {
 
     /**
      * Finds the next edge from a node. Uses the Full Path List to decide direction.
+     * If no path applies, main-path selection keeps passive flow deterministic and
+     * ambiguous split points stay unresolved instead of guessing a random branch.
      */
     private ConveyorResponse findNextEdge(
             String currentNodeId,
@@ -355,6 +374,8 @@ public class GraphService {
     }
 
     private Topology fetchTopology() {
+        // Materializes topology once per graph read so item projection uses a
+        // consistent node/edge view even if repositories fetch from different stores.
         Map<String, LocationResponse> nodeMap = new HashMap<>();
         Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
         Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
@@ -382,6 +403,13 @@ public class GraphService {
         item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
         item.setActive(true);
         return item;
+    }
+
+    private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
+        if (status != null) {
+            return status;
+        }
+        return selectedExitId == null ? RoutingStatus.UNROUTED : RoutingStatus.ASSIGNED;
     }
 
     private record Topology(

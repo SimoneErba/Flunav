@@ -9,14 +9,14 @@ import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.domain.Conveyor;
-import com.flunav.backend.context.DatabaseContextHolder; // Import Context Holder
+import com.flunav.backend.context.DatabaseContextHolder;
 
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.DomainEvent;
 import flunav.events.LocationCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.ConveyorType;
-import org.springframework.data.redis.core.StringRedisTemplate; // Import Redis Template
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -57,20 +57,14 @@ public class SimulationTestHarness {
         this.redisTemplate = redisTemplate;
     }
 
-    /**
-     * Stubs a location for the simulation.
-     */
-    public void stubLocation(String id, String name, LocationType type) {
+    public void createLocation(String id, String name, LocationType type) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             var loc = new LocationCreatedEvent(id, name, true, 0.0, 0.0, type, 100, new HashMap<>());
             applyEvent(loc);
         }
     }
 
-    /**
-     * Stubs a conveyor for the simulation.
-     */
-    public void stubConveyor(String id, String sourceId, String targetId, double length, double speed,
+    public void createConveyor(String id, String sourceId, String targetId, double length, double speed,
             Boolean isMainPath) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             var conv = new ConnectionCreatedEvent(id, sourceId, targetId, length, speed, 0.0, null, isMainPath, id,
@@ -91,7 +85,6 @@ public class SimulationTestHarness {
         this.currentTurnTime = startTime;
         System.setProperty("simulation.id", "test-sim");
 
-        // Ensure database and connection pool exist
         orientDBService.createInMemoryDatabase("test-sim");
 
         timeService.useFixedClock(startTime);
@@ -114,7 +107,6 @@ public class SimulationTestHarness {
         if (targetTime.isBefore(currentTurnTime)) {
             throw new IllegalArgumentException("Cannot move simulation backwards in time");
         }
-        // Process internal events that happen between now and target
         try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             simulationService.processEventsUntil("test-sim", targetTime);
         }
@@ -155,27 +147,20 @@ public class SimulationTestHarness {
      * Call this in @AfterEach.
      */
     public void reset() {
-        // 1. Reset Time
         timeService.reset();
 
-        // 2. Clear Context (Safety)
         DatabaseContextHolder.clearSimulation();
 
-        // 3. Destroy Simulation Logic
         try {
             simulationService.destroySimulation("test-sim");
-        } catch (Exception e) {
-            // Ignore if it doesn't exist
+        } catch (Exception ignored) {
         }
 
-        // 4. Drop OrientDB Database & Close Pool
         try {
             orientDBService.dropDatabase("test-sim");
-        } catch (Exception e) {
-            // Ignore if DB doesn't exist
+        } catch (Exception ignored) {
         }
 
-        // 5. Clean Redis (Flush ALL data)
         try {
             Objects.requireNonNull(redisTemplate.getConnectionFactory())
                     .getConnection()
@@ -185,10 +170,8 @@ public class SimulationTestHarness {
             System.err.println("Warning: Failed to flush Redis during test reset: " + e.getMessage());
         }
 
-        // 6. Cleanup System Properties
         System.clearProperty("simulation.id");
 
-        // 7. Final Context Cleanup
         DatabaseContextHolder.clearSimulation();
     }
 }

@@ -166,6 +166,7 @@ Organize imports into standard Java/Jakarta, third-party, and internal project i
 ### Comments
 
 Comments should explain why a decision is necessary, especially around replay ordering, simulation context, virtual time, and persistence boundaries. Do not comment every line, do not add examples in comments, and remove stale comments when changing behavior.
+For behaviorally important methods, add a short method-level comment at the top of the method or immediately before it that explains what the method does and why it uses that approach. Prioritize simulation, replay, priority routing, graph projection, event processing, persistence boundary, and concurrency-sensitive methods. Avoid adding these comments to trivial getters, setters, constructors, records, or methods whose purpose is already obvious from the name.
 
 ## TypeScript Guidelines
 

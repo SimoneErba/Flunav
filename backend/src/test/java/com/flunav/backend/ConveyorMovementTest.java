@@ -46,9 +46,9 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         String itemId = "item-1";
 
         // Setup Topology: Start -> (Conveyor 10m, 1m/s) -> End
-        sim.stubLocation(startLocId, "Start Node", LocationType.JUNCTION);
-        sim.stubLocation(endLocId, "End Node", LocationType.JUNCTION);
-        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
+        sim.createLocation(startLocId, "Start Node", LocationType.JUNCTION);
+        sim.createLocation(endLocId, "End Node", LocationType.JUNCTION);
+        sim.createConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item at the start of the conveyor
         sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, startLocId, PositionType.LOCATION, 0.0,
@@ -78,9 +78,9 @@ class ConveyorMovementTest extends BaseIntegrationTest {
 
         // Setup Topology: Start -> (Conveyor 10m, 1m/s) -> End (Junction, not Chute so
         // it stays)
-        sim.stubLocation(startLocId, "Start Node", LocationType.JUNCTION);
-        sim.stubLocation(endLocId, "End Node", LocationType.JUNCTION);
-        sim.stubConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
+        sim.createLocation(startLocId, "Start Node", LocationType.JUNCTION);
+        sim.createLocation(endLocId, "End Node", LocationType.JUNCTION);
+        sim.createConveyor(conveyorId, startLocId, endLocId, 10.0, 1.0, false);
 
         // 1. Create item
         sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, startLocId, PositionType.LOCATION, 0.0,
@@ -93,7 +93,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
 
         // 3. Deactivate conveyor (set speed to 0)
         sim.applyEvent(new ConnectionSpeedChangedEvent(conveyorId, 0.0, startTime.plusSeconds(2)));
-        sim.getConveyor(conveyorId).setSpeed(0.0); // Update stub too
+        sim.getConveyor(conveyorId).setSpeed(0.0); // Update simulation graph too
 
         // 4. Advance 5 seconds -> should still be at 0.2
         sim.advanceSeconds(5);
@@ -102,7 +102,7 @@ class ConveyorMovementTest extends BaseIntegrationTest {
 
         // 5. Reactivate conveyor (set speed to 1.0)
         sim.applyEvent(new ConnectionSpeedChangedEvent(conveyorId, 1.0, startTime.plusSeconds(7)));
-        sim.getConveyor(conveyorId).setSpeed(1.0); // Update stub too
+        sim.getConveyor(conveyorId).setSpeed(1.0); // Update simulation graph too
 
         // 6. Advance 3 seconds -> should be at 0.2 + (3s * 1m/s / 10m) = 0.5
         sim.advanceSeconds(3);

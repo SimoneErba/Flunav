@@ -17,6 +17,8 @@ export const hashToNumber = (s: string) => {
  * 2. Main Path (Edge marked mainPath)
  * 3. Single Option
  * 4. Null (Stop if ambiguous)
+ * This mirrors the backend routing fallback so frontend-only animation does not
+ * invent a branch at decision points.
  */
 export const findNextEdge = (
   nodeId: string, 

@@ -36,6 +36,11 @@ const EMPTY_THROUGHPUT: ThroughputCounts = {
 
 const HUD_REFRESH_MS = 500;
 
+/**
+ * Narrows graph attributes before using them in HUD counters.
+ * Sigma attributes can come from API data, websocket patches, or editor forms, so
+ * numeric values are normalized at the display boundary.
+ */
 const asNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -71,6 +76,11 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
   const [counts, setCounts] = useState<HudCounts>(EMPTY_COUNTS);
   const [throughput, setThroughput] = useState<ThroughputCounts>(EMPTY_THROUGHPUT);
 
+  /**
+   * Derives lightweight operational counters from current graph and item refs.
+   * The HUD polls local state because graph animation changes visual occupancy
+   * more often than backend metric events arrive.
+   */
   useEffect(() => {
     const updateCounts = () => {
       const graph = sigma.getGraph();
@@ -125,6 +135,11 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
     return () => window.clearInterval(intervalId);
   }, [activeItemsRef, sigma]);
 
+  /**
+   * Seeds throughput from the latest live metric and then follows websocket updates.
+   * Simulations skip the initial live fetch so their HUD does not briefly display
+   * live throughput while subscribing to simulation topics.
+   */
   useEffect(() => {
     let mounted = true;
     setThroughput(EMPTY_THROUGHPUT);

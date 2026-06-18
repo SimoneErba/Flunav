@@ -41,14 +41,15 @@ export const useGraphInteractions = (
     const edgeSourceNodeRef = useRef<string | null>(null);
     const didMoveRef = useRef<boolean>(false);
 
-    // Helper
+    // Read-only feedback is centralized so demo/live restrictions stay consistent
+    // across node, edge, and item mutation paths.
     const notifyReadOnly = useCallback(() => {
         toastWarning("Modification disabled in Demo, start a simulation", { id: 'readonly-toast' });
     }, []);
 
-    // --- 1. STABILIZATION REFS ---
-    // We store ALL state that is accessed inside event handlers here.
-    // This prevents stale closures without needing to re-bind events constantly.
+    // Sigma event handlers are registered once and can outlive React render state.
+    // The ref keeps API clients and selection state fresh without rebinding every
+    // pointer handler on each render.
     const stateRef = useRef({
         isReadOnly,
         locationApi,
@@ -81,7 +82,11 @@ export const useGraphInteractions = (
         selectedEdgeData, selectedNodeData, selectedItemData, isDetailsOpen
     ]);
 
-    // --- 2. STABLE HANDLERS (Editors) ---
+    /**
+     * Persists conveyor edits after patching local graph state.
+     * Item timestamps are reanchored before the speed attribute changes so visible
+     * conveyor progress does not jump while the backend update is in flight.
+     */
     const handleEdgeSubmit = useCallback(async ({
         speed,
         length,
@@ -120,6 +125,11 @@ export const useGraphInteractions = (
         }
     }, [sigma, selectedEdgeData]);
 
+    /**
+     * Updates location attributes in the graph and backend together.
+     * The local patch keeps the editor responsive while the API call remains the
+     * durable source of truth.
+     */
     const handleNodeSubmit = useCallback(async ({
         name,
         capacity,
@@ -152,6 +162,11 @@ export const useGraphInteractions = (
         setSelectedNodeData(null);
     }, [sigma, selectedNodeData]);
 
+    /**
+     * Applies item metadata edits to the selected graph node and backend.
+     * Movement state is left untouched because position updates are driven by
+     * websocket events and animation state.
+     */
     const handleItemSubmit = useCallback(async ({
         name,
         properties
@@ -232,7 +247,11 @@ export const useGraphInteractions = (
         setSelectedItemData(null);
     }, [setSelectedItemData, sigma]);
 
-    // --- 3. THE MAIN EVENT LOOP ---
+    /**
+     * Registers graph pointer interactions once with Sigma.
+     * Mutable refs hold drag/edge-creation state because these events fire outside
+     * React's normal controlled input flow.
+     */
     useEffect(() => {
         registerEvents({
             // --- PARADOX HOVER EVENTS ---

@@ -123,9 +123,9 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         Instant startTime = Instant.parse("2026-02-07T13:00:00Z");
         sim.startAt(startTime);
 
-        sim.stubLocation("start", "Start", LocationType.GENERIC);
-        sim.stubLocation("end", "End", LocationType.GENERIC);
-        sim.stubConveyor("conv-speed", "start", "end", 10.0, 1.0, false);
+        sim.createLocation("start", "Start", LocationType.GENERIC);
+        sim.createLocation("end", "End", LocationType.GENERIC);
+        sim.createConveyor("conv-speed", "start", "end", 10.0, 1.0, false);
 
         sim.applyEvent(new ItemCreatedEvent("item-speed", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), startTime));

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import flunav.types.RoutingStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -29,6 +30,8 @@ public class ItemResponse {
     // --- NAVIGATION ---
     private List<String> destinations;
     private String selectedExitId;
+    private RoutingStatus routingStatus;
+    private Instant routingStatusUpdatedAt;
     private List<String> path; // Ordered location IDs
     private String customColor;
 }

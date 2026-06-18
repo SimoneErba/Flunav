@@ -14,7 +14,11 @@ export const useGraphLoader = (
     const loadGraph = useLoadGraph();
     const sigma = useSigma();
 
-    // --- EXISTING: Full graph reload when data changes ---
+    /**
+     * Rebuilds the Sigma graph from an authoritative GraphData snapshot.
+     * This path is intentionally full-reload because topology, item hot state, and
+     * chute occupancy must start from one consistent backend timestamp.
+     */
     useEffect(() => {
         const graph = new MultiDirectedGraph();
 
@@ -57,7 +61,8 @@ export const useGraphLoader = (
             }
         });
 
-        // 3. Items — hide chute items, store them on the chute node
+        // Chute items are represented on the chute node instead of as separate
+        // item nodes so the graph stays readable while preserving occupancy counts.
         activeItemsRef.current.clear();
         initialGraphData?.items?.forEach((item) => {
             if (!item.locationId && !item.currentEdgeId) return;
@@ -112,6 +117,8 @@ export const useGraphLoader = (
                 type: "borderedSquare", id: item.id, isItem: true,
                 path: item.path, properties: item.properties,
                 destinations: item.destinations, selectedExitId: item.selectedExitId,
+                routingStatus: item.routingStatus,
+                routingStatusUpdatedAt: item.routingStatusUpdatedAt,
                 isActive: item.active, customColor: item.customColor,
                 ...getItemPriorityVisualAttributes(item),
             });
@@ -126,7 +133,11 @@ export const useGraphLoader = (
         loadGraph(graph);
     }, [activeItemsRef, initialGraphData, loadGraph, onHighPriorityCountChange]);
 
-    // --- NEW: Patch colors only — no graph reload, no position reset ---
+    /**
+     * Applies display-rule color changes without reloading topology.
+     * Avoiding a full reload here preserves animated item positions and the current
+     * user viewport while still reflecting rule changes immediately.
+     */
     useEffect(() => {
         if (!colorOverrides) return;
         const graph = sigma.getGraph();

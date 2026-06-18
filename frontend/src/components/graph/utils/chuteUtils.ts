@@ -1,6 +1,11 @@
 import type { AbstractGraph } from "graphology-types";
 import type { ItemResponse } from "../../../api-client/api";
 
+/**
+ * Moves an item from animated graph state into chute occupancy state.
+ * Chute contents are stored on the location node because completed chute items
+ * should count toward capacity without cluttering the graph with stationary nodes.
+ */
 export const dischargeItemToChute = (
     graph: AbstractGraph,
     activeItems: Map<string, ItemResponse>,

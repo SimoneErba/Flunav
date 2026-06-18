@@ -81,6 +81,11 @@ public class SimulationService {
         return createSimulation(simulationId, timestamp);
     }
 
+    /**
+     * Persists and queues a simulation build before async work starts.
+     * Keeping state in Redis as well as memory lets controllers and workers recover
+     * progress even when they observe different service instances or threads.
+     */
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
                 timeService.physicalNow(), null, 1.0, 0.0);
@@ -102,6 +107,11 @@ public class SimulationService {
         return createSimulation(simulationId, timestamp);
     }
 
+    /**
+     * Starts playback from the last processed simulation timestamp.
+     * Playback resumes from stored virtual time so pause, stop, and historical
+     * rebuilds do not restart from the original restore point.
+     */
     public void startPlayback(String simulationId, double speedFactor) {
         validateSpeedFactor(speedFactor);
         SimulationState state = getSimulationState(simulationId);
@@ -156,6 +166,11 @@ public class SimulationService {
         cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
     }
 
+    /**
+     * Changes playback speed without changing event timestamps.
+     * Active playback is cancelled, movement physics are checkpointed at the same
+     * virtual instant, and scheduling is rebuilt with the new wall-clock delay.
+     */
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
         validateSpeedFactor(newSpeedFactor);
         SimulationState state = getSimulationState(simulationId);
@@ -180,6 +195,11 @@ public class SimulationService {
         return playbackCancellationReasons.remove(simulationId) == PlaybackCancellationReason.RESCHEDULE;
     }
 
+    /**
+     * Destroys all isolated state for a simulation.
+     * Both the in-memory OrientDB database and Redis namespace must be removed so a
+     * later simulation id cannot inherit stale topology or hot item state.
+     */
     public void destroySimulation(String simulationId) {
         cancelPlayback(simulationId);
         SimulationState state = simulationCache.remove(simulationId);
@@ -256,6 +276,11 @@ public class SimulationService {
                 state.getBuildProgress());
     }
 
+    /**
+     * Starts queued simulation builds while respecting the build semaphore.
+     * The permit is passed to the async builder so completion and failure release
+     * capacity from the worker that actually owns the build lifecycle.
+     */
     public void processWaitingQueue() {
         if (!waitingQueue.isEmpty() && buildPermits.tryAcquire()) {
             SimulationRequest request = waitingQueue.poll();
@@ -311,6 +336,11 @@ public class SimulationService {
         return getSimulationClock(getSimulationState(simulationId));
     }
 
+    /**
+     * Stores the next projected internal event for a simulation item.
+     * Replacing an existing same-entity event prevents stale movement projections
+     * from firing after a newer checkpoint or route decision changed the schedule.
+     */
     public void addInternalEvent(flunav.events.DomainEvent event) {
         SimulationState state = getCurrentSimulation();
         if (state != null && event instanceof flunav.events.EntityEvent ee) {
@@ -350,6 +380,8 @@ public class SimulationService {
 
     /**
      * Projects queued internal simulation events up to a future target time.
+     * The final checkpoint keeps in-flight item physics aligned even when no
+     * internal event lands exactly on the requested timestamp.
      */
     public void processEventsUntil(String simulationId, Instant targetTime) {
         SimulationState state = loadOrRefreshSimulationState(simulationId);
@@ -368,6 +400,11 @@ public class SimulationService {
         checkpointSimulationAt(simulationId, targetTime);
     }
 
+    /**
+     * Processes one due internal event from the simulation queue.
+     * Pulling from the queue here centralizes timestamp checkpointing and context
+     * re-entry for both historical builds and interactive playback.
+     */
     public DomainEvent processNextInternalEvent(String simulationId) {
         SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state == null) {
@@ -383,6 +420,11 @@ public class SimulationService {
         return event;
     }
 
+    /**
+     * Advances all moving items to a virtual timestamp without firing a new event.
+     * This preserves accumulated conveyor distance for future projections and for
+     * graph reads that happen between scheduled internal events.
+     */
     public void checkpointSimulationAt(String simulationId, Instant targetTime) {
         SimulationState state = loadOrRefreshSimulationState(simulationId);
         if (state == null) {
@@ -394,6 +436,11 @@ public class SimulationService {
         persistState(state);
     }
 
+    /**
+     * Applies a projected internal event inside the simulation and virtual-time
+     * contexts. This keeps replay deterministic and prevents projected events from
+     * being persisted or broadcast as live history.
+     */
     private void processInternalEvent(String simulationId, SimulationState state, DomainEvent event) {
         checkpointAllItems(simulationId, event.getTimestamp());
         state.setLastProcessedTimestamp(event.getTimestamp());
@@ -474,6 +521,11 @@ public class SimulationService {
         }
     }
 
+    /**
+     * Rebuilds movement schedules after a speed-factor change.
+     * Items are checkpointed first so accumulation recalculation starts from the
+     * current virtual instant rather than from stale entry timestamps.
+     */
     private void recalculateMovementSchedules(String simulationId, Instant restartTimestamp) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId);
                 var timeContext = timeService.enterVirtualTime(restartTimestamp)) {
@@ -492,6 +544,11 @@ public class SimulationService {
         }
     }
 
+    /**
+     * Converts elapsed virtual time into stored conveyor distance for every moving
+     * item. Simulation replay relies on this derived state because Redis stores hot
+     * positions while OrientDB stores durable item metadata.
+     */
     private void checkpointAllItemsInCurrentContext(Instant now) {
         var items = liveItemRepository.getAllActiveItems();
         for (var itemData : items) {

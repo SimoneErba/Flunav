@@ -78,9 +78,9 @@ class SimulationTests extends BaseIntegrationTest {
         sim.startAt(start);
 
         // Setup: StartNode -> (Conv1: 10000m, 1m/s) -> EndNode
-        sim.stubLocation("start", "Start", LocationType.GENERIC);
-        sim.stubLocation("end", "End", LocationType.GENERIC);
-        sim.stubConveyor("conv1", "start", "end", 10000.0, 1.0, false);
+        sim.createLocation("start", "Start", LocationType.GENERIC);
+        sim.createLocation("end", "End", LocationType.GENERIC);
+        sim.createConveyor("conv1", "start", "end", 10000.0, 1.0, false);
 
         // 1. Create item at start of conveyor
         sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
@@ -113,9 +113,9 @@ class SimulationTests extends BaseIntegrationTest {
         Instant checkpoint = start.plusSeconds(5);
         sim.startAt(start);
 
-        sim.stubLocation("checkpoint-start", "Start", LocationType.GENERIC);
-        sim.stubLocation("checkpoint-end", "End", LocationType.GENERIC);
-        sim.stubConveyor("checkpoint-conveyor", "checkpoint-start", "checkpoint-end", 100.0, 1.0, false);
+        sim.createLocation("checkpoint-start", "Start", LocationType.GENERIC);
+        sim.createLocation("checkpoint-end", "End", LocationType.GENERIC);
+        sim.createConveyor("checkpoint-conveyor", "checkpoint-start", "checkpoint-end", 100.0, 1.0, false);
 
         sim.applyEvent(new ItemCreatedEvent("checkpoint-item", "Box", 1.0, true, "checkpoint-start",
                 PositionType.LOCATION, 0.0, new HashMap<>(), start));
@@ -139,9 +139,9 @@ class SimulationTests extends BaseIntegrationTest {
         Instant start = Instant.parse("2026-02-07T10:00:00Z");
         sim.startAt(start);
 
-        sim.stubLocation("start", "Start", LocationType.GENERIC);
-        sim.stubLocation("chute", "Exit", LocationType.CHUTE);
-        sim.stubConveyor("conv1", "start", "chute", 10000.0, 1.0, false);
+        sim.createLocation("start", "Start", LocationType.GENERIC);
+        sim.createLocation("chute", "Exit", LocationType.CHUTE);
+        sim.createConveyor("conv1", "start", "chute", 10000.0, 1.0, false);
 
         sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), start));
@@ -169,11 +169,11 @@ class SimulationTests extends BaseIntegrationTest {
         sim.startAt(start);
 
         // Start -> Conv1 (10000m) -> Middle -> Conv2 (10000m) -> End
-        sim.stubLocation("start", "Start", LocationType.GENERIC);
-        sim.stubLocation("mid", "Middle", LocationType.GENERIC);
-        sim.stubLocation("end", "End", LocationType.GENERIC);
-        sim.stubConveyor("conv1", "start", "mid", 10000.0, 1.0, false);
-        sim.stubConveyor("conv2", "mid", "end", 10000.0, 1.0, false);
+        sim.createLocation("start", "Start", LocationType.GENERIC);
+        sim.createLocation("mid", "Middle", LocationType.GENERIC);
+        sim.createLocation("end", "End", LocationType.GENERIC);
+        sim.createConveyor("conv1", "start", "mid", 10000.0, 1.0, false);
+        sim.createConveyor("conv2", "mid", "end", 10000.0, 1.0, false);
 
         sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                 new HashMap<>(), start));

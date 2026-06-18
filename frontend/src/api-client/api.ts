@@ -703,6 +703,8 @@ export interface Item {
     'entryTimestamp'?: string;
     'destinations'?: Array<string>;
     'selectedExitId'?: string;
+    'routingStatus'?: ItemResponseRoutingStatusEnum;
+    'routingStatusUpdatedAt'?: string;
     /**
      * 
      * @type {Array<string>}
@@ -863,6 +865,16 @@ export interface ItemResponse {
      */
     'customColor'?: string;
 }
+
+export const ItemResponseRoutingStatusEnum = {
+    Unrouted: 'UNROUTED',
+    Assigned: 'ASSIGNED',
+    WaitingForCapacity: 'WAITING_FOR_CAPACITY',
+    Completed: 'COMPLETED',
+    Failed: 'FAILED'
+} as const;
+
+export type ItemResponseRoutingStatusEnum = typeof ItemResponseRoutingStatusEnum[keyof typeof ItemResponseRoutingStatusEnum];
 /**
  *
  * @export

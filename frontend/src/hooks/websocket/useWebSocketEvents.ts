@@ -14,6 +14,11 @@ import { ItemInput, LocationInput, ThroughputMetric } from '../../api-client/api
 export const useWebSocketEvents = () => {
     const { connected, subscribe } = useWebSocketConnection();
 
+    /**
+     * Builds live or simulation topic names from the same event surface.
+     * Graph hooks pass a simulation id when viewing replay state so websocket
+     * updates stay isolated from live-mode topics.
+     */
     const buildTopic = (base: string, simId?: string | null) => 
         simId ? `/topic/simulations/${simId}/${base}` : `/topic/${base}`;
 

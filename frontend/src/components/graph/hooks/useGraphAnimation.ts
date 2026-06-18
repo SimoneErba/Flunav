@@ -15,6 +15,11 @@ export const useGraphAnimation = (
     const sigma = useSigma();
     const animationFrameId = useRef<number | null>(null);
 
+    /**
+     * Projects item positions from the current simulation clock on every frame.
+     * The backend sends checkpoints and scheduled transitions; the frontend derives
+     * smooth positions between those timestamps without mutating backend state.
+     */
     useEffect(() => {
         const animate = () => {
             const graph = sigma.getGraph();
@@ -29,7 +34,8 @@ export const useGraphAnimation = (
                 if (itemId === draggedNodeRef.current) return;
                 if (!graph.hasNode(itemId)) return;
 
-                // Helper to find next target from full path
+                // Path-aware prediction uses the backend-selected route first, then
+                // graphUtils falls back to main path or stops at ambiguous splits.
                 const getNextFromPath = (currentNodeId: string) => {
                     if (!item.path) return null;
                     const idx = item.path.indexOf(currentNodeId);
@@ -39,7 +45,8 @@ export const useGraphAnimation = (
                     return null;
                 };
 
-                // CASE 1: Item on Conveyor (Moving)
+                // Conveyor items are animated from entry timestamp and edge speed so
+                // replay speed changes do not require per-frame backend updates.
                 if (item.currentEdgeId) {
                     let edgeKey: string | undefined;
                     let edgeAttrs: Attributes | undefined;
@@ -141,7 +148,8 @@ export const useGraphAnimation = (
                         }
                     }
                 } 
-                // CASE 2: Item on Location (Stationary)
+                // Location items can be advanced optimistically only when the next
+                // edge is unambiguous; otherwise they stay at the location node.
                 else if (item.locationId) {
                     const nextTargetNodeId = getNextFromPath(item.locationId);
                     const nextEdgeKey = findNextEdge(item.locationId, graph, nextTargetNodeId);

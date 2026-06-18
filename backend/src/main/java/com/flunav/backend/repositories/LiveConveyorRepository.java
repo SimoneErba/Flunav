@@ -63,6 +63,11 @@ public class LiveConveyorRepository {
 
     // --- TAIL & CHUTE LOGIC (Unchanged) ---
 
+    /**
+     * Records the furthest blocked tail position on a conveyor.
+     * Accumulation logic uses this value to stop following items at a safe distance
+     * when the next segment or chute cannot accept them.
+     */
     public void updateTailPosition(String conveyorId, double tailMeters) {
         String key = getNamespacedKey(conveyorId + ":tail");
         redis.opsForValue().set(key, String.valueOf(tailMeters));
@@ -97,6 +102,11 @@ public class LiveConveyorRepository {
 
     // --- CLEANUP ---
 
+    /**
+     * Removes all hot conveyor state for a conveyor.
+     * Topology deletion must clear both ordered membership and tail state so later
+     * conveyor ids do not inherit old accumulation data.
+     */
     public void deleteConveyor(String conveyorId) {
         String itemsKey = getNamespacedKey(conveyorId + ":items");
         String tailKey = getNamespacedKey(conveyorId + ":tail");
@@ -104,6 +114,11 @@ public class LiveConveyorRepository {
         redis.delete(tailKey);
     }
 
+    /**
+     * Removes conveyor hot state for one simulation namespace.
+     * Cleanup is explicitly keyed by simulation id because the active ThreadLocal
+     * may already have been cleared by the caller.
+     */
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
@@ -114,6 +129,11 @@ public class LiveConveyorRepository {
         }
     }
 
+    /**
+     * Builds Redis keys from the active simulation context.
+     * Conveyor membership and tail state must use the same namespace as item hot
+     * state or movement recovery will mix live and simulation queues.
+     */
     private String getNamespacedKey(String baseKey) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null) {

@@ -30,6 +30,11 @@ public class LiveSystemScheduler {
         this.timeService = timeService;
     }
 
+    /**
+     * Schedules the next live internal event for an entity.
+     * Existing same-item tasks are cancelled first so route changes, speed changes,
+     * or blocking logic cannot leave stale future movement events in flight.
+     */
     public void scheduleInternalEvent(DomainEvent event) {
         if (!(event instanceof flunav.events.EntityEvent ee)) {
             return;
@@ -58,6 +63,11 @@ public class LiveSystemScheduler {
         }
     }
 
+    /**
+     * Cancels the pending live movement event for an item.
+     * This is used when an item stops, leaves the system, or is rerouted before its
+     * previously projected event should fire.
+     */
     public void cancelInternalEvent(String itemId) {
         // Update cancellation to use the record
         ScheduledTask task = scheduledTasksByItem.remove(itemId);

@@ -36,6 +36,11 @@ public class StateRecoveryService {
         this.eventProcessor = eventProcessor;
     }
 
+    /**
+     * Rebuilds live Redis state from the latest snapshot when Redis starts empty.
+     * Existing Redis state is trusted to avoid overwriting an already warm live
+     * system, while empty Redis is restored from ClickHouse history.
+     */
     @EventListener(ApplicationReadyEvent.class)
     @Order(Ordered.LOWEST_PRECEDENCE - 100)
     public void onStartup() {

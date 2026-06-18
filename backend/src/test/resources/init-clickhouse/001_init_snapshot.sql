@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             progress Nullable(Float64),
             destinations Array(String),
             selectedExitId Nullable(String),
+            routingStatus Nullable(String),
+            routingStatusUpdatedAt Nullable(String),
             path Variant(Array(String), Nothing),
             customColor Nullable(String)
         ))
@@ -93,6 +95,8 @@ ALTER TABLE default.snapshots
             progress Nullable(Float64),
             destinations Array(String),
             selectedExitId Nullable(String),
+            routingStatus Nullable(String),
+            routingStatusUpdatedAt Nullable(String),
             path Variant(Array(String), Nothing),
             customColor Nullable(String)
         ))

@@ -17,6 +17,11 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
     const sigma = useSigma();
     const graph = sigma.getGraph();
 
+    /**
+     * Installs temporary Sigma reducers for the selected item's path.
+     * Reducers let highlighting change presentation without mutating the underlying
+     * graph attributes that live updates and animation depend on.
+     */
     useEffect(() => {
         if (!graph) return;
 
@@ -24,7 +29,8 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
         const pathNodeSet = new Set<string>();
 
         if (highlightedItem) {
-            // --- SCENARIO A: Item has an explicit path ---
+            // Explicit backend paths are highlighted from the item's current
+            // position onward so past route segments do not distract operators.
             if (highlightedItem.path && highlightedItem.path.length > 0) {
                 const fullPath = highlightedItem.path;
                 let startIndex = 0;
@@ -58,7 +64,8 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
                     pathEdgeSet.add(`${v}|${u}`);
                 }
             }
-            // --- SCENARIO B: No path, follow "Main Path" ---
+            // Items without an assigned path follow mainPath visually only as a
+            // fallback; the walk is capped to avoid loops in recirculation layouts.
             else {
                 let currentNode: string | null = null;
 

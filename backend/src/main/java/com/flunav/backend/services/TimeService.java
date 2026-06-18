@@ -17,11 +17,21 @@ public class TimeService {
     private volatile Clock physicalClock = Clock.systemUTC();
     private final ThreadLocal<Instant> virtualNow = new ThreadLocal<>();
 
+    /**
+     * Returns domain time for event processing.
+     * Simulation and replay code see scoped virtual time here, while live code falls
+     * back to the physical clock.
+     */
     public Instant now() {
         Instant scopedVirtualNow = virtualNow.get();
         return scopedVirtualNow != null ? scopedVirtualNow : physicalNow();
     }
 
+    /**
+     * Returns real wall-clock time regardless of virtual replay context.
+     * Use this only for scheduling, cleanup, heartbeat, and boundaries against the
+     * real world.
+     */
     public Instant physicalNow() {
         return Instant.now(physicalClock);
     }
@@ -66,6 +76,10 @@ public class TimeService {
     public final class TimeContext implements AutoCloseable {
         private final Instant previousVirtualNow;
 
+        /**
+         * Captures the previous virtual timestamp so nested replay contexts restore
+         * the caller's time instead of clearing it accidentally.
+         */
         private TimeContext(Instant instant) {
             this.previousVirtualNow = virtualNow.get();
             virtualNow.set(Objects.requireNonNull(instant));

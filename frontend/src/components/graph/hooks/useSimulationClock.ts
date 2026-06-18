@@ -1,15 +1,16 @@
 import { useState, useRef, useEffect } from "react";
 
 export const useSimulationClock = (initialTimeISO: string | undefined, speed: number, isPaused: boolean) => {
-    // 1. Initialize State (Runs once on mount)
+    // The frontend clock mirrors backend virtual time for rendering only; backend
+    // replay remains authoritative for event timestamps and state changes.
     const [simTime, setSimTime] = useState<number>(() => 
         initialTimeISO ? new Date(initialTimeISO).getTime() : Date.now()
     );
     
     const lastFrameTime = useRef<number>(Date.now());
 
-    // 2. FIX: Sync internal state when the prop changes
-    // This handles switching from Live -> Sim, or Sim A -> Sim B
+    // Reset the local clock when switching live/simulation views so animation does
+    // not carry elapsed time from the previous timeline into the next one.
     useEffect(() => {
         const targetTime = initialTimeISO ? new Date(initialTimeISO).getTime() : Date.now();
         setSimTime(targetTime);
@@ -18,7 +19,8 @@ export const useSimulationClock = (initialTimeISO: string | undefined, speed: nu
         lastFrameTime.current = Date.now();
     }, [initialTimeISO]);
 
-    // 3. Animation Loop
+    // Advance virtual time by real frame delta scaled by playback speed; pause
+    // freezes rendering without changing the backend simulation timestamp.
     useEffect(() => {
         let frameId: number;
 

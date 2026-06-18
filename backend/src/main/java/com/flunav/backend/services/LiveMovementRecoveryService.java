@@ -48,6 +48,11 @@ public class LiveMovementRecoveryService {
         recoverLiveMovementSchedules();
     }
 
+    /**
+     * Recreates live scheduled movement events from Redis after startup.
+     * The method explicitly enters live context so any leftover simulation
+     * ThreadLocal state cannot route recovery writes into a simulation namespace.
+     */
     public void recoverLiveMovementSchedules() {
         try (var ignored = DatabaseContextHolder.enterSimulationContext(null)) {
             Instant recoveryTime = timeService.physicalNow();
@@ -79,6 +84,11 @@ public class LiveMovementRecoveryService {
         }
     }
 
+    /**
+     * Rebuilds conveyor ordered sets from item hashes.
+     * Item hashes are the durable hot-state record after restart, while conveyor
+     * membership sets may have expired or been lost independently.
+     */
     private Set<String> restoreConveyorMembership(List<RedisLiveItem> activeItems) {
         Set<String> conveyorIds = new LinkedHashSet<>();
         for (RedisLiveItem item : activeItems) {
@@ -101,6 +111,11 @@ public class LiveMovementRecoveryService {
         return conveyorIds;
     }
 
+    /**
+     * Recomputes the item's current conveyor distance and schedules its next event.
+     * Items still on the conveyor are checkpointed at recovery time; items that
+     * should already have arrived are scheduled from their original checkpoint.
+     */
     private boolean recoverItem(RedisLiveItem item, Instant recoveryTime) {
         Conveyor conveyor = topologyProvider.getConveyorById(item.getPositionId());
         if (conveyor == null || conveyor.getLength() == null || conveyor.getLength() <= 0) {

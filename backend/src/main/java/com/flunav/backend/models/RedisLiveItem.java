@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,8 @@ public class RedisLiveItem {
     private double accumulatedDistance; // Redis key: "ad"
     private List<String> destinations; // Redis key: "ds"
     private String selectedExitId; // Redis key: "d"
+    private RoutingStatus routingStatus; // Redis key: "rs"
+    private Instant routingStatusUpdatedAt; // Redis key: "rst"
     private String name; // Redis key: "n"
     private List<String> path; // Redis key: "p"
 
@@ -56,6 +59,10 @@ public class RedisLiveItem {
         }
         if (selectedExitId != null)
             data.put("d", selectedExitId);
+        if (routingStatus != null)
+            data.put("rs", routingStatus.name());
+        if (routingStatusUpdatedAt != null)
+            data.put("rst", String.valueOf(routingStatusUpdatedAt.toEpochMilli()));
         if (name != null)
             data.put("n", name);
 
@@ -122,6 +129,21 @@ public class RedisLiveItem {
         }
         if (hash.containsKey("d"))
             builder.selectedExitId(hash.get("d"));
+        String routingStatusStr = hash.get("rs");
+        if (routingStatusStr != null) {
+            try {
+                builder.routingStatus(RoutingStatus.valueOf(routingStatusStr));
+            } catch (IllegalArgumentException ignored) {
+                builder.routingStatus(null);
+            }
+        }
+        String routingStatusTimeStr = hash.get("rst");
+        if (routingStatusTimeStr != null) {
+            try {
+                builder.routingStatusUpdatedAt(Instant.ofEpochMilli(Long.parseLong(routingStatusTimeStr)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
         if (hash.containsKey("n"))
             builder.name(hash.get("n"));
 

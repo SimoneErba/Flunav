@@ -6,6 +6,11 @@ import { CLIENT_ID } from '../../api/config';
 
 type GenericHandler = (data: unknown) => void;
 
+/**
+ * Resolves the websocket endpoint for local development and deployed builds.
+ * Relative production URLs keep the browser connected through the same reverse
+ * proxy path that served the frontend.
+ */
 const getWebSocketUrl = () => {
     const envUrl = import.meta.env.VITE_API_BASE_URL;
 
@@ -53,6 +58,11 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
         client.current.activate();
     }, []);
 
+    /**
+     * Multiplexes handlers for the same STOMP topic through one subscription.
+     * Echo filtering and timestamp injection happen here so graph hooks consume
+     * sender-filtered domain payloads instead of transport envelopes.
+     */
     const subscribe = useCallback((topic: string, handler: GenericHandler) => {
         if (!client.current?.connected) return () => {};
 

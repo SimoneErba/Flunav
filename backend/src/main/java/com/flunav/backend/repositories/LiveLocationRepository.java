@@ -39,6 +39,11 @@ public class LiveLocationRepository {
         redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
 
+    /**
+     * Removes one item from location occupancy.
+     * Movement processing calls this before adding the next position so chute and
+     * queue counts remain capacity-safe during routing decisions.
+     */
     public void removeItemFromLocation(String locationId, String itemId) {
         String key = getNamespacedKey(locationId);
         redis.opsForZSet().remove(key, itemId);
@@ -61,6 +66,11 @@ public class LiveLocationRepository {
 
     // --- READ OPERATIONS ---
 
+    /**
+     * Returns location occupants in arrival order.
+     * Chute emptying and queue processing rely on Redis ordering rather than
+     * OrientDB metadata because occupancy is transient hot state.
+     */
     public Set<String> getItemsAtLocation(String locationId) {
         String key = getNamespacedKey(locationId);
         // Returns items ordered by arrival time
@@ -88,6 +98,11 @@ public class LiveLocationRepository {
         redis.delete(key);
     }
 
+    /**
+     * Removes location occupancy keys for a single simulation namespace.
+     * Explicit simulation cleanup avoids depending on ThreadLocal context during
+     * teardown, when callers may already be outside the simulation.
+     */
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
@@ -101,6 +116,11 @@ public class LiveLocationRepository {
 
     // --- HELPER ---
 
+    /**
+     * Builds the occupancy key for the current live or simulation context.
+     * The namespace must match item state so capacity checks observe only the
+     * occupants that belong to the active mode.
+     */
     private String getNamespacedKey(String locationId) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null) {

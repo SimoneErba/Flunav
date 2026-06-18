@@ -11,6 +11,7 @@ import flunav.events.DomainEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.AmqpTemplate;
@@ -34,6 +35,7 @@ public class ItemMovementProcessor {
     private final TopologyProvider topologyProvider;
     private final ItemService itemService;
     private final RoutingDecisionService routingDecisionService;
+    private final RoutingCoordinator routingCoordinator;
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final TimeService timeService;
@@ -48,6 +50,7 @@ public class ItemMovementProcessor {
             TopologyProvider topologyProvider,
             ItemService itemService,
             RoutingDecisionService routingDecisionService,
+            RoutingCoordinator routingCoordinator,
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             TimeService timeService,
@@ -60,6 +63,7 @@ public class ItemMovementProcessor {
         this.topologyProvider = topologyProvider;
         this.itemService = itemService;
         this.routingDecisionService = routingDecisionService;
+        this.routingCoordinator = routingCoordinator;
         this.simulationService = simulationService;
         this.liveSystemScheduler = liveSystemScheduler;
         this.timeService = timeService;
@@ -93,6 +97,12 @@ public class ItemMovementProcessor {
         }
     }
 
+    /**
+     * Schedules the next movement step after an item enters a conveyor.
+     * The same method is used by live and simulation modes, while scheduleEvent
+     * decides whether the resulting internal event belongs to the live scheduler or
+     * the simulation queue.
+     */
     public void handleItemEntryToConveyor(String itemId, String conveyorId, Instant timestamp, Double progress,
             String previousPosId) {
         if (progress == null)
@@ -234,6 +244,11 @@ public class ItemMovementProcessor {
         }
     }
 
+    /**
+     * Applies the domain effect of an item entering a location.
+     * Chutes retain items as occupancy, while other locations immediately route
+     * onward so decision-point logic remains event-driven.
+     */
     public void processLocationEntry(String itemId, String locationId, Instant timestamp) {
         var location = topologyProvider.getLocationById(locationId);
         if (location == null)
@@ -256,15 +271,31 @@ public class ItemMovementProcessor {
         }
     }
 
+    /**
+     * Recomputes routing at a decision point under the routing lock.
+     * The lock serializes capacity-sensitive selection so concurrent arrivals do
+     * not claim the same chute slot from live or simulation state.
+     */
     private Item recalculateDecisionPointRoute(Item item, String locationId) {
-        var decision = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION);
-        itemService.updateItemRouting(item.getId(), item.getDestinations(), decision.selectedExitId(),
-                decision.path());
+        Instant timestamp = timeService.now();
+        var decision = routingCoordinator.withRoutingLock(() -> {
+            var selected = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION);
+            itemService.updateItemRouting(item.getId(), item.getDestinations(), selected.selectedExitId(),
+                    selected.routingStatus(), timestamp, selected.path());
+            return selected;
+        });
         item.setSelectedExitId(decision.selectedExitId());
+        item.setRoutingStatus(decision.routingStatus());
+        item.setRoutingStatusUpdatedAt(timestamp);
         item.setPath(decision.path());
         return item;
     }
 
+    /**
+     * Sends projected movement to the correct scheduler for the current context.
+     * Simulation events stay in SimulationState so replay can project them without
+     * persisting artificial future history to ClickHouse.
+     */
     public void scheduleEvent(DomainEvent event) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null)
@@ -290,6 +321,11 @@ public class ItemMovementProcessor {
         }
     }
 
+    /**
+     * Resolves the conveyor an item should take from its current location.
+     * Assigned paths are honored first, but blocked assigned exits fall back to the
+     * main path so items can recirculate instead of jamming decision points.
+     */
     public String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId) {
         var item = itemService.getItemById(itemId);
         if (item == null)
@@ -315,7 +351,7 @@ public class ItemMovementProcessor {
 
         if (targetConveyorId != null) {
             Conveyor target = topologyProvider.getConveyorById(targetConveyorId);
-            if (target != null && isNextSegmentBlocked(target, itemId)) {
+            if (item.getRoutingStatus() == RoutingStatus.ASSIGNED && target != null && isNextSegmentBlocked(target, itemId)) {
                 return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
                         .orElse(targetConveyorId);
             }
@@ -325,6 +361,11 @@ public class ItemMovementProcessor {
                 .orElse(outgoing.get(0).getId());
     }
 
+    /**
+     * Looks for a usable main-path alternative when a selected exit path is blocked.
+     * This keeps urgent or capacity-constrained items moving around the loop until
+     * a valid exit can be selected again.
+     */
     private String findRecirculationPath(String currentLocationId, String blockedConveyorId, String itemId) {
         return topologyProvider.getOutgoingConveyors(currentLocationId).stream()
                 .filter(Conveyor::isActive)

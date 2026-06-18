@@ -11,6 +11,7 @@ import java.util.Map;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 
 @Getter
 public class Item {
@@ -36,6 +37,12 @@ public class Item {
 
     @Setter
     private String selectedExitId;
+
+    @Setter
+    private RoutingStatus routingStatus;
+
+    @Setter
+    private Instant routingStatusUpdatedAt;
 
     @Setter
     private List<String> path;

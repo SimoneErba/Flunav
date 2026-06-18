@@ -81,6 +81,11 @@ public class OrientDBService {
         logger.info("OrientDB service has been shut down.");
     }
 
+    /**
+     * Acquires an OrientDB session for the active live or simulation context.
+     * Existing transaction sessions are wrapped so nested repository calls share
+     * the same transaction without accidentally closing it.
+     */
     public ODatabaseSession getSession() {
         ODatabaseSession activeSession = transactionalSession.get();
 
@@ -129,6 +134,11 @@ public class OrientDBService {
     }
 
     // withTransaction and withSession remain unchanged as they rely on getSession()
+    /**
+     * Runs work inside one context-aware OrientDB transaction.
+     * The transaction session is stored in ThreadLocal so lower-level services use
+     * the same live or simulation database session during the callback.
+     */
     public void withTransaction(TransactionalCallback callback) {
         try (ODatabaseSession session = getSession()) {
             transactionalSession.set(session);
@@ -159,6 +169,11 @@ public class OrientDBService {
         }
     }
 
+    /**
+     * Runs work with a context-aware session and always closes it afterward.
+     * This is used for snapshot restore and other derived-state operations that do
+     * not need a transaction managed by the caller.
+     */
     public void withSession(SessionCallback callback) {
         ODatabaseSession session = getSession();
 
@@ -190,6 +205,11 @@ public class OrientDBService {
         void execute(ODatabaseSession session);
     }
 
+    /**
+     * Creates a fresh in-memory OrientDB database for one simulation.
+     * Existing databases with the same id are dropped first so simulation rebuilds
+     * cannot inherit stale graph state.
+     */
     public void createInMemoryDatabase(String dbName) {
         try {
             if (orientDB.exists(dbName)) {
@@ -215,6 +235,11 @@ public class OrientDBService {
         }
     }
 
+    /**
+     * Drops a simulation database and closes its pool.
+     * Pool removal happens before dropping the database so no later session can be
+     * acquired against storage that is being torn down.
+     */
     public void dropDatabase(String dbName) {
         // NEW: Close and remove the pool associated with the database
         ODatabasePool pool = databasePools.remove(dbName);
@@ -231,6 +256,11 @@ public class OrientDBService {
     }
 
     // ensureSchemaExists and createIndexes remain unchanged
+    /**
+     * Ensures the graph schema exists in both live and simulation databases.
+     * Simulation clones are created empty, so they need the same classes and indexes
+     * before replay can apply historical events.
+     */
     private void ensureSchemaExists(String dbName) {
         try (ODatabaseSession session = getSession(dbName)) {
             // 1. Location (Node/Waypoint)

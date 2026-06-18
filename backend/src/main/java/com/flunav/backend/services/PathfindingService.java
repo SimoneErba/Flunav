@@ -33,6 +33,8 @@ public class PathfindingService {
      * Calculates the shortest path.
      * If type is LOCATION: Starts from that Location.
      * If type is CONVEYOR: Starts from the END (Target Node) of that Conveyor.
+     * Returning location ids keeps routing, graph projection, and movement logic on
+     * the same path representation.
      */
     public List<String> calculateShortestPath(String sourceId, PositionType type, String destinationNodeId) {
 
@@ -135,6 +137,11 @@ public class PathfindingService {
      * Handles LOCATION to LOCATION, LOCATION to CONVEYOR, CONVEYOR to LOCATION
      * connections.
      */
+    /**
+     * Verifies whether a position update follows a direct graph connection.
+     * Conveyor endpoints are resolved to their adjacent locations so teleport
+     * detection works across location-to-conveyor and conveyor-to-location events.
+     */
     public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2,
             PositionType type2) {
         try (ODatabaseSession db = orientDBService.getSession()) {
@@ -149,6 +156,11 @@ public class PathfindingService {
         return false;
     }
 
+    /**
+     * Resolves a position into the location id used for direct-connectivity checks.
+     * Conveyor positions use their source or target endpoint depending on whether
+     * the position is the previous or next side of the movement.
+     */
     private String resolveConnectivityAnchor(ODatabaseSession db, String positionId, PositionType type,
             boolean useOutgoingLocationForConveyor) {
         if (type == PositionType.LOCATION) {

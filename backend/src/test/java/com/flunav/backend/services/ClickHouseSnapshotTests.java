@@ -9,6 +9,7 @@ import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.test.ClickHouseTestContainerFactory;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
+import flunav.types.RoutingStatus;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -96,6 +97,8 @@ class ClickHouseSnapshotTests {
                                 0.5,
                                 List.of("parcel-destination"),
                                 "location-2",
+                                RoutingStatus.ASSIGNED,
+                                snapshotTimestamp.minusSeconds(10),
                                 null,
                                 "#778899"),
                         new ItemResponse(
@@ -109,6 +112,8 @@ class ClickHouseSnapshotTests {
                                 0.0,
                                 List.of(),
                                 null,
+                                RoutingStatus.UNROUTED,
+                                snapshotTimestamp,
                                 List.of(),
                                 null)),
                 snapshotTimestamp);
@@ -143,6 +148,8 @@ class ClickHouseSnapshotTests {
             assertTrue(resultSet.getString(3).startsWith("Array(Tuple("));
             assertTrue(resultSet.getString(3).contains("destinations Array(String)"));
             assertTrue(resultSet.getString(3).contains("selectedExitId Nullable(String)"));
+            assertTrue(resultSet.getString(3).contains("routingStatus Nullable(String)"));
+            assertTrue(resultSet.getString(3).contains("routingStatusUpdatedAt Nullable(String)"));
             assertEquals("String", resultSet.getString(4));
             assertTrue(resultSet.getString(5).contains("Nullable(String)"));
         }

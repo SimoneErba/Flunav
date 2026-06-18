@@ -13,11 +13,13 @@ import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveLocationRepository; // 1. IMPORT
+import com.flunav.backend.utils.PriorityScoreUtils;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
 import flunav.events.*;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 import jakarta.annotation.PreDestroy;
 
 import org.modelmapper.ModelMapper;
@@ -67,6 +69,7 @@ public class EventProcessor {
     private final DestinationMappingService destinationMappingService;
     private final DestinationExitMappingService destinationExitMappingService;
     private final RoutingDecisionService routingDecisionService;
+    private final RoutingCoordinator routingCoordinator;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -96,6 +99,7 @@ public class EventProcessor {
             DestinationMappingService destinationMappingService,
             DestinationExitMappingService destinationExitMappingService,
             RoutingDecisionService routingDecisionService,
+            RoutingCoordinator routingCoordinator,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -119,9 +123,15 @@ public class EventProcessor {
         this.destinationMappingService = destinationMappingService;
         this.destinationExitMappingService = destinationExitMappingService;
         this.routingDecisionService = routingDecisionService;
+        this.routingCoordinator = routingCoordinator;
         this.manageLogic = manageLogic;
     }
 
+    /**
+     * Processes an event while preserving per-entity ordering.
+     * Entity events are chained by id so unrelated items can run concurrently but a
+     * single item's history is reduced in timestamp/order arrival sequence.
+     */
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
         final String entityId = (event instanceof EntityEvent e) ? e.getEntityId() : null;
 
@@ -160,6 +170,11 @@ public class EventProcessor {
         return taskResultFuture;
     }
 
+    /**
+     * Chooses synchronous or async execution based on simulation context.
+     * Simulation replay stays on the current thread so ThreadLocal simulation and
+     * virtual-time state cannot be lost across an executor boundary.
+     */
     private CompletableFuture<Map<String, Object>> executeOn(DomainEvent event, boolean shouldBroadcast,
             Executor executor) {
         final String currentSimId = DatabaseContextHolder.getSimulationId();
@@ -178,6 +193,11 @@ public class EventProcessor {
                 () -> executeBusinessLogic(event, shouldBroadcast, currentSimId, currentSenderId), executor);
     }
 
+    /**
+     * Enters the context needed to reduce one event into derived state.
+     * Live events are persisted to ClickHouse around processing according to their
+     * replay needs, while simulation events update only isolated derived stores.
+     */
     private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast, String simulationId,
             String senderId) {
         String entityId = event instanceof EntityEvent entityEvent ? entityEvent.getEntityId() : null;
@@ -275,8 +295,11 @@ public class EventProcessor {
                 case ItemCreatedEvent e -> {
                     try {
                         var item = new ItemInput(e);
-                        AppliedDestination appliedDestination = applyDestinationToCreatedItem(item, e.getTimestamp());
-                        itemService.createItem(item);
+                        AppliedDestination appliedDestination = routingCoordinator.withRoutingLock(() -> {
+                            AppliedDestination destination = applyDestinationToCreatedItem(item, e.getTimestamp());
+                            itemService.createItem(item);
+                            return destination;
+                        });
                         publishDestinationCommandIfNeeded(e, item, appliedDestination, shouldBroadcast);
 
                         if (item.getLocationId() != null) {
@@ -314,6 +337,7 @@ public class EventProcessor {
 
                 case MapDestinationExitsEvent e -> {
                     destinationExitMappingService.saveMappings(e);
+                    retryWaitingHighPriorityItems(e.getTimestamp(), shouldBroadcast);
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -471,20 +495,30 @@ public class EventProcessor {
                     }
                     RoutingDecisionService.RoutingDecision decision = item.getPositionId() == null
                             ? RoutingDecisionService.RoutingDecision.none()
-                            : routingDecisionService.selectRouteToExit(
-                                    item,
-                                    item.getPositionId(),
-                                    item.getPositionType() != null ? item.getPositionType() : PositionType.LOCATION,
-                                    e.getLocationId());
+                            : routingCoordinator.withRoutingLock(() -> {
+                                RoutingDecisionService.RoutingDecision selected =
+                                        routingDecisionService.selectRouteToExit(
+                                                item,
+                                                item.getPositionId(),
+                                                item.getPositionType() != null ? item.getPositionType()
+                                                        : PositionType.LOCATION,
+                                                e.getLocationId());
+                                item.setSelectedExitId(selected.selectedExitId());
+                                item.setRoutingStatus(selected.routingStatus());
+                                item.setRoutingStatusUpdatedAt(e.getTimestamp());
+                                item.setPath(selected.path());
+                                itemService.updateItemRouting(
+                                        item.getId(), item.getDestinations(), selected.selectedExitId(),
+                                        selected.routingStatus(), e.getTimestamp(), selected.path());
+                                return selected;
+                            });
 
-                    item.setSelectedExitId(decision.selectedExitId());
-                    item.setPath(decision.path());
-                    itemService.updateItemRouting(
-                            item.getId(), item.getDestinations(), item.getSelectedExitId(), decision.path());
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
                         updates.put("selectedExitId", decision.selectedExitId());
+                        updates.put("routingStatus", decision.routingStatus());
+                        updates.put("routingStatusUpdatedAt", e.getTimestamp());
                         updates.put("path", decision.path());
                         webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
@@ -500,14 +534,20 @@ public class EventProcessor {
                         yield Map.of("status", "IGNORED_MANAGED_LOGIC_DISABLED");
                     }
 
-                    RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
-                            item, e.getDecisionPointId(), PositionType.LOCATION);
-                    itemService.updateItemRouting(
-                            item.getId(), item.getDestinations(), decision.selectedExitId(), decision.path());
+                    RoutingDecisionService.RoutingDecision decision = routingCoordinator.withRoutingLock(() -> {
+                        RoutingDecisionService.RoutingDecision selected = routingDecisionService.selectRoute(
+                                item, e.getDecisionPointId(), PositionType.LOCATION);
+                        itemService.updateItemRouting(
+                                item.getId(), item.getDestinations(), selected.selectedExitId(),
+                                selected.routingStatus(), e.getTimestamp(), selected.path());
+                        return selected;
+                    });
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
                         updates.put("selectedExitId", decision.selectedExitId());
+                        updates.put("routingStatus", decision.routingStatus());
+                        updates.put("routingStatusUpdatedAt", e.getTimestamp());
                         updates.put("path", decision.path());
                         webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
@@ -567,11 +607,17 @@ public class EventProcessor {
 
                 case LocationCapacityChangedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
+                    Integer oldCapacity = location.getCapacity();
                     location.updateCapacity(e.getCapacity());
                     var updateModel = new UpdateModel(location.getId(), Map.of("capacity", location.getCapacity()));
                     locationService.updateLocation(updateModel);
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
+                    }
+                    if (location.getType() == LocationType.CHUTE
+                            && e.getCapacity() != null
+                            && (oldCapacity == null || e.getCapacity() > oldCapacity)) {
+                        retryWaitingHighPriorityItems(e.getTimestamp(), shouldBroadcast);
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -643,12 +689,14 @@ public class EventProcessor {
                     // Correctly clear items from the chute location in Redis
                     Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
                     for (String item : items) {
+                        liveLocationRepository.removeItemFromLocation(e.getEntityId(), item);
                         liveItemRepository.deleteItem(item);
 
                     }
                     if (shouldBroadcast)
                         webSocketService.broadcastChuteEmptied(e.getEntityId(), e.getTimestamp());
 
+                    retryWaitingHighPriorityItems(e.getTimestamp(), shouldBroadcast);
                     if (manageLogic) {
                         itemMovementProcessor.wakeUpPrecedingConveyors(e.getEntityId());
                     }
@@ -772,10 +820,14 @@ public class EventProcessor {
         if (destinations.isEmpty()) {
             item.setSelectedExitId(null);
             item.setPath(null);
-            return new AppliedDestination(destinations, null, null, explicit);
+            item.setRoutingStatus(RoutingStatus.UNROUTED);
+            item.setRoutingStatusUpdatedAt(timestamp);
+            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null, explicit);
         }
         if (item.getLocationId() == null) {
-            return new AppliedDestination(destinations, null, null, explicit);
+            item.setRoutingStatus(RoutingStatus.UNROUTED);
+            item.setRoutingStatusUpdatedAt(timestamp);
+            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null, explicit);
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
@@ -785,8 +837,11 @@ public class EventProcessor {
         RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
                 routingItem, item.getLocationId(), positionType);
         item.setSelectedExitId(decision.selectedExitId());
+        item.setRoutingStatus(decision.routingStatus());
+        item.setRoutingStatusUpdatedAt(timestamp);
         item.setPath(decision.path());
-        return new AppliedDestination(destinations, decision.selectedExitId(), decision.path(), explicit);
+        return new AppliedDestination(destinations, decision.selectedExitId(), decision.routingStatus(), decision.path(),
+                explicit);
     }
 
     private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
@@ -808,6 +863,52 @@ public class EventProcessor {
         }
     }
 
+    private void retryWaitingHighPriorityItems(Instant timestamp, boolean shouldBroadcast) {
+        routingCoordinator.withRoutingLock(() -> {
+            liveItemRepository.getAllActiveItems().stream()
+                    .filter(item -> item != null)
+                    .filter(item -> item.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY)
+                    .sorted(Comparator
+                            .comparing(com.flunav.backend.models.RedisLiveItem::getRoutingStatusUpdatedAt,
+                                    Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(com.flunav.backend.models.RedisLiveItem::getEntryTime,
+                                    Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(com.flunav.backend.models.RedisLiveItem::getId))
+                    .forEach(waitingState -> {
+                        var item = itemService.getItemById(waitingState.getId());
+                        if (item == null || PriorityScoreUtils.priorityScore(item.getProperties()) <= 0.0) {
+                            return;
+                        }
+                        PositionType positionType = item.getPositionType() != null
+                                ? item.getPositionType()
+                                : PositionType.LOCATION;
+                        RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
+                                item, item.getPositionId(), positionType);
+
+                        boolean changed = !Objects.equals(waitingState.getSelectedExitId(), decision.selectedExitId())
+                                || !Objects.equals(waitingState.getPath(), decision.path())
+                                || waitingState.getRoutingStatus() != decision.routingStatus();
+                        if (!changed) {
+                            return;
+                        }
+
+                        itemService.updateItemRouting(
+                                item.getId(), item.getDestinations(), decision.selectedExitId(),
+                                decision.routingStatus(), timestamp, decision.path());
+
+                        if (shouldBroadcast) {
+                            Map<String, Object> updates = new HashMap<>();
+                            updates.put("selectedExitId", decision.selectedExitId());
+                            updates.put("routingStatus", decision.routingStatus());
+                            updates.put("routingStatusUpdatedAt", timestamp);
+                            updates.put("path", decision.path());
+                            webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), timestamp);
+                        }
+                    });
+            return null;
+        });
+    }
+
     private List<String> normalizeDestinations(List<String> destinations) {
         if (destinations == null || destinations.isEmpty()) {
             return List.of();
@@ -825,6 +926,7 @@ public class EventProcessor {
     private record AppliedDestination(
             List<String> destinations,
             String selectedExitId,
+            RoutingStatus routingStatus,
             List<String> path,
             boolean explicit) {
     }
