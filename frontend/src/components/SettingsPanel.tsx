@@ -4,7 +4,6 @@ import { DisplayRule, DisplayRuleColorResult, DisplayRuleDataTypeEnum, DisplayRu
 import toast from "react-hot-toast";
 import { RuleRow } from "./editors/RuleRow";
 import { v4 as uuidv4 } from 'uuid';
-import { ComponentAnalytics } from "./analytics/ComponentAnalytics";
 import { PathAnalytics } from "./analytics/PathAnalytics";
 import { useAuth } from "../context/auth.context";
 import { AdminCommands } from "./admin/AdminCommands";
@@ -416,10 +415,6 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
               <PathAnalytics />
-            </div>
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Component Analytics</h3>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-              <ComponentAnalytics />
             </div>
           </div>
         ) : (

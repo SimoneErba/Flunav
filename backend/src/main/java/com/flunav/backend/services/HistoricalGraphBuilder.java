@@ -33,6 +33,7 @@ import java.util.concurrent.Semaphore;
 public class HistoricalGraphBuilder {
 
     private static final Logger logger = LoggerFactory.getLogger(HistoricalGraphBuilder.class);
+    private static final int REPLAY_PAGE_SIZE = 1000;
 
     private final ClickHouseService clickHouseService;
     private final EventProcessor eventProcessor;
@@ -82,13 +83,18 @@ public class HistoricalGraphBuilder {
             }
 
             // 2. Replay Events (The Delta)
-            List<DomainEvent> eventsToReplay = eventsAfterTimestamp.isBefore(realEventReplayEnd)
-                    ? new ArrayList<>(clickHouseService.getEventsBetween(eventsAfterTimestamp, realEventReplayEnd))
-                    : List.of();
-            eventsToReplay.sort(Comparator.comparing(DomainEvent::getTimestamp));
-            logger.info("Found {} events to replay for simulation {}", eventsToReplay.size(), simulationId);
+            ClickHouseService.EventPage firstEventPage = eventsAfterTimestamp.isBefore(realEventReplayEnd)
+                    ? clickHouseService.getEventsBetweenPage(eventsAfterTimestamp, realEventReplayEnd, null,
+                            REPLAY_PAGE_SIZE)
+                    : new ClickHouseService.EventPage(List.of(), null, 0);
+            List<DomainEvent> firstEvents = new ArrayList<>(firstEventPage.events());
+            firstEvents.sort(Comparator.comparing(DomainEvent::getTimestamp));
+            firstEventPage = new ClickHouseService.EventPage(firstEvents, firstEventPage.nextCursor(),
+                    firstEventPage.rowCount());
+            logger.info("Loaded first replay page with {} events for simulation {}", firstEvents.size(),
+                    simulationId);
 
-            Instant progressStart = determineProgressStart(snapshotOpt, eventsToReplay, realEventReplayEnd);
+            Instant progressStart = determineProgressStart(snapshotOpt, firstEvents, realEventReplayEnd);
             BuildProgressTracker progressTracker = new BuildProgressTracker(
                     simulationId,
                     progressStart,
@@ -96,7 +102,8 @@ public class HistoricalGraphBuilder {
                     simulationService);
             progressTracker.report(progressStart, true);
 
-            replayEventsAndInternalQueue(simulationId, eventsToReplay, realEventReplayEnd, progressTracker);
+            replayEventsAndInternalQueue(simulationId, firstEventPage, eventsAfterTimestamp, realEventReplayEnd,
+                    progressTracker);
             simulationService.checkpointSimulationAt(simulationId, realEventReplayEnd);
             progressTracker.report(realEventReplayEnd, false);
 
@@ -121,16 +128,28 @@ public class HistoricalGraphBuilder {
      * External events win timestamp ties so observed history can override scheduled
      * projections before those projections are applied.
      */
-    private void replayEventsAndInternalQueue(String simulationId, List<DomainEvent> externalEvents,
-            Instant replayEnd, BuildProgressTracker progressTracker) {
+    private void replayEventsAndInternalQueue(String simulationId, ClickHouseService.EventPage firstPage,
+            Instant replayStart, Instant replayEnd, BuildProgressTracker progressTracker) {
         SimulationState state = simulationService.getSimulationState(simulationId);
 
         orientDBService.withSession(session -> {
+            ClickHouseService.EventPage currentPage = firstPage;
             int externalIndex = 0;
 
-            while (externalIndex < externalEvents.size() || hasInternalEventDueAtOrBefore(state, replayEnd)) {
-                DomainEvent nextExternal = externalIndex < externalEvents.size() ? externalEvents.get(externalIndex)
-                        : null;
+            while (true) {
+                if (externalIndex >= currentPage.events().size() && currentPage.hasMore(REPLAY_PAGE_SIZE)) {
+                    currentPage = clickHouseService.getEventsBetweenPage(replayStart, replayEnd,
+                            currentPage.nextCursor(), REPLAY_PAGE_SIZE);
+                    externalIndex = 0;
+                }
+
+                boolean externalAvailable = externalIndex < currentPage.events().size();
+                boolean internalAvailable = hasInternalEventDueAtOrBefore(state, replayEnd);
+                if (!externalAvailable && !internalAvailable) {
+                    break;
+                }
+
+                DomainEvent nextExternal = externalAvailable ? currentPage.events().get(externalIndex) : null;
                 DomainEvent nextInternal = state.getInternalEventQueue().peek();
 
                 if (nextExternal != null && shouldProcessExternalBeforeInternal(nextExternal, nextInternal,

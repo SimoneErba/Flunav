@@ -2,16 +2,29 @@ package com.flunav.backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ThroughputMetric;
+import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.services.ClickHouseService;
+import com.flunav.backend.services.EventProcessor;
+import com.flunav.backend.services.LocationService;
+import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.ThroughputBucketService;
 
-import flunav.events.EntityEvent;
+import flunav.events.ChuteEmptyEvent;
+import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemDeletedEvent;
+import flunav.types.LocationType;
+import flunav.types.PositionType;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestConstructor;
 
 import java.net.URI;
@@ -22,11 +35,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,134 +53,170 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class AnalyticsThroughputTests extends BaseIntegrationTest {
 
+    private static final String SIMULATION_ID = "analytics-throughput-sim";
+
     private final ClickHouseService clickHouseService;
+    private final EventProcessor eventProcessor;
+    private final ThroughputBucketService throughputBucketService;
+    private final LocationService locationService;
+    private final OrientDBService orientDBService;
+    private final LiveItemRepository liveItemRepository;
+    private final LiveLocationRepository liveLocationRepository;
+    private final StringRedisTemplate redisTemplate;
     private final int serverPort;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    AnalyticsThroughputTests(ClickHouseService clickHouseService, @LocalServerPort int serverPort) {
+    AnalyticsThroughputTests(
+            ClickHouseService clickHouseService,
+            EventProcessor eventProcessor,
+            ThroughputBucketService throughputBucketService,
+            LocationService locationService,
+            OrientDBService orientDBService,
+            LiveItemRepository liveItemRepository,
+            LiveLocationRepository liveLocationRepository,
+            StringRedisTemplate redisTemplate,
+            @LocalServerPort int serverPort) {
         this.clickHouseService = clickHouseService;
+        this.eventProcessor = eventProcessor;
+        this.throughputBucketService = throughputBucketService;
+        this.locationService = locationService;
+        this.orientDBService = orientDBService;
+        this.liveItemRepository = liveItemRepository;
+        this.liveLocationRepository = liveLocationRepository;
+        this.redisTemplate = redisTemplate;
         this.serverPort = serverPort;
     }
 
     @BeforeEach
     void setup() throws Exception {
+        resetState();
         truncateAnalyticsTables();
     }
 
     @AfterEach
     void tearDown() throws Exception {
         truncateAnalyticsTables();
+        resetState();
     }
 
     @Test
-    void getThroughputHistoryAggregatesEnteredExitedAndMovementByMinute() throws Exception {
-        Instant baseMinute = Instant.now().truncatedTo(ChronoUnit.MINUTES).minus(10, ChronoUnit.MINUTES);
-        Instant firstMinute = baseMinute;
-        Instant skippedMinute = baseMinute.plus(1, ChronoUnit.MINUTES);
-        Instant secondMinute = baseMinute.plus(2, ChronoUnit.MINUTES);
-        Instant thirdMinute = baseMinute.plus(4, ChronoUnit.MINUTES);
+    void itemCreatedIncrementsEnteredAndCurrentCount() {
+        Instant timestamp = Instant.now();
+        createLocation("analytics-create-start", LocationType.GENERIC, 100);
 
-        saveEvent("item-1", "ITEM_CREATED", firstMinute.plusSeconds(3));
-        saveEvent("item-2", "ITEM_CREATED", firstMinute.plusSeconds(8));
-        saveEvent("item-1", "ITEM_DELETED", firstMinute.plusSeconds(20));
-        saveEvent("item-1", "ITEM_POSITION_CHANGED", firstMinute.plusSeconds(30));
-        saveEvent("path-1", "PATH_TRAVERSED", firstMinute.plusSeconds(45));
+        eventProcessor.processEvent(new ItemCreatedEvent("analytics-created-item", "Created", 1.0, true,
+                "analytics-create-start", PositionType.LOCATION, 0.0, Map.of(), timestamp));
+        throughputBucketService.flushBuckets();
 
-        saveEvent("item-3", "ITEM_DELETED", secondMinute.plusSeconds(5));
-        saveEvent("item-4", "ITEM_POSITION_CHANGED", secondMinute.plusSeconds(12));
-
-        saveEvent("item-5", "ITEM_CREATED", thirdMinute.plusSeconds(1));
-        saveEvent("path-2", "PATH_TRAVERSED", thirdMinute.plusSeconds(2));
-        saveEvent("path-3", "PATH_TRAVERSED", thirdMinute.plusSeconds(3));
-        flushEvents();
-
-        Map<Instant, ThroughputMetric> metricsByMinute = clickHouseService.getThroughputHistory(24)
-                .join()
-                .stream()
-                .collect(Collectors.toMap(ThroughputMetric::getTimestamp, Function.identity()));
-
-        assertMetric(metricsByMinute, firstMinute, 2, 1, 2);
-        assertMetric(metricsByMinute, secondMinute, 0, 1, 1);
-        assertMetric(metricsByMinute, thirdMinute, 1, 0, 2);
-        assertFalse(metricsByMinute.containsKey(skippedMinute), "Skipped minutes should not be zero-filled");
+        ThroughputMetric metric = metricForBucket(timestamp);
+        assertEquals(1, metric.getItemsEntered());
+        assertEquals(0, metric.getItemsExited());
+        assertEquals(1, metric.getItemsCurrent());
+        assertEquals(ThroughputBucketService.BUCKET_SECONDS, metric.getBucketSeconds());
     }
 
     @Test
-    void getThroughputHistoryHonorsHoursWindow() {
-        Instant nowMinute = Instant.now().truncatedTo(ChronoUnit.MINUTES);
-        Instant oldMinute = nowMinute.minus(2, ChronoUnit.HOURS);
-        Instant recentMinute = nowMinute.minus(30, ChronoUnit.MINUTES);
+    void itemDeletedIncrementsExitedAndLowersCurrentCount() {
+        createLocation("analytics-delete-start", LocationType.GENERIC, 100);
+        liveItemRepository.saveItemState("analytics-deleted-item", "analytics-delete-start", PositionType.LOCATION,
+                Instant.now(), 0.0, "Deleted", List.of(), null, null);
+        assertEquals(1, liveItemRepository.countActiveItems());
 
-        saveEvent("old-item", "ITEM_CREATED", oldMinute.plusSeconds(1));
-        saveEvent("recent-item", "ITEM_CREATED", recentMinute.plusSeconds(1));
-        saveEvent("recent-item", "ITEM_DELETED", recentMinute.plusSeconds(2));
-        flushEvents();
+        ItemDeletedEvent deleteEvent = new ItemDeletedEvent("analytics-deleted-item");
+        liveItemRepository.deleteItem("analytics-deleted-item");
+        throughputBucketService.recordSuccessfulReduction(deleteEvent, Map.of("status", "PROCESSED_SUCCESSFULLY"), 0);
+        throughputBucketService.flushBuckets();
+
+        ThroughputMetric metric = metricForBucket(deleteEvent.getTimestamp());
+        assertEquals(0, metric.getItemsEntered());
+        assertEquals(1, metric.getItemsExited());
+        assertEquals(0, metric.getItemsCurrent());
+    }
+
+    @Test
+    void chuteEmptyIncrementsExitedByRemovedOccupants() {
+        Instant now = Instant.now();
+        createLocation("analytics-chute", LocationType.CHUTE, 10);
+        for (int index = 0; index < 3; index++) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("analytics-chute-item-" + index,
+                    "Chute Item " + index, 1.0, true, "analytics-chute", PositionType.LOCATION, 0.0, Map.of(),
+                    now.plusMillis(index)));
+        }
+        assertEquals(3, liveLocationRepository.getItemCount("analytics-chute"));
+        assertEquals(3, liveItemRepository.countActiveItems());
+
+        ChuteEmptyEvent chuteEmptyEvent = new ChuteEmptyEvent("analytics-chute", now);
+        eventProcessor.processEvent(chuteEmptyEvent);
+        throughputBucketService.flushBuckets();
+
+        ThroughputMetric metric = metricForBucket(chuteEmptyEvent.getTimestamp());
+        assertEquals(0, metric.getItemsEntered());
+        assertEquals(3, metric.getItemsExited());
+        assertEquals(0, metric.getItemsCurrent());
+    }
+
+    @Test
+    void simulationBucketsAreNotPersistedToClickHouse() {
+        Instant timestamp = Instant.now();
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("analytics-sim-start", LocationType.GENERIC, 100);
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-item", "Sim Item", 1.0, true,
+                    "analytics-sim-start", PositionType.LOCATION, 0.0, Map.of(), timestamp));
+        }
+        throughputBucketService.flushBuckets();
 
         List<ThroughputMetric> metrics = clickHouseService.getThroughputHistory(1).join();
-        Map<Instant, ThroughputMetric> metricsByMinute = metrics.stream()
-                .collect(Collectors.toMap(ThroughputMetric::getTimestamp, Function.identity()));
-
-        assertFalse(metricsByMinute.containsKey(oldMinute), "Events outside the requested window must be excluded");
-        assertMetric(metricsByMinute, recentMinute, 1, 1, 0);
-        assertEquals(1, metrics.size());
+        assertTrue(metrics.isEmpty(), "Simulation throughput must not be written to live ClickHouse history");
     }
 
     @Test
-    void getLatestThroughputAggregatesOnlyCurrentMinute() throws Exception {
-        waitForStableCurrentMinute();
-        Instant currentMinute = Instant.now().truncatedTo(ChronoUnit.MINUTES);
-        Instant previousMinute = currentMinute.minus(1, ChronoUnit.MINUTES);
-
-        saveEvent("noise-entered", "ITEM_CREATED", previousMinute.plusSeconds(10));
-        saveEvent("noise-exited", "ITEM_DELETED", previousMinute.plusSeconds(11));
-        saveEvent("noise-moved", "PATH_TRAVERSED", previousMinute.plusSeconds(12));
-
-        saveEvent("current-entered", "ITEM_CREATED", currentMinute.plusSeconds(2));
-        saveEvent("current-exited", "ITEM_DELETED", currentMinute.plusSeconds(3));
-        saveEvent("current-moved-1", "ITEM_POSITION_CHANGED", currentMinute.plusSeconds(4));
-        saveEvent("current-moved-2", "PATH_TRAVERSED", currentMinute.plusSeconds(5));
-        flushEvents();
-
-        ThroughputMetric latest = clickHouseService.getLatestThroughput();
-
-        assertEquals(currentMinute, latest.getTimestamp());
-        assertEquals(1, latest.getItemsEntered());
-        assertEquals(1, latest.getItemsExited());
-        assertEquals(2, latest.getSegmentsProcessed());
-    }
-
-    @Test
-    void getThroughputHistoryEndpointReturnsAggregatedValues() throws Exception {
-        Instant minute = Instant.now().truncatedTo(ChronoUnit.MINUTES).minus(5, ChronoUnit.MINUTES);
-        saveEvent("endpoint-entered", "ITEM_CREATED", minute.plusSeconds(1));
-        saveEvent("endpoint-exited", "ITEM_DELETED", minute.plusSeconds(2));
-        saveEvent("endpoint-moved", "PATH_TRAVERSED", minute.plusSeconds(3));
-        flushEvents();
+    void throughputHistoryEndpointReturnsBucketValues() throws Exception {
+        Instant timestamp = Instant.now();
+        createLocation("analytics-endpoint-start", LocationType.GENERIC, 100);
+        eventProcessor.processEvent(new ItemCreatedEvent("analytics-endpoint-item", "Endpoint", 1.0, true,
+                "analytics-endpoint-start", PositionType.LOCATION, 0.0, Map.of(), timestamp));
+        throughputBucketService.flushBuckets();
 
         HttpResponse<String> response = httpClient.send(
-                HttpRequest.newBuilder(URI.create(baseUrl() + "/api/analytics/throughput/history?hours=24"))
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/api/analytics/throughput/history?hours=1&bucketSeconds=5"))
                         .header("Authorization", "Bearer " + loginToken())
                         .GET()
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
 
         assertEquals(200, response.statusCode());
-        JsonNode metric = findMetric(objectMapper.readTree(response.body()), minute.toString());
+        JsonNode metric = findMetric(objectMapper.readTree(response.body()), bucketStart(timestamp).toString());
         assertEquals(1, metric.get("itemsEntered").asLong());
-        assertEquals(1, metric.get("itemsExited").asLong());
-        assertEquals(1, metric.get("segmentsProcessed").asLong());
+        assertEquals(0, metric.get("itemsExited").asLong());
+        assertEquals(1, metric.get("itemsCurrent").asLong());
+        assertEquals(5, metric.get("bucketSeconds").asInt());
+        assertFalse(metric.hasNonNull("segmentsProcessed"));
     }
 
-    private void saveEvent(String entityId, String eventType, Instant timestamp) {
-        clickHouseService.saveEventAsync(new TestEntityEvent(entityId, eventType, timestamp));
+    private ThroughputMetric metricForBucket(Instant timestamp) {
+        Instant bucketStart = bucketStart(timestamp);
+        return clickHouseService.getThroughputHistory(1).join().stream()
+                .filter(metric -> bucketStart.equals(metric.getTimestamp()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing metric for bucket " + bucketStart));
     }
 
-    private void flushEvents() {
-        clickHouseService.flushEvents();
+    private Instant bucketStart(Instant timestamp) {
+        long bucketMillis = ThroughputBucketService.BUCKET_SECONDS * 1000L;
+        long epochMillis = timestamp.toEpochMilli();
+        return Instant.ofEpochMilli((epochMillis / bucketMillis) * bucketMillis);
+    }
+
+    private void createLocation(String id, LocationType type, int capacity) {
+        locationService.createLocation(new LocationInput(id, id, 0.0, 0.0, null, null, type, capacity,
+                true, false, Map.of()));
     }
 
     private void truncateAnalyticsTables() throws Exception {
+        throughputBucketService.flushBuckets();
         clickHouseService.flushEvents();
         try (Connection connection = DriverManager.getConnection(
                 CLICKHOUSE_CONTAINER.getJdbcUrl(),
@@ -181,24 +228,23 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         }
     }
 
-    private void assertMetric(
-            Map<Instant, ThroughputMetric> metricsByMinute,
-            Instant minute,
-            long itemsEntered,
-            long itemsExited,
-            long segmentsProcessed) {
-        assertTrue(metricsByMinute.containsKey(minute), "Expected throughput metric for " + minute);
-        ThroughputMetric metric = metricsByMinute.get(minute);
-        assertEquals(itemsEntered, metric.getItemsEntered());
-        assertEquals(itemsExited, metric.getItemsExited());
-        assertEquals(segmentsProcessed, metric.getSegmentsProcessed());
-    }
+    private void resetState() {
+        DatabaseContextHolder.clearSimulation();
 
-    private void waitForStableCurrentMinute() throws InterruptedException {
-        long secondOfMinute = Instant.now().getEpochSecond() % 60;
-        if (secondOfMinute >= 50) {
-            Thread.sleep((61 - secondOfMinute) * 1000);
+        try {
+            Objects.requireNonNull(redisTemplate.getConnectionFactory())
+                    .getConnection()
+                    .serverCommands()
+                    .flushAll();
+        } catch (Exception ignored) {
         }
+
+        try {
+            orientDBService.resetMainDatabaseForTests(SIMULATION_ID);
+        } catch (Exception ignored) {
+        }
+
+        DatabaseContextHolder.clearSimulation();
     }
 
     private String loginToken() throws Exception {
@@ -224,11 +270,5 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     private String baseUrl() {
         return "http://127.0.0.1:" + serverPort;
-    }
-
-    private static final class TestEntityEvent extends EntityEvent {
-        private TestEntityEvent(String entityId, String eventType, Instant timestamp) {
-            super(entityId, eventType, timestamp);
-        }
     }
 }

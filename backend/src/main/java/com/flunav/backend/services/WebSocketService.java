@@ -154,7 +154,11 @@ public class WebSocketService {
     }
 
     public void broadcastLiveAnalytic(ThroughputMetric metric) {
-        sendToTopic(null, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
+        broadcastThroughputMetric(null, metric);
+    }
+
+    public void broadcastThroughputMetric(String simulationId, ThroughputMetric metric) {
+        sendToTopic(simulationId, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
     }
 
     // --- HELPER ---

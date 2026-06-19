@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flunav.backend.models.analytics.EntityEventType;
 import com.flunav.backend.models.analytics.MetricEvent;
-import com.flunav.backend.models.analytics.ThroughputDto;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.EntityEventRecord;
@@ -47,8 +46,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 @Service
 public class ClickHouseService {
     private static final Logger logger = LoggerFactory.getLogger(ClickHouseService.class);
-    private static final DateTimeFormatter CH_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            .withZone(ZoneOffset.UTC);
     private final Client client;
     private final ObjectMapper objectMapper;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
@@ -183,6 +180,15 @@ public class ClickHouseService {
     public record Snapshot(GraphData graphData, Instant timestamp) {
     }
 
+    public record EventPageCursor(Instant timestampReceived, Instant timestampProcessed, String eventId) {
+    }
+
+    public record EventPage(List<DomainEvent> events, EventPageCursor nextCursor, int rowCount) {
+        public boolean hasMore(int pageSize) {
+            return rowCount == pageSize && nextCursor != null;
+        }
+    }
+
     /**
      * Retrieves the most recent graph snapshot from ClickHouse at or before a given
      * point in time.
@@ -251,17 +257,66 @@ public class ClickHouseService {
      * @return A List of DomainEvent objects, ordered by timestamp.
      */
     public List<DomainEvent> getEventsBetween(Instant startTime, Instant endTime) {
+        EventPageCursor cursor = null;
+        List<DomainEvent> events = new ArrayList<>();
+        do {
+            EventPage page = getEventsBetweenPage(startTime, endTime, cursor, 1000);
+            events.addAll(page.events());
+            cursor = page.hasMore(1000) ? page.nextCursor() : null;
+        } while (cursor != null);
+        return events;
+    }
+
+    /**
+     * Reads replay events in timestamp order without materializing the whole
+     * interval. Historical simulation builds use this to keep memory bounded for
+     * large restore windows.
+     */
+    public EventPage getEventsBetweenPage(Instant startTime, Instant endTime, EventPageCursor cursor, int pageSize) {
         String formattedStartTimestamp = CLICKHOUSE_FORMATTER.format(startTime);
         String formattedEndTimestamp = CLICKHOUSE_FORMATTER.format(endTime);
+        int boundedPageSize = Math.max(1, pageSize);
 
-        String query = "SELECT data FROM Events WHERE timestamp_received > {ts_start:Datetime64(3)} AND timestamp_received <= {ts_end:Datetime64(3)} ORDER BY timestamp_received ASC, timestamp_processed ASC FORMAT JSONEachRow";
+        String cursorFilter = "";
+        Map<String, Object> queryParams = new HashMap<>();
+        queryParams.put("ts_start", formattedStartTimestamp);
+        queryParams.put("ts_end", formattedEndTimestamp);
+        queryParams.put("limit", boundedPageSize);
+        if (cursor != null) {
+            cursorFilter = """
+                      AND (
+                        timestamp_received > {cursor_received:DateTime64(3)}
+                        OR (timestamp_received = {cursor_received:DateTime64(3)}
+                          AND timestamp_processed > {cursor_processed:DateTime64(3)})
+                        OR (timestamp_received = {cursor_received:DateTime64(3)}
+                          AND timestamp_processed = {cursor_processed:DateTime64(3)}
+                          AND event_id > {cursor_event_id:UUID})
+                      )
+                    """;
+            queryParams.put("cursor_received", CLICKHOUSE_FORMATTER.format(cursor.timestampReceived()));
+            queryParams.put("cursor_processed", CLICKHOUSE_FORMATTER.format(cursor.timestampProcessed()));
+            queryParams.put("cursor_event_id", cursor.eventId());
+        }
 
-        logger.info("Executing query to find events between {} and {}", formattedStartTimestamp, formattedEndTimestamp);
+        String query = """
+                SELECT timestamp_received, timestamp_processed, event_id, data
+                FROM Events
+                WHERE timestamp_received > {ts_start:DateTime64(3)}
+                  AND timestamp_received <= {ts_end:DateTime64(3)}
+                %s
+                ORDER BY timestamp_received ASC, timestamp_processed ASC, event_id ASC
+                LIMIT {limit:UInt32}
+                FORMAT JSONEachRow
+                SETTINGS
+                    date_time_output_format = 'iso',
+                    output_format_json_quote_64bit_integers = 0
+                """.formatted(cursorFilter);
 
         List<DomainEvent> events = new ArrayList<>();
+        EventPageCursor nextCursor = null;
+        int rowCount = 0;
 
-        try (QueryResponse response = client
-                .query(query, Map.of("ts_start", formattedStartTimestamp, "ts_end", formattedEndTimestamp)).get()) {
+        try (QueryResponse response = client.query(query, queryParams).get()) {
 
             try (InputStream inputStream = response.getInputStream()) {
                 var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
@@ -269,7 +324,12 @@ public class ClickHouseService {
 
                 while (it.hasNext()) {
                     Map<String, Object> row = it.next();
+                    rowCount++;
                     Object eventData = row.get("data");
+                    nextCursor = new EventPageCursor(
+                            parseClickHouseInstant(row.get("timestamp_received")),
+                            parseClickHouseInstant(row.get("timestamp_processed")),
+                            String.valueOf(row.get("event_id")));
 
                     DomainEvent event = objectMapper.convertValue(eventData, DomainEvent.class);
 
@@ -281,8 +341,9 @@ public class ClickHouseService {
                 }
             }
 
-            logger.info("Successfully retrieved {} events between the specified timestamps.", events.size());
-            return events;
+            logger.debug("Retrieved {} events between {} and {}.", events.size(), formattedStartTimestamp,
+                    formattedEndTimestamp);
+            return new EventPage(events, nextCursor, rowCount);
 
         } catch (Exception e) {
             logger.error("Failed to retrieve events from ClickHouse between {} and {}", formattedStartTimestamp,
@@ -359,41 +420,57 @@ public class ClickHouseService {
     }
 
     public CompletableFuture<List<ThroughputMetric>> getThroughputHistory(int hours) {
-        // Note: We use FORMAT JSONEachRow to make parsing easy with Jackson
-        String sql = String.format("""
+        Instant to = Instant.now();
+        Instant from = to.minusSeconds(Math.max(1, hours) * 3600L);
+        return getThroughputHistory(from, to, 5);
+    }
+
+    /**
+     * Reads throughput buckets written after successful event reductions.
+     * Entered and exited values are summed when the requested bucket is larger
+     * than the stored interval; current item count follows the latest snapshot in
+     * each output bucket.
+     */
+    public CompletableFuture<List<ThroughputMetric>> getThroughputHistory(Instant from, Instant to, int bucketSeconds) {
+        int normalizedBucketSeconds = Math.max(1, bucketSeconds);
+        Instant end = to != null ? to : Instant.now();
+        Instant start = from != null ? from : end.minusSeconds(24 * 3600L);
+
+        String sql = """
                     SELECT
-                        minute as ts,
+                        toStartOfInterval(bucket_start, INTERVAL %d SECOND) as ts,
                         sum(items_entered) as entered,
                         sum(items_exited) as exited,
-                        sum(movements_count) as segments
+                        argMax(items_current, bucket_start) as current
                     FROM default.analytics_time_series
-                    WHERE minute >= now() - INTERVAL %d HOUR
-                    GROUP BY minute
-                    ORDER BY minute ASC
+                    WHERE bucket_start >= {from:DateTime64(3)}
+                      AND bucket_start <= {to:DateTime64(3)}
+                    GROUP BY ts
+                    ORDER BY ts ASC
                     FORMAT JSONEachRow
-                """, hours);
+                    SETTINGS
+                        date_time_output_format = 'iso',
+                        output_format_json_quote_64bit_integers = 0
+                """.formatted(normalizedBucketSeconds);
 
         return CompletableFuture.supplyAsync(() -> {
             List<ThroughputMetric> metrics = new ArrayList<>();
-            try (QueryResponse response = client.query(sql).get()) {
+            try (QueryResponse response = client.query(sql, Map.of(
+                    "from", CLICKHOUSE_FORMATTER.format(start),
+                    "to", CLICKHOUSE_FORMATTER.format(end))).get()) {
                 try (InputStream inputStream = response.getInputStream()) {
-                    // Use Jackson to read the stream of JSON objects
                     MappingIterator<Map<String, Object>> it = objectMapper
                             .readerFor(Map.class)
                             .readValues(inputStream);
 
                     while (it.hasNext()) {
                         Map<String, Object> row = it.next();
-                        String tsString = (String) row.get("ts");
-
-                        LocalDateTime localDateTime = LocalDateTime.parse(tsString, CH_DATE_FORMATTER);
-                        Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
-
                         metrics.add(new ThroughputMetric(
-                                ts,
+                                parseClickHouseInstant(row.get("ts")),
                                 asLong(row.get("entered")),
                                 asLong(row.get("exited")),
-                                asLong(row.get("segments"))));
+                                asLong(row.get("current")),
+                                normalizedBucketSeconds));
                     }
                 }
             } catch (Exception e) {
@@ -402,6 +479,25 @@ public class ClickHouseService {
             }
             return metrics;
         });
+    }
+
+    public void saveThroughputMetric(ThroughputMetric metric) {
+        try {
+            Map<String, Object> row = new HashMap<>();
+            row.put("bucket_start", CLICKHOUSE_FORMATTER.format(metric.getTimestamp()));
+            row.put("bucket_seconds", metric.getBucketSeconds());
+            row.put("items_entered", metric.getItemsEntered());
+            row.put("items_exited", metric.getItemsExited());
+            row.put("items_current", metric.getItemsCurrent());
+
+            try (var inputStream = new ByteArrayInputStream(
+                    (objectMapper.writeValueAsString(row) + "\n").getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_time_series", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+        } catch (Exception e) {
+            logger.error("Failed to save throughput metric for bucket {}", metric.getTimestamp(), e);
+            throw new RuntimeException("Failed to save throughput metric", e);
+        }
     }
 
     public CompletableFuture<List<EntityEventRecord>> getEntityEvents(
@@ -502,41 +598,42 @@ public class ClickHouseService {
     public ThroughputMetric getLatestThroughput() {
         String sql = """
                 SELECT
-                    minute as ts,
-                    sum(items_entered) as entered,
-                    sum(items_exited) as exited,
-                    sum(movements_count) as segments
+                    bucket_start as ts,
+                    items_entered as entered,
+                    items_exited as exited,
+                    items_current as current,
+                    bucket_seconds as bucketSeconds
                 FROM default.analytics_time_series
-                WHERE minute >= toStartOfMinute(now())
-                GROUP BY minute
+                ORDER BY bucket_start DESC
+                LIMIT 1
                 FORMAT JSONEachRow
+                SETTINGS
+                    date_time_output_format = 'iso',
+                    output_format_json_quote_64bit_integers = 0
                 """;
 
         try (QueryResponse response = client.query(sql).get();
                 InputStream inputStream = response.getInputStream()) {
 
-            MappingIterator<ThroughputDto> it = objectMapper.readerFor(ThroughputDto.class)
+            MappingIterator<Map<String, Object>> it = objectMapper.readerFor(Map.class)
                     .readValues(inputStream);
 
             if (it.hasNext()) {
-                ThroughputDto row = it.next();
-
-                LocalDateTime localDateTime = LocalDateTime.parse(row.ts, CH_DATE_FORMATTER);
-
-                Instant ts = localDateTime.toInstant(ZoneOffset.UTC);
+                Map<String, Object> row = it.next();
 
                 return new ThroughputMetric(
-                        ts,
-                        row.entered,
-                        row.exited,
-                        row.segments);
+                        parseClickHouseInstant(row.get("ts")),
+                        asLong(row.get("entered")),
+                        asLong(row.get("exited")),
+                        asLong(row.get("current")),
+                        (int) asLong(row.get("bucketSeconds")));
             }
 
         } catch (Exception e) {
             logger.error("Failed to fetch latest throughput", e);
         }
 
-        return new ThroughputMetric(Instant.now(), 0, 0, 0);
+        return new ThroughputMetric(Instant.now(), 0, 0, 0, 5);
     }
 
     public CompletableFuture<List<BadActorMetric>> getTopActiveComponents(int limit) {

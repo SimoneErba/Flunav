@@ -18,67 +18,67 @@ interface PathAnalyticsProps {
   className?: string;
 }
 
-const MINUTE_MS = 60_000;
+const BUCKET_SECONDS = 5;
+const BUCKET_MS = BUCKET_SECONDS * 1000;
+const HISTORY_HOURS = 24;
+
+const emptyBucket = (timestamp: number, previousCurrent = 0): ThroughputMetric => ({
+  timestamp: new Date(timestamp).toISOString(),
+  itemsEntered: 0,
+  itemsExited: 0,
+  itemsCurrent: previousCurrent,
+  bucketSeconds: BUCKET_SECONDS,
+});
 
 export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
   const [data, setData] = useState<ThroughputMetric[]>([]);
   const [loading, setLoading] = useState(true);
 
   const { analyticsApi } = useApi();
-  const { subscribeToThroughputUpdates } = useWebSocketEvents();
+  const { connected, subscribeToThroughputUpdates } = useWebSocketEvents();
   const { activeSimulation } = useSimulationContext();
 
-  // ------------------------------------------------------------
-  // Fill missing minutes with zero values
-  // ------------------------------------------------------------
-  const fillTimeGaps = useCallback(
-    (rawData: ThroughputMetric[]): ThroughputMetric[] => {
-      if (rawData.length < 2) return rawData;
+  const simulationId = activeSimulation?.id ?? null;
+  const simulationTimestamp = activeSimulation?.lastProcessedTimestamp ?? activeSimulation?.timestamp ?? null;
 
-      const sorted = [...rawData].sort(
-        (a, b) =>
-          new Date(a.timestamp).getTime() -
-          new Date(b.timestamp).getTime()
-      );
+  const fillTimeGaps = useCallback((rawData: ThroughputMetric[]): ThroughputMetric[] => {
+    if (rawData.length < 2) return rawData;
 
-      const filled: ThroughputMetric[] = [];
+    const sorted = [...rawData].sort(
+      (a, b) => new Date(a.timestamp ?? 0).getTime() - new Date(b.timestamp ?? 0).getTime()
+    );
+    const filled: ThroughputMetric[] = [];
 
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const current = sorted[i];
-        const next = sorted[i + 1];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      filled.push(current);
 
-        filled.push(current);
+      const currentMs = new Date(current.timestamp ?? 0).getTime();
+      const nextMs = new Date(next.timestamp ?? 0).getTime();
+      const gapBuckets = Math.floor((nextMs - currentMs) / BUCKET_MS);
 
-        const currentMs = new Date(current.timestamp).getTime();
-        const nextMs = new Date(next.timestamp).getTime();
-        const diffMinutes = Math.floor((nextMs - currentMs) / MINUTE_MS);
-
-        // Fill idle minutes
-        for (let j = 1; j < diffMinutes; j++) {
-          filled.push({
-            timestamp: new Date(currentMs + j * MINUTE_MS).toISOString(),
-            itemsEntered: 0,
-            itemsExited: 0,
-            segmentsProcessed: 0,
-          });
-        }
+      for (let j = 1; j < gapBuckets; j++) {
+        filled.push(emptyBucket(currentMs + j * BUCKET_MS, current.itemsCurrent ?? 0));
       }
+    }
 
-      filled.push(sorted[sorted.length - 1]);
-      return filled;
-    },
-    []
-  );
+    filled.push(sorted[sorted.length - 1]);
+    return filled;
+  }, []);
 
-  // ------------------------------------------------------------
-  // Initial load (history)
-  // ------------------------------------------------------------
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
+    setData([]);
 
     const fetchHistory = async () => {
       try {
-        const response = await analyticsApi.getThroughputHistory(24);
+        const to = simulationTimestamp ?? new Date().toISOString();
+        const from = new Date(new Date(to).getTime() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
+        const response = simulationId
+          ? await analyticsApi.getThroughputHistory(undefined, from, to, BUCKET_SECONDS)
+          : await analyticsApi.getThroughputHistory(HISTORY_HOURS, undefined, undefined, BUCKET_SECONDS);
 
         if (mounted && response.data) {
           setData(fillTimeGaps(response.data));
@@ -94,62 +94,46 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
     return () => {
       mounted = false;
     };
-  }, [analyticsApi, fillTimeGaps]);
+  }, [analyticsApi, fillTimeGaps, simulationId, simulationTimestamp]);
 
-  // ------------------------------------------------------------
-  // Live updates (WebSocket)
-  // ------------------------------------------------------------
   useEffect(() => {
     const handleUpdate = (metric: ThroughputMetric) => {
       setData((prev) => {
+        if (!metric.timestamp) return prev;
         if (prev.length === 0) return [metric];
 
         const newData = [...prev];
         const last = newData[newData.length - 1];
+        const lastTime = new Date(last.timestamp ?? 0).getTime();
+        const metricTime = new Date(metric.timestamp).getTime();
+        const lastBucket = Math.floor(lastTime / BUCKET_MS);
+        const currentBucket = Math.floor(metricTime / BUCKET_MS);
 
-        const lastMinute =
-          Math.floor(new Date(last.timestamp).getTime() / MINUTE_MS);
-        const currentMinute =
-          Math.floor(new Date(metric.timestamp).getTime() / MINUTE_MS);
-
-        // Same minute → replace (aggregated backend)
-        if (lastMinute === currentMinute) {
+        if (lastBucket === currentBucket) {
           newData[newData.length - 1] = metric;
           return newData;
         }
 
-        // Fill gaps if we missed minutes
-        const diffMinutes = currentMinute - lastMinute;
-
-        for (let j = 1; j < diffMinutes; j++) {
-          newData.push({
-            timestamp: new Date(
-              new Date(last.timestamp).getTime() + j * MINUTE_MS
-            ).toISOString(),
-            itemsEntered: 0,
-            itemsExited: 0,
-            segmentsProcessed: 0,
-          });
+        const gapBuckets = currentBucket - lastBucket;
+        for (let j = 1; j < gapBuckets; j++) {
+          newData.push(emptyBucket(lastTime + j * BUCKET_MS, last.itemsCurrent ?? 0));
         }
 
         newData.push(metric);
-        return newData;
+        return newData.slice(-720);
       });
     };
 
-    const unsubscribe = subscribeToThroughputUpdates(handleUpdate);
+    const unsubscribe = connected
+      ? subscribeToThroughputUpdates(handleUpdate, simulationId)
+      : () => {};
     return () => unsubscribe();
-  }, [subscribeToThroughputUpdates, activeSimulation?.id]);
+  }, [connected, subscribeToThroughputUpdates, simulationId]);
 
-  // ------------------------------------------------------------
-  // UI
-  // ------------------------------------------------------------
   if (loading) {
     return (
-      <div
-        className={`p-8 flex justify-center items-center bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}
-      >
-        <span className="text-gray-500 animate-pulse">
+      <div className={`flex h-72 items-center justify-center ${className}`}>
+        <span className="text-sm text-gray-500 animate-pulse dark:text-gray-400">
           Loading analytics...
         </span>
       </div>
@@ -157,15 +141,13 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
   }
 
   return (
-    <div
-      className={`p-4 bg-white dark:bg-gray-800 rounded-lg shadow ${className}`}
-    >
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold dark:text-white">
+    <div className={`min-h-0 ${className}`}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
           System Throughput
         </h2>
-        <span className="text-xs text-gray-500">
-          Live updates (1 min)
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {simulationId ? 'Simulation' : 'Live'} updates (5 sec)
         </span>
       </div>
 
@@ -179,17 +161,18 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
               new Date(v).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
+                second: '2-digit',
               })
             }
             minTickGap={30}
           />
-          <YAxis fontSize={12} />
+          <YAxis fontSize={12} allowDecimals={false} />
           <Tooltip
             labelFormatter={(v) => new Date(v).toLocaleString()}
             formatter={(value, name) => {
               if (name === 'itemsEntered') return [value, 'Entered'];
               if (name === 'itemsExited') return [value, 'Exited'];
-              if (name === 'segmentsProcessed') return [value, 'Segments'];
+              if (name === 'itemsCurrent') return [value, 'Current'];
               return [value, name];
             }}
           />
@@ -197,7 +180,8 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
           <Line
             type="monotone"
             dataKey="itemsEntered"
-            stroke="#10b981"
+            name="Entered"
+            stroke="#059669"
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}
@@ -205,15 +189,17 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
           <Line
             type="monotone"
             dataKey="itemsExited"
-            stroke="#f43f5e"
+            name="Exited"
+            stroke="#dc2626"
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}
           />
           <Line
-            type="monotone"
-            dataKey="segmentsProcessed"
-            stroke="#3b82f6"
+            type="stepAfter"
+            dataKey="itemsCurrent"
+            name="Current"
+            stroke="#2563eb"
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}

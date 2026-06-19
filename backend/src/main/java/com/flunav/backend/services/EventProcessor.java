@@ -71,6 +71,7 @@ public class EventProcessor {
     private final RoutingDecisionService routingDecisionService;
     private final RoutingCoordinator routingCoordinator;
     private final PathAssignmentPublisher pathAssignmentPublisher;
+    private final ThroughputBucketService throughputBucketService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -102,6 +103,7 @@ public class EventProcessor {
             RoutingDecisionService routingDecisionService,
             RoutingCoordinator routingCoordinator,
             PathAssignmentPublisher pathAssignmentPublisher,
+            ThroughputBucketService throughputBucketService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -127,6 +129,7 @@ public class EventProcessor {
         this.routingDecisionService = routingDecisionService;
         this.routingCoordinator = routingCoordinator;
         this.pathAssignmentPublisher = pathAssignmentPublisher;
+        this.throughputBucketService = throughputBucketService;
         this.manageLogic = manageLogic;
     }
 
@@ -294,7 +297,13 @@ public class EventProcessor {
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
-            return switch (event) {
+            long chuteItemsExited = event instanceof ChuteEmptyEvent e
+                    ? Optional.ofNullable(liveLocationRepository.getItemsAtLocation(e.getEntityId()))
+                            .map(Set::size)
+                            .orElse(0)
+                    : 0;
+
+            Map<String, Object> result = switch (event) {
                 case ItemCreatedEvent e -> {
                     try {
                         var item = new ItemInput(e);
@@ -827,6 +836,10 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
             };
+            if (shouldBroadcast) {
+                throughputBucketService.recordSuccessfulReduction(event, result, chuteItemsExited);
+            }
+            return result;
         });
     }
 

@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
@@ -45,6 +46,10 @@ public class SimulationService {
     private final LiveSimulationRepository liveSimulationRepository;
     private final TopologyProvider topologyProvider;
     private final ItemMovementProcessor itemMovementProcessor;
+    private final int maxActiveSimulations;
+    private final int maxBuildingSimulations;
+    private final long maxActiveItemsPerSimulation;
+    private final long minFreeMemoryBytes;
 
     @org.springframework.beans.factory.annotation.Autowired
     @Lazy
@@ -65,7 +70,11 @@ public class SimulationService {
             LiveItemRepository liveItemRepository,
             LiveSimulationRepository liveSimulationRepository,
             @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
-            @Lazy ItemMovementProcessor itemMovementProcessor) {
+            @Lazy ItemMovementProcessor itemMovementProcessor,
+            @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
+            @Value("${simulation.capacity.max-building:1}") int maxBuildingSimulations,
+            @Value("${simulation.capacity.max-active-items:10000}") long maxActiveItemsPerSimulation,
+            @Value("${simulation.capacity.min-free-memory-bytes:536870912}") long minFreeMemoryBytes) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
@@ -74,6 +83,10 @@ public class SimulationService {
         this.liveSimulationRepository = liveSimulationRepository;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
+        this.maxActiveSimulations = maxActiveSimulations;
+        this.maxBuildingSimulations = maxBuildingSimulations;
+        this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
+        this.minFreeMemoryBytes = minFreeMemoryBytes;
     }
 
     public SimulationState createSimulation(Instant timestamp) {
@@ -87,6 +100,7 @@ public class SimulationService {
      * progress even when they observe different service instances or threads.
      */
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
+        enforceSimulationCapacity();
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
                 timeService.physicalNow(), null, 1.0, 0.0);
         simulationCache.put(simulationId, state);
@@ -282,7 +296,7 @@ public class SimulationService {
      * capacity from the worker that actually owns the build lifecycle.
      */
     public void processWaitingQueue() {
-        if (!waitingQueue.isEmpty() && buildPermits.tryAcquire()) {
+        if (!waitingQueue.isEmpty() && hasBuildingCapacity() && buildPermits.tryAcquire()) {
             SimulationRequest request = waitingQueue.poll();
             if (request != null) {
                 updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, request.timestamp());
@@ -515,6 +529,63 @@ public class SimulationService {
         }
     }
 
+    /**
+     * Rejects new simulations before expensive in-memory graph state is allocated.
+     * These limits protect the shared backend, OrientDB, Redis, and ClickHouse
+     * containers from unbounded concurrent simulation growth.
+     */
+    private void enforceSimulationCapacity() {
+        SimulationCounts counts = countSimulations();
+        if (maxActiveSimulations > 0 && counts.active() >= maxActiveSimulations) {
+            rejectCapacity("Maximum active simulations reached: " + maxActiveSimulations);
+        }
+        if (!hasBuildingCapacity(counts)) {
+            rejectCapacity("Maximum building simulations reached: " + maxBuildingSimulations);
+        }
+
+        long liveActiveItems = liveItemRepository.countActiveItems(null);
+        if (maxActiveItemsPerSimulation > 0 && liveActiveItems > maxActiveItemsPerSimulation) {
+            rejectCapacity("Active item count " + liveActiveItems + " exceeds simulation limit "
+                    + maxActiveItemsPerSimulation);
+        }
+
+        if (minFreeMemoryBytes > 0 && availableHeapBytes() < minFreeMemoryBytes) {
+            rejectCapacity("Backend free heap is below the simulation admission threshold");
+        }
+    }
+
+    private long availableHeapBytes() {
+        Runtime runtime = Runtime.getRuntime();
+        return runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory();
+    }
+
+    private boolean hasBuildingCapacity() {
+        return hasBuildingCapacity(countSimulations());
+    }
+
+    private boolean hasBuildingCapacity(SimulationCounts counts) {
+        return maxBuildingSimulations <= 0 || counts.building() < maxBuildingSimulations;
+    }
+
+    private SimulationCounts countSimulations() {
+        int active = 0;
+        int building = 0;
+        for (var metadata : liveSimulationRepository.getAllSimulationStates()) {
+            SimulationStatus status = metadata.status();
+            if (status == SimulationStatus.BUILDING || status == SimulationStatus.QUEUED) {
+                building++;
+            }
+            if (status != SimulationStatus.FAILED) {
+                active++;
+            }
+        }
+        return new SimulationCounts(active, building);
+    }
+
+    private void rejectCapacity(String reason) {
+        throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, reason);
+    }
+
     private void checkpointAllItems(String simulationId, Instant now) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             checkpointAllItemsInCurrentContext(now);
@@ -581,6 +652,9 @@ public class SimulationService {
         STOP,
         PAUSE,
         RESCHEDULE
+    }
+
+    private record SimulationCounts(int active, int building) {
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {

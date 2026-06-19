@@ -1297,6 +1297,18 @@ export interface ThroughputMetric {
      * @type {number}
      * @memberof ThroughputMetric
      */
+    'itemsCurrent'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof ThroughputMetric
+     */
+    'bucketSeconds'?: number;
+    /**
+     * 
+     * @type {number}
+     * @memberof ThroughputMetric
+     */
     'segmentsProcessed'?: number;
 }
 /**
@@ -1397,11 +1409,14 @@ export const AnalyticsControllerApiAxiosParamCreator = function (configuration?:
         },
         /**
          * 
-         * @param {number} [hours] 
+         * @param {number} [hours]
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {number} [bucketSeconds]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getThroughputHistory: async (hours?: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        getThroughputHistory: async (hours?: number, from?: string, to?: string, bucketSeconds?: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/analytics/throughput/history`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -1416,6 +1431,18 @@ export const AnalyticsControllerApiAxiosParamCreator = function (configuration?:
 
             if (hours !== undefined) {
                 localVarQueryParameter['hours'] = hours;
+            }
+
+            if (from !== undefined) {
+                localVarQueryParameter['from'] = from;
+            }
+
+            if (to !== undefined) {
+                localVarQueryParameter['to'] = to;
+            }
+
+            if (bucketSeconds !== undefined) {
+                localVarQueryParameter['bucketSeconds'] = bucketSeconds;
             }
 
 
@@ -1455,12 +1482,15 @@ export const AnalyticsControllerApiFp = function(configuration?: Configuration) 
         },
         /**
          * 
-         * @param {number} [hours] 
+         * @param {number} [hours]
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {number} [bucketSeconds]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async getThroughputHistory(hours?: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<ThroughputMetric>>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.getThroughputHistory(hours, options);
+        async getThroughputHistory(hours?: number, from?: string, to?: string, bucketSeconds?: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<ThroughputMetric>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getThroughputHistory(hours, from, to, bucketSeconds, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['AnalyticsControllerApi.getThroughputHistory']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -1488,12 +1518,15 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
         },
         /**
          * 
-         * @param {number} [hours] 
+         * @param {number} [hours]
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {number} [bucketSeconds]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getThroughputHistory(hours?: number, options?: RawAxiosRequestConfig): AxiosPromise<Array<ThroughputMetric>> {
-            return localVarFp.getThroughputHistory(hours, options).then((request) => request(axios, basePath));
+        getThroughputHistory(hours?: number, from?: string, to?: string, bucketSeconds?: number, options?: RawAxiosRequestConfig): AxiosPromise<Array<ThroughputMetric>> {
+            return localVarFp.getThroughputHistory(hours, from, to, bucketSeconds, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -1520,13 +1553,16 @@ export class AnalyticsControllerApi extends BaseAPI {
 
     /**
      * 
-     * @param {number} [hours] 
+     * @param {number} [hours]
+     * @param {string} [from]
+     * @param {string} [to]
+     * @param {number} [bucketSeconds]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof AnalyticsControllerApi
      */
-    public getThroughputHistory(hours?: number, options?: RawAxiosRequestConfig) {
-        return AnalyticsControllerApiFp(this.configuration).getThroughputHistory(hours, options).then((request) => request(this.axios, this.basePath));
+    public getThroughputHistory(hours?: number, from?: string, to?: string, bucketSeconds?: number, options?: RawAxiosRequestConfig) {
+        return AnalyticsControllerApiFp(this.configuration).getThroughputHistory(hours, from, to, bucketSeconds, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

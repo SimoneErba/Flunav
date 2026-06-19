@@ -242,8 +242,8 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
     { label: "Unrouted", value: counts.unrouted, alert: counts.unrouted > 0 },
     { label: "Failed", value: counts.failed, alert: counts.failed > 0 },
     { label: "Completed", value: counts.completed },
-    { label: "In/min", value: throughput.entered },
-    { label: "Cleared/min", value: throughput.cleared },
+    { label: "In/5s", value: throughput.entered },
+    { label: "Cleared/5s", value: throughput.cleared },
     { label: "Stopped", value: counts.stopped, alert: counts.stopped > 0 },
     { label: "Full chutes", value: counts.fullChutes, alert: counts.fullChutes > 0 },
   ];

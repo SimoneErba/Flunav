@@ -16,7 +16,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -260,6 +262,31 @@ class SimulationTests extends BaseIntegrationTest {
         assertEquals(com.flunav.backend.models.simulation.SimulationStatus.READY, completedState.status());
 
         simulationService.destroySimulation(simulationId);
+    }
+
+    @Test
+    void createSimulationRejectsWhenActiveCapacityIsReached() {
+        try {
+            for (int index = 0; index < 3; index++) {
+                String simulationId = "capacity-sim-" + index;
+                liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                        simulationId,
+                        Instant.now(),
+                        com.flunav.backend.models.simulation.SimulationStatus.READY,
+                        Instant.now(),
+                        Instant.now(),
+                        1.0));
+            }
+
+            ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                    () -> simulationService.createSimulation("capacity-overflow", Instant.now()));
+
+            assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatusCode());
+        } finally {
+            for (int index = 0; index < 3; index++) {
+                simulationService.destroySimulation("capacity-sim-" + index);
+            }
+        }
     }
 
     @AfterEach

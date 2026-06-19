@@ -77,13 +77,20 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
                     // 1. Filter Echoes
                     if (envelope.senderId === CLIENT_ID) return;
 
-                    // 2. Inject Timestamp into the payload
-                    // If payload is an object, merge it. If primitive, wrap it? 
-                    // Usually payload is an object (EntityMessage, PositionUpdate, etc)
-                    const mergedData = { 
-                        ...envelope.payload, 
-                        timestamp: envelope.timestamp 
-                    };
+                    const payload = envelope.payload;
+                    const hasPayloadTimestamp =
+                        typeof payload === 'object' &&
+                        payload !== null &&
+                        Object.prototype.hasOwnProperty.call(payload, 'timestamp');
+                    const mergedData =
+                        typeof payload === 'object' && payload !== null
+                            ? {
+                                ...payload,
+                                timestamp: hasPayloadTimestamp
+                                    ? (payload as { timestamp: unknown }).timestamp
+                                    : envelope.timestamp,
+                            }
+                            : { value: payload, timestamp: envelope.timestamp };
 
                     subscriptions.current.get(topic)?.handlers.forEach(h => h(mergedData));
                 } catch (e) {

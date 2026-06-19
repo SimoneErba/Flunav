@@ -12,6 +12,7 @@ services:
     # Uses the image built locally via 'mvn jib:dockerBuild'
     image: ghcr.io/simoneerba/flunav-backend:v0.1.4
     container_name: flunav_backend
+    mem_limit: ${BACKEND_MEMORY_LIMIT}
     # 🔒 SECURED: No ports exposed to host. Nginx proxies to port 8080 internally.
     depends_on:
       orientdb:
@@ -40,6 +41,11 @@ services:
       - LOG_PATH=/var/log/flumen
       - APPLICATION_NAME=backend
       - APPLICATION_ENVIRONMENT=docker
+      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0
+      - SIMULATION_CAPACITY_MAX_ACTIVE=3
+      - SIMULATION_CAPACITY_MAX_BUILDING=1
+      - SIMULATION_CAPACITY_MAX_ACTIVE_ITEMS=10000
+      - SIMULATION_CAPACITY_MIN_FREE_MEMORY_BYTES=536870912
     volumes:
       - backend-logs:/var/log/flumen
     networks:
@@ -66,9 +72,10 @@ services:
   orientdb:
     image: orientdb:3.2.50
     container_name: flunav_orientdb
+    mem_limit: ${ORIENTDB_MEMORY_LIMIT}
     environment:
       ORIENTDB_ROOT_PASSWORD: ${ORIENTDB_ROOT_PASSWORD}
-      ORIENTDB_OPTS_MEMORY: "-Xms512m -Xmx512m"
+      ORIENTDB_OPTS_MEMORY: ${ORIENTDB_HEAP_OPTS}
       ORIENTDB_NETWORK_HOST: "0.0.0.0"
     ports:
       # 🔒 SECURED: Only accessible via SSH Tunnel (localhost)
@@ -91,6 +98,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:25.12.3.21
     container_name: flunav_clickhouse
+    mem_limit: ${CLICKHOUSE_MEMORY_LIMIT}
     restart: always
     ports:
       # 🔒 SECURED: Only accessible via SSH Tunnel
@@ -118,6 +126,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.12-management
     container_name: flunav_rabbitmq
+    mem_limit: ${RABBITMQ_MEMORY_LIMIT}
     restart: always
     ports:
       # 🔒 SECURED: AMQP (5672) removed. Only internal containers can connect.
@@ -142,8 +151,9 @@ services:
     image: redis:7-alpine
     restart: always
     container_name: flunav_redis
+    mem_limit: ${REDIS_MEMORY_LIMIT}
     # 🔒 SECURED: No ports exposed. Only Backend can talk to Redis.
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY}", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_data:/data
     ports:

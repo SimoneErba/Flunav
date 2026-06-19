@@ -8,6 +8,8 @@ import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -326,7 +328,11 @@ public class LiveItemRepository {
     }
 
     public long countActiveItems() {
-        String setKey = getNamespacedKey("active_items");
+        return countActiveItems(DatabaseContextHolder.getSimulationId());
+    }
+
+    public long countActiveItems(String simulationId) {
+        String setKey = (simulationId != null) ? "sim:" + simulationId + ":active_items" : "active_items";
         Long size = redis.opsForSet().size(setKey);
         return size != null ? size : 0;
     }
@@ -397,10 +403,27 @@ public class LiveItemRepository {
         if (simulationId == null)
             return;
         String prefix = "sim:" + simulationId + ":*";
-        Set<String> keys = redis.keys(prefix);
-        if (keys != null && !keys.isEmpty()) {
-            logger.info("Cleaning up {} Redis keys for simulation {}", keys.size(), simulationId);
-            redis.delete(keys);
+        List<String> batch = new ArrayList<>();
+        long deleted = 0;
+
+        try (Cursor<String> cursor = redis.scan(ScanOptions.scanOptions().match(prefix).count(1000).build())) {
+            while (cursor.hasNext()) {
+                batch.add(cursor.next());
+                if (batch.size() >= 500) {
+                    redis.delete(batch);
+                    deleted += batch.size();
+                    batch.clear();
+                }
+            }
+        }
+
+        if (!batch.isEmpty()) {
+            redis.delete(batch);
+            deleted += batch.size();
+        }
+
+        if (deleted > 0) {
+            logger.info("Cleaned up {} Redis keys for simulation {}", deleted, simulationId);
         }
     }
 

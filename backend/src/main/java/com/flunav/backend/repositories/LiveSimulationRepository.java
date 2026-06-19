@@ -67,6 +67,28 @@ public class LiveSimulationRepository {
         return heartbeats;
     }
 
+    /**
+     * Loads persisted simulation metadata for admission control and cleanup.
+     * Invalid or partially deleted state rows are skipped so they cannot block new
+     * simulations indefinitely.
+     */
+    public List<SimulationMetadata> getAllSimulationStates() {
+        Set<String> keys = redis.keys("sim:*:state");
+        if (keys == null || keys.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> sortedKeys = new ArrayList<>(keys);
+        Collections.sort(sortedKeys);
+
+        List<SimulationMetadata> states = new ArrayList<>();
+        for (String key : sortedKeys) {
+            String simulationId = extractSimulationId(key);
+            getState(simulationId).ifPresent(states::add);
+        }
+        return states;
+    }
+
     public void deleteState(String simulationId) {
         redis.delete(getStateKey(simulationId));
     }
