@@ -86,7 +86,14 @@ export const useGraphAnimation = (
                             
                             // 1. CHECK FOR CHUTE (Discharge)
                             if (targetNode.locationType === "CHUTE") {
-                                dischargeItemToChute(graph, activeItemsRef.current, itemId, targetId);
+                                const completedAt = new Date(simTime).toISOString();
+                                dischargeItemToChute(graph, activeItemsRef.current, itemId, targetId, {
+                                    ...item,
+                                    currentEdgeId: undefined,
+                                    locationId: targetId,
+                                    entryTimestamp: completedAt,
+                                    progress: 1,
+                                }, completedAt);
                                 let highPriorityCount = 0;
                                 activeItemsRef.current.forEach((activeItem) => {
                                     if (isHighPriorityItem(activeItem)) highPriorityCount++;
@@ -105,10 +112,10 @@ export const useGraphAnimation = (
                                 const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
                                 
                                 // Create new item state
-                                const newItem = { 
+                                const newItem: ItemResponse = { 
                                     ...item, 
                                     currentEdgeId: nextEdgeAttrs.id, 
-                                    locationId: null, 
+                                    locationId: undefined, 
                                     entryTimestamp: new Date(simTime - overflow).toISOString() 
                                 };
 
@@ -157,10 +164,10 @@ export const useGraphAnimation = (
                     if (nextEdgeKey) {
                          const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
                          
-                         const newItem = { 
+                         const newItem: ItemResponse = { 
                              ...item, 
                              currentEdgeId: nextEdgeAttrs.id, 
-                             locationId: null, 
+                             locationId: undefined, 
                              entryTimestamp: new Date(simTime).toISOString() 
                          };
 

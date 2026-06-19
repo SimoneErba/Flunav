@@ -9,7 +9,7 @@ import {
     SimulationStatusUpdate,
     SimulationSpeedUpdate
 } from '../../types/WebsocketTypes';
-import { ItemInput, LocationInput, ThroughputMetric } from '../../api-client/api';
+import { ItemResponse, LocationInput, ThroughputMetric } from '../../api-client/api';
 
 export const useWebSocketEvents = () => {
     const { connected, subscribe } = useWebSocketConnection();
@@ -40,8 +40,8 @@ export const useWebSocketEvents = () => {
     }, [subscribe]);
 
     // 3. Items
-    const subscribeToItemCreated = useCallback((handler: (item: ItemInput, timestamp: number) => void, simId?: string | null) => {
-        return subscribe(buildTopic('items', simId), (msg: EntityMessage<ItemInput> & { timestamp: number }) => {
+    const subscribeToItemCreated = useCallback((handler: (item: ItemResponse, timestamp: number) => void, simId?: string | null) => {
+        return subscribe(buildTopic('items', simId), (msg: EntityMessage<ItemResponse> & { timestamp: number }) => {
             if (msg.operation === CrudOperation.CREATED) handler(msg.data, msg.timestamp);
         });
     }, [subscribe]);

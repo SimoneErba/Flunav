@@ -1,4 +1,5 @@
 import type { AbstractGraph } from "graphology-types";
+import { ItemResponseRoutingStatusEnum } from "../../../api-client/api";
 import type { ItemResponse } from "../../../api-client/api";
 
 /**
@@ -11,16 +12,31 @@ export const dischargeItemToChute = (
     activeItems: Map<string, ItemResponse>,
     itemId: string,
     chuteId: string,
-    itemData?: ItemResponse
+    itemData?: ItemResponse,
+    completedAt?: string
 ) => {
-    const item = itemData ?? activeItems.get(itemId);
+    const sourceItem = itemData ?? activeItems.get(itemId);
 
     if (graph.hasNode(itemId)) {
         graph.dropNode(itemId);
     }
     activeItems.delete(itemId);
 
-    if (!item || !graph.hasNode(chuteId)) return;
+    if (!sourceItem || !graph.hasNode(chuteId)) return;
+
+    const completedTimestamp =
+        sourceItem.routingStatus === ItemResponseRoutingStatusEnum.Completed
+            ? sourceItem.routingStatusUpdatedAt
+            : undefined;
+
+    const item: ItemResponse = {
+        ...sourceItem,
+        currentEdgeId: undefined,
+        locationId: chuteId,
+        progress: sourceItem.progress ?? 1,
+        routingStatus: ItemResponseRoutingStatusEnum.Completed,
+        routingStatusUpdatedAt: completedTimestamp ?? completedAt ?? sourceItem.entryTimestamp ?? new Date().toISOString(),
+    };
 
     const itemsInChute: ItemResponse[] = graph.getNodeAttribute(chuteId, "itemsInChute") ?? [];
     const capacity = graph.getNodeAttribute(chuteId, "capacity") as number | undefined;

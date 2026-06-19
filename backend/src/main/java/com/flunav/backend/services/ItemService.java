@@ -229,6 +229,15 @@ public class ItemService {
         redisRepository.updatePath(itemId, path);
     }
 
+    /**
+     * Records a lifecycle-only routing status transition in Redis hot state.
+     * Arrival completion uses this without rewriting destination or path fields
+     * that routing history and UI inspection still need.
+     */
+    public void updateItemRoutingStatus(String itemId, RoutingStatus routingStatus, Instant routingStatusUpdatedAt) {
+        redisRepository.updateRoutingStatus(itemId, routingStatus, routingStatusUpdatedAt);
+    }
+
     private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
         if (status != null) {
             return status;

@@ -18,6 +18,9 @@ public class RabbitMQConfig {
     @Value("${rabbitmq.queue.commands}")
     private String commandsQueue;
 
+    @Value("${rabbitmq.queue.path-assignments}")
+    private String pathAssignmentsQueue;
+
     @Value("${rabbitmq.exchange.item-events}")
     private String itemEventsExchange;
 
@@ -32,6 +35,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue commandsQueue() {
         return new Queue(commandsQueue, true);
+    }
+
+    @Bean
+    public Queue pathAssignmentsQueue() {
+        return new Queue(pathAssignmentsQueue, true);
     }
 
     @Bean

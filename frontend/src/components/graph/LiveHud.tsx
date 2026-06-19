@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSigma } from "@react-sigma/core";
+import { ItemResponseRoutingStatusEnum } from "../../api-client/api";
 import type { ItemResponse, ThroughputMetric } from "../../api-client/api";
 import { useApi } from "../../hooks/useApi";
 import { useWebSocketEvents } from "../../hooks/websocket/useWebSocketEvents";
@@ -13,6 +14,11 @@ interface LiveHudProps {
 interface HudCounts {
   active: number;
   priority: number;
+  routed: number;
+  waiting: number;
+  unrouted: number;
+  failed: number;
+  completed: number;
   stopped: number;
   fullChutes: number;
 }
@@ -25,6 +31,11 @@ interface ThroughputCounts {
 const EMPTY_COUNTS: HudCounts = {
   active: 0,
   priority: 0,
+  routed: 0,
+  waiting: 0,
+  unrouted: 0,
+  failed: 0,
+  completed: 0,
   stopped: 0,
   fullChutes: 0,
 };
@@ -58,6 +69,11 @@ const isTrackedCapacityLocation = (locationType: unknown): boolean => {
 const areHudCountsEqual = (a: HudCounts, b: HudCounts): boolean =>
   a.active === b.active &&
   a.priority === b.priority &&
+  a.routed === b.routed &&
+  a.waiting === b.waiting &&
+  a.unrouted === b.unrouted &&
+  a.failed === b.failed &&
+  a.completed === b.completed &&
   a.stopped === b.stopped &&
   a.fullChutes === b.fullChutes;
 
@@ -84,14 +100,17 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
   useEffect(() => {
     const updateCounts = () => {
       const graph = sigma.getGraph();
-      const occupancyByLocation = new Map<string, number>();
-      let priority = 0;
+      const uniqueItems = new Map<string, ItemResponse>();
+      const occupancyByLocation = new Map<string, Set<string>>();
 
       activeItemsRef.current.forEach((item) => {
-        if (isHighPriorityItem(item)) priority++;
+        if (!item.id) return;
+        uniqueItems.set(item.id, item);
 
         if (item.locationId) {
-          occupancyByLocation.set(item.locationId, (occupancyByLocation.get(item.locationId) ?? 0) + 1);
+          const occupants = occupancyByLocation.get(item.locationId) ?? new Set<string>();
+          occupants.add(item.id);
+          occupancyByLocation.set(item.locationId, occupants);
         }
       });
 
@@ -105,23 +124,64 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
 
       let fullChutes = 0;
       graph.forEachNode((nodeId, attributes) => {
+        const chuteItems = Array.isArray(attributes.itemsInChute) ? attributes.itemsInChute as ItemResponse[] : [];
+        chuteItems.forEach((item, index) => {
+          const itemId = item.id ?? `${nodeId}:chute:${index}`;
+          uniqueItems.set(itemId, item);
+          const occupants = occupancyByLocation.get(nodeId) ?? new Set<string>();
+          occupants.add(itemId);
+          occupancyByLocation.set(nodeId, occupants);
+        });
+
         if (!isTrackedCapacityLocation(attributes.locationType)) return;
 
         const capacity = asNumber(attributes.capacity);
         if (capacity === null || capacity <= 0) return;
 
-        const storedItems = Array.isArray(attributes.itemsInChute) ? attributes.itemsInChute.length : 0;
-        const knownOccupancy = occupancyByLocation.get(nodeId) ?? 0;
-        const occupancy = Math.max(storedItems, knownOccupancy);
+        const occupancy = occupancyByLocation.get(nodeId)?.size ?? 0;
 
         if (occupancy >= capacity) {
           fullChutes++;
         }
       });
 
+      let priority = 0;
+      let routed = 0;
+      let waiting = 0;
+      let unrouted = 0;
+      let failed = 0;
+      let completed = 0;
+
+      uniqueItems.forEach((item) => {
+        if (isHighPriorityItem(item)) priority++;
+
+        switch (item.routingStatus) {
+          case ItemResponseRoutingStatusEnum.Assigned:
+            routed++;
+            break;
+          case ItemResponseRoutingStatusEnum.WaitingForCapacity:
+            waiting++;
+            break;
+          case ItemResponseRoutingStatusEnum.Unrouted:
+            unrouted++;
+            break;
+          case ItemResponseRoutingStatusEnum.Failed:
+            failed++;
+            break;
+          case ItemResponseRoutingStatusEnum.Completed:
+            completed++;
+            break;
+        }
+      });
+
       const nextCounts: HudCounts = {
-        active: activeItemsRef.current.size,
+        active: uniqueItems.size,
         priority,
+        routed,
+        waiting,
+        unrouted,
+        failed,
+        completed,
         stopped,
         fullChutes,
       };
@@ -177,6 +237,11 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
   const items = [
     { label: "Active", value: counts.active },
     { label: "Priority", value: counts.priority },
+    { label: "Routed", value: counts.routed },
+    { label: "Waiting", value: counts.waiting, alert: counts.waiting > 0 },
+    { label: "Unrouted", value: counts.unrouted, alert: counts.unrouted > 0 },
+    { label: "Failed", value: counts.failed, alert: counts.failed > 0 },
+    { label: "Completed", value: counts.completed },
     { label: "In/min", value: throughput.entered },
     { label: "Cleared/min", value: throughput.cleared },
     { label: "Stopped", value: counts.stopped, alert: counts.stopped > 0 },

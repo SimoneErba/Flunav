@@ -185,15 +185,25 @@ export const useGraphLiveEvents = (
         // Item creation may arrive for a location or conveyor id. The handler
         // resolves both forms so graph state matches the backend position model.
         unsubscribers.push(subscribeToItemCreated((item, timestamp) => {
-            if (graph.hasNode(item.id)) return;
+            if (!item.id || graph.hasNode(item.id)) return;
 
             let startX = 0;
             let startY = 0;
             let isHidden = true; // Default to invisible
+            const resolveEdgeKey = (edgeId?: string | null) => {
+                if (!edgeId) return undefined;
+                return graph.hasEdge(edgeId)
+                    ? edgeId
+                    : graph.findEdge((_edge, attrs) => attrs.id === edgeId);
+            };
+            const edgeKey = resolveEdgeKey(item.currentEdgeId) ?? (
+                item.locationId && !graph.hasNode(item.locationId) ? resolveEdgeKey(item.locationId) : undefined
+            );
+            const edgeAttributes = edgeKey ? graph.getEdgeAttributes(edgeKey) : undefined;
+            const currentEdgeId = item.currentEdgeId ?? edgeAttributes?.id;
 
             // Check if we have a valid location ID
             if (item.locationId) {
-                
                 // CASE A: Spawning on a Location (Node)
                 if (graph.hasNode(item.locationId)) {
                     const attrs = graph.getNodeAttributes(item.locationId);
@@ -203,15 +213,9 @@ export const useGraphLiveEvents = (
                 } 
                 
                 // CASE B: Spawning on a Conveyor (Edge)
-                else {
-                    const edgeId = graph.hasEdge(item.locationId)
-                        ? item.locationId
-                        : graph.findEdge((_edge, attrs) => attrs.id === item.locationId);
-
-                    if (!edgeId) return;
-
-                    const sourceId = graph.source(edgeId);
-                    const targetId = graph.target(edgeId);
+                else if (edgeKey) {
+                    const sourceId = graph.source(edgeKey);
+                    const targetId = graph.target(edgeKey);
                     
                     // Ensure source/target exist (safety check)
                     if (graph.hasNode(sourceId) && graph.hasNode(targetId)) {
@@ -227,6 +231,17 @@ export const useGraphLiveEvents = (
                         
                         isHidden = false; // Found it, make visible
                     }
+                }
+            } else if (edgeKey) {
+                const sourceId = graph.source(edgeKey);
+                const targetId = graph.target(edgeKey);
+                if (graph.hasNode(sourceId) && graph.hasNode(targetId)) {
+                    const sourceNode = graph.getNodeAttributes(sourceId);
+                    const targetNode = graph.getNodeAttributes(targetId);
+                    const progress = item.progress || 0.0;
+                    startX = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
+                    startY = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
+                    isHidden = false;
                 }
             }
 
@@ -246,18 +261,15 @@ export const useGraphLiveEvents = (
                 customColor: item.customColor,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
+                currentEdgeId,
+                locationId: currentEdgeId ? null : item.locationId,
                 routingStatus: item.routingStatus,
                 routingStatusUpdatedAt: item.routingStatusUpdatedAt,
                 path: item.path,
                 ...getItemPriorityVisualAttributes(item)
             });
 
-            const edgeKey = item.locationId
-                ? graph.hasEdge(item.locationId)
-                    ? item.locationId
-                    : graph.findEdge((_edge, attrs) => attrs.id === item.locationId)
-                : undefined;
-            const isConveyor = item.positionType === 'CONVEYOR' || Boolean(edgeKey);
+            const isConveyor = Boolean(currentEdgeId);
             let entryTimestamp = new Date(timestamp).toISOString();
             if (isConveyor && edgeKey) {
                 const edgeAttrs = graph.getEdgeAttributes(edgeKey);
@@ -276,7 +288,7 @@ export const useGraphLiveEvents = (
                 name: item.name, 
                 active: item.active,
                 locationId: isConveyor ? null : item.locationId, 
-                currentEdgeId: isConveyor ? item.locationId : undefined,
+                currentEdgeId,
                 entryTimestamp, 
                 progress: item.progress || 0,
                 customColor: item.customColor,

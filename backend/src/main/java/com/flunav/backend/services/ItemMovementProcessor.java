@@ -2,6 +2,7 @@ package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Item;
+import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -39,6 +41,8 @@ public class ItemMovementProcessor {
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final TimeService timeService;
+    private final PathAssignmentPublisher pathAssignmentPublisher;
+    private final WebSocketService webSocketService;
     private final boolean manageLogic;
 
     public ItemMovementProcessor(
@@ -54,6 +58,8 @@ public class ItemMovementProcessor {
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             TimeService timeService,
+            PathAssignmentPublisher pathAssignmentPublisher,
+            WebSocketService webSocketService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.amqpTemplate = amqpTemplate;
         this.itemEventsRoutingKey = itemEventsRoutingKey;
@@ -67,6 +73,8 @@ public class ItemMovementProcessor {
         this.simulationService = simulationService;
         this.liveSystemScheduler = liveSystemScheduler;
         this.timeService = timeService;
+        this.pathAssignmentPublisher = pathAssignmentPublisher;
+        this.webSocketService = webSocketService;
         this.manageLogic = manageLogic;
     }
 
@@ -105,6 +113,11 @@ public class ItemMovementProcessor {
      */
     public void handleItemEntryToConveyor(String itemId, String conveyorId, Instant timestamp, Double progress,
             String previousPosId) {
+        handleItemEntryToConveyor(itemId, conveyorId, timestamp, progress, previousPosId, true);
+    }
+
+    public void handleItemEntryToConveyor(String itemId, String conveyorId, Instant timestamp, Double progress,
+            String previousPosId, boolean publishAssignments) {
         if (progress == null)
             progress = 0.0;
         Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
@@ -130,7 +143,8 @@ public class ItemMovementProcessor {
         long travelTimeMillis = (long) ((remainingDistance / speed) * 1000);
         Instant arrivalAtEnd = timestamp.plusMillis(travelTimeMillis);
 
-        String nextConveyorId = calculateNextConveyor(itemId, conveyor.getTargetLocationId(), conveyorId);
+        String nextConveyorId = calculateNextConveyor(itemId, conveyor.getTargetLocationId(), conveyorId,
+                publishAssignments);
 
         if (nextConveyorId != null) {
             Conveyor nextConv = topologyProvider.getConveyorById(nextConveyorId);
@@ -250,12 +264,24 @@ public class ItemMovementProcessor {
      * onward so decision-point logic remains event-driven.
      */
     public void processLocationEntry(String itemId, String locationId, Instant timestamp) {
+        processLocationEntry(itemId, locationId, timestamp, true);
+    }
+
+    public void processLocationEntry(String itemId, String locationId, Instant timestamp, boolean publishAssignments) {
         var location = topologyProvider.getLocationById(locationId);
         if (location == null)
             return;
 
         if (location.getType() == LocationType.CHUTE) {
+            itemService.updateItemRoutingStatus(itemId, RoutingStatus.COMPLETED, timestamp);
             liveLocationRepository.addItemToLocation(locationId, itemId);
+            if (publishAssignments) {
+                webSocketService.broadcastItemUpdated(
+                        new UpdateModel(itemId, Map.of(
+                                "routingStatus", RoutingStatus.COMPLETED,
+                                "routingStatusUpdatedAt", timestamp)),
+                        timestamp);
+            }
             return;
         }
 
@@ -263,11 +289,11 @@ public class ItemMovementProcessor {
             return;
         }
 
-        String nextConveyorId = calculateNextConveyor(itemId, locationId, null);
+        String nextConveyorId = calculateNextConveyor(itemId, locationId, null, publishAssignments);
         if (nextConveyorId != null) {
             itemService.updateItemPosition(itemId, nextConveyorId, PositionType.CONVEYOR, timestamp, 0.0, null);
             liveConveyorRepository.addItemToConveyor(nextConveyorId, itemId, timestamp);
-            handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId);
+            handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId, publishAssignments);
         }
     }
 
@@ -276,8 +302,11 @@ public class ItemMovementProcessor {
      * The lock serializes capacity-sensitive selection so concurrent arrivals do
      * not claim the same chute slot from live or simulation state.
      */
-    private Item recalculateDecisionPointRoute(Item item, String locationId) {
+    private Item recalculateDecisionPointRoute(Item item, String locationId, boolean publishAssignments) {
         Instant timestamp = timeService.now();
+        String oldSelectedExitId = item.getSelectedExitId();
+        RoutingStatus oldRoutingStatus = item.getRoutingStatus();
+        List<String> oldPath = item.getPath();
         var decision = routingCoordinator.withRoutingLock(() -> {
             var selected = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION);
             itemService.updateItemRouting(item.getId(), item.getDestinations(), selected.selectedExitId(),
@@ -288,6 +317,18 @@ public class ItemMovementProcessor {
         item.setRoutingStatus(decision.routingStatus());
         item.setRoutingStatusUpdatedAt(timestamp);
         item.setPath(decision.path());
+        boolean changed = !java.util.Objects.equals(oldSelectedExitId, decision.selectedExitId())
+                || oldRoutingStatus != decision.routingStatus()
+                || !java.util.Objects.equals(oldPath, decision.path());
+        if (changed) {
+            pathAssignmentPublisher.publishIfAssigned(
+                    item.getId(),
+                    decision.selectedExitId(),
+                    decision.routingStatus(),
+                    decision.path(),
+                    timestamp,
+                    publishAssignments);
+        }
         return item;
     }
 
@@ -327,12 +368,17 @@ public class ItemMovementProcessor {
      * main path so items can recirculate instead of jamming decision points.
      */
     public String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId) {
+        return calculateNextConveyor(itemId, currentLocationId, currentConveyorId, true);
+    }
+
+    public String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId,
+            boolean publishAssignments) {
         var item = itemService.getItemById(itemId);
         if (item == null)
             return null;
         var currentLocation = topologyProvider.getLocationById(currentLocationId);
         if (manageLogic && currentLocation != null && currentLocation.getType() == LocationType.DECISION_POINT) {
-            item = recalculateDecisionPointRoute(item, currentLocationId);
+            item = recalculateDecisionPointRoute(item, currentLocationId, publishAssignments);
         }
         List<Conveyor> outgoing = topologyProvider.getOutgoingConveyors(currentLocationId).stream()
                 .filter(Conveyor::isActive).toList();

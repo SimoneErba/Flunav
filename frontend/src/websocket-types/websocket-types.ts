@@ -1,4 +1,4 @@
-import { ConveyorResponse, ItemInput, LocationInput } from "../api-client/api";
+import { ConveyorResponse, ItemResponse, LocationInput } from "../api-client/api";
 
 export enum CrudOperation {
   CREATED = "CREATED",
@@ -41,7 +41,7 @@ export interface EntityUpdateMessage {
   };
 }
 
-export type ItemCreatedMessage = EntityMessage<ItemInput>;
+export type ItemCreatedMessage = EntityMessage<ItemResponse>;
 export type ItemDeletedMessage = EntityMessage<string>;
 
 export type LocationCreatedMessage = EntityMessage<LocationInput>;

@@ -70,6 +70,7 @@ public class EventProcessor {
     private final DestinationExitMappingService destinationExitMappingService;
     private final RoutingDecisionService routingDecisionService;
     private final RoutingCoordinator routingCoordinator;
+    private final PathAssignmentPublisher pathAssignmentPublisher;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -100,6 +101,7 @@ public class EventProcessor {
             DestinationExitMappingService destinationExitMappingService,
             RoutingDecisionService routingDecisionService,
             RoutingCoordinator routingCoordinator,
+            PathAssignmentPublisher pathAssignmentPublisher,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -124,6 +126,7 @@ public class EventProcessor {
         this.destinationExitMappingService = destinationExitMappingService;
         this.routingDecisionService = routingDecisionService;
         this.routingCoordinator = routingCoordinator;
+        this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.manageLogic = manageLogic;
     }
 
@@ -301,6 +304,13 @@ public class EventProcessor {
                             return destination;
                         });
                         publishDestinationCommandIfNeeded(e, item, appliedDestination, shouldBroadcast);
+                        pathAssignmentPublisher.publishIfAssigned(
+                                item.getId(),
+                                appliedDestination.selectedExitId(),
+                                appliedDestination.routingStatus(),
+                                appliedDestination.path(),
+                                e.getTimestamp(),
+                                shouldBroadcast);
 
                         if (item.getLocationId() != null) {
                             var positionType = topologyProvider.getPositionType(item.getLocationId());
@@ -309,10 +319,10 @@ public class EventProcessor {
                                         e.getTimestamp());
                                 itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(),
                                         e.getTimestamp(),
-                                        e.getProgress(), null);
+                                        e.getProgress(), null, shouldBroadcast);
                             } else {
                                 itemMovementProcessor.processLocationEntry(e.getEntityId(), item.getLocationId(),
-                                        e.getTimestamp());
+                                        e.getTimestamp(), shouldBroadcast);
                             }
                         }
 
@@ -387,10 +397,10 @@ public class EventProcessor {
                         liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId(), e.getTimestamp());
                         itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(),
                                 e.getTimestamp(), e.getProgress(),
-                                previousPosId);
+                                previousPosId, shouldBroadcast);
                     } else {
                         itemMovementProcessor.processLocationEntry(e.getEntityId(), e.getLocationId(),
-                                e.getTimestamp());
+                                e.getTimestamp(), shouldBroadcast);
                     }
 
                     if (shouldBroadcast) {
@@ -512,6 +522,13 @@ public class EventProcessor {
                                         selected.routingStatus(), e.getTimestamp(), selected.path());
                                 return selected;
                             });
+                    pathAssignmentPublisher.publishIfAssigned(
+                            item.getId(),
+                            decision.selectedExitId(),
+                            decision.routingStatus(),
+                            decision.path(),
+                            e.getTimestamp(),
+                            shouldBroadcast);
 
 
                     if (shouldBroadcast) {
@@ -542,6 +559,13 @@ public class EventProcessor {
                                 selected.routingStatus(), e.getTimestamp(), selected.path());
                         return selected;
                     });
+                    pathAssignmentPublisher.publishIfAssigned(
+                            item.getId(),
+                            decision.selectedExitId(),
+                            decision.routingStatus(),
+                            decision.path(),
+                            e.getTimestamp(),
+                            shouldBroadcast);
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
@@ -895,6 +919,13 @@ public class EventProcessor {
                         itemService.updateItemRouting(
                                 item.getId(), item.getDestinations(), decision.selectedExitId(),
                                 decision.routingStatus(), timestamp, decision.path());
+                        pathAssignmentPublisher.publishIfAssigned(
+                                item.getId(),
+                                decision.selectedExitId(),
+                                decision.routingStatus(),
+                                decision.path(),
+                                timestamp,
+                                shouldBroadcast);
 
                         if (shouldBroadcast) {
                             Map<String, Object> updates = new HashMap<>();

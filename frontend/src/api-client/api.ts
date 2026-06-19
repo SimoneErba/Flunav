@@ -852,6 +852,8 @@ export interface ItemResponse {
     'progress'?: number;
     'destinations'?: Array<string>;
     'selectedExitId'?: string;
+    'routingStatus'?: ItemResponseRoutingStatusEnum;
+    'routingStatusUpdatedAt'?: string;
     /**
      * 
      * @type {Array<string>}

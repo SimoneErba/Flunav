@@ -16,11 +16,13 @@ import com.flunav.backend.services.ItemMovementProcessor;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.PathAssignmentPublisher;
 import com.flunav.backend.services.RoutingDecisionService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.StaleItemCleanupService;
 import com.flunav.backend.services.TimeService;
 import com.flunav.backend.services.TopologyProvider;
+import com.flunav.backend.services.WebSocketService;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ChuteEmptyEvent;
@@ -32,6 +34,7 @@ import flunav.events.ItemPositionChangedEvent;
 import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
+import flunav.messages.ItemPathAssignmentMessage;
 import flunav.types.DataType;
 import flunav.types.LocationType;
 import flunav.types.OperatorType;
@@ -84,6 +87,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final TimeService timeService;
+    private final PathAssignmentPublisher pathAssignmentPublisher;
+    private final WebSocketService webSocketService;
     private final com.flunav.backend.services.LocationService locationService;
     private final ConveyorService conveyorService;
     private final OrientDBService orientDBService;
@@ -107,6 +112,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             TimeService timeService,
+            PathAssignmentPublisher pathAssignmentPublisher,
+            WebSocketService webSocketService,
             com.flunav.backend.services.LocationService locationService,
             ConveyorService conveyorService,
             OrientDBService orientDBService,
@@ -128,6 +135,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.simulationService = simulationService;
         this.liveSystemScheduler = liveSystemScheduler;
         this.timeService = timeService;
+        this.pathAssignmentPublisher = pathAssignmentPublisher;
+        this.webSocketService = webSocketService;
         this.locationService = locationService;
         this.conveyorService = conveyorService;
         this.orientDBService = orientDBService;
@@ -140,12 +149,14 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     void setup() {
         resetState();
         drainCommandsQueue();
+        drainPathAssignmentsQueue();
     }
 
     @AfterEach
     void cleanup() {
         resetState();
         drainCommandsQueue();
+        drainPathAssignmentsQueue();
     }
 
     @Test
@@ -234,6 +245,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNotNull(item);
         assertEquals(List.of("mapped-exit-a"), item.getDestinations());
         assertEquals("mapped-exit-a", item.getSelectedExitId());
+        assertEquals(RoutingStatus.ASSIGNED, item.getRoutingStatus());
         assertEquals(List.of("mapped-start", "mapped-exit-a"), item.getPath());
     }
 
@@ -254,6 +266,26 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNotNull(item);
         assertEquals(List.of(), item.getDestinations());
         assertNull(item.getSelectedExitId());
+        assertEquals(RoutingStatus.UNROUTED, item.getRoutingStatus());
+        assertNull(item.getPath());
+    }
+
+    @Test
+    void unreachableExplicitDestinationFailsRouting() {
+        Instant now = Instant.now();
+        createLocation("failed-start", "Start");
+        createLocation("failed-chute", "Chute", LocationType.CHUTE, 10);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-failed",
+                "Failed Item", 1.0, true, "failed-start", PositionType.LOCATION, 0.0,
+                List.of("failed-chute"), Map.of("priority", "NORMAL"), now));
+
+        var item = itemService.getItemById("item-failed");
+
+        assertNotNull(item);
+        assertNull(item.getSelectedExitId());
+        assertEquals(RoutingStatus.FAILED, item.getRoutingStatus());
+        assertEquals(now.toEpochMilli(), item.getRoutingStatusUpdatedAt().toEpochMilli());
         assertNull(item.getPath());
     }
 
@@ -304,6 +336,14 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals("item-command", destinationCommand.getEntityId());
         assertEquals("command-exit", destinationCommand.getLocationId());
         assertEquals(now, destinationCommand.getTimestamp());
+
+        ItemPathAssignmentMessage pathAssignment = assertInstanceOf(ItemPathAssignmentMessage.class,
+                amqpTemplate.receiveAndConvert("path-assignments", 2_000));
+        assertEquals(ItemPathAssignmentMessage.MESSAGE_TYPE, pathAssignment.getMessageType());
+        assertEquals("item-command", pathAssignment.getItemId());
+        assertEquals("command-exit", pathAssignment.getFinalDestinationId());
+        assertEquals(List.of("command-start", "command-exit"), pathAssignment.getPath());
+        assertEquals(now, pathAssignment.getTimestamp());
     }
 
     @Test
@@ -318,6 +358,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 "no-match-start", PositionType.LOCATION, 0.0, Map.of("flight_number", "999"), now), true);
 
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+        assertNull(amqpTemplate.receiveAndConvert("path-assignments", 300));
     }
 
     @Test
@@ -353,6 +394,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 Map.of("flight_number", "123"), now));
 
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+        assertNull(amqpTemplate.receiveAndConvert("path-assignments", 300));
     }
 
     @Test
@@ -370,6 +412,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+        assertNull(amqpTemplate.receiveAndConvert("path-assignments", 300));
     }
 
     @Test
@@ -1032,6 +1075,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 simulationService,
                 liveSystemScheduler,
                 timeService,
+                pathAssignmentPublisher,
+                webSocketService,
                 false);
         disabledProcessor.processLocationEntry("disabled-item", "disabled-decision", now);
 
@@ -1139,6 +1184,92 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals(List.of("stop-route-decision", "stop-route-alternate"), rerouted.getPath());
         assertEquals(RoutingStatus.ASSIGNED, rerouted.getRoutingStatus());
         assertNotNull(rerouted.getRoutingStatusUpdatedAt());
+        assertNull(amqpTemplate.receiveAndConvert("path-assignments", 300));
+    }
+
+    @Test
+    void itemEnteringChuteBecomesCompletedUntilChuteIsEmptied() {
+        Instant now = Instant.now();
+        Instant arrivedAt = now.plusSeconds(10);
+        createLocation("completed-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("completed-chute", "Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("completed-conveyor", "completed-start", "completed-chute",
+                "Exit", 10.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "completed-item", "Completed Item", 1.0, true, "completed-start",
+                PositionType.LOCATION, 0.0, List.of("completed-chute"),
+                Map.of("priority", "NORMAL"), now));
+
+        var assigned = itemService.getItemById("completed-item");
+        assertEquals(RoutingStatus.ASSIGNED, assigned.getRoutingStatus());
+        assertEquals("completed-chute", assigned.getSelectedExitId());
+
+        eventProcessor.processEventWithoutBroadcast(new ItemPositionChangedEvent(
+                "completed-item", "completed-chute", 100.0, arrivedAt));
+
+        var completed = itemService.getItemById("completed-item");
+        assertNotNull(completed);
+        assertEquals("completed-chute", completed.getPositionId());
+        assertEquals(RoutingStatus.COMPLETED, completed.getRoutingStatus());
+        assertEquals(arrivedAt.toEpochMilli(), completed.getRoutingStatusUpdatedAt().toEpochMilli());
+        assertEquals(1L, liveLocationRepository.getItemCount("completed-chute"));
+
+        List<ItemResponse> graphItems = graphService.getGraphData(arrivedAt, false, null, false).getItems();
+        ItemResponse graphItem = graphItems.stream()
+                .filter(item -> "completed-item".equals(item.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("completed-chute", graphItem.getLocationId());
+        assertEquals(RoutingStatus.COMPLETED, graphItem.getRoutingStatus());
+
+        eventProcessor.processEventWithoutBroadcast(new ChuteEmptyEvent("completed-chute", arrivedAt.plusSeconds(1)));
+
+        assertEquals(0L, liveLocationRepository.getItemCount("completed-chute"));
+        assertNull(liveItemRepository.getItemState("completed-item"));
+        assertTrue(graphService.getGraphData(arrivedAt.plusSeconds(1), false, null, false).getItems().stream()
+                .noneMatch(item -> "completed-item".equals(item.getId())));
+    }
+
+    @Test
+    void liveRoutingDecisionReroutePublishesPathAssignment() {
+        Instant now = Instant.now();
+        createLocation("assignment-reroute-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("assignment-reroute-preferred", "Preferred Chute", LocationType.CHUTE, 10);
+        createLocation("assignment-reroute-alternate", "Alternate Chute", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("assignment-reroute-preferred-conveyor", "assignment-reroute-decision",
+                "assignment-reroute-preferred", "Preferred", 10_000.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("assignment-reroute-alternate-conveyor", "assignment-reroute-decision",
+                "assignment-reroute-alternate", "Alternate", 20_000.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEvent(new ItemCreatedEvent(
+                "assignment-reroute-item", "Reroute Item", 1.0, true, "assignment-reroute-decision",
+                PositionType.LOCATION, 0.0,
+                List.of("assignment-reroute-preferred", "assignment-reroute-alternate"),
+                Map.of("priority", "NORMAL"), now));
+
+        ItemPathAssignmentMessage initialAssignment = assertInstanceOf(ItemPathAssignmentMessage.class,
+                amqpTemplate.receiveAndConvert("path-assignments", 2_000));
+        assertEquals("assignment-reroute-item", initialAssignment.getItemId());
+        assertEquals("assignment-reroute-preferred", initialAssignment.getFinalDestinationId());
+        assertEquals(List.of("assignment-reroute-decision", "assignment-reroute-preferred"),
+                initialAssignment.getPath());
+        drainPathAssignmentsQueue();
+
+        Instant rerouteTimestamp = now.plusSeconds(1);
+        eventProcessor.processEvent(new ConnectionDeactivatedEvent("assignment-reroute-preferred-conveyor"));
+        eventProcessor.processEvent(
+                new ItemRoutingDecisionRequestedEvent("assignment-reroute-item", "assignment-reroute-decision",
+                        rerouteTimestamp));
+
+        ItemPathAssignmentMessage rerouteAssignment = assertInstanceOf(ItemPathAssignmentMessage.class,
+                amqpTemplate.receiveAndConvert("path-assignments", 2_000));
+        assertEquals(ItemPathAssignmentMessage.MESSAGE_TYPE, rerouteAssignment.getMessageType());
+        assertEquals("assignment-reroute-item", rerouteAssignment.getItemId());
+        assertEquals("assignment-reroute-alternate", rerouteAssignment.getFinalDestinationId());
+        assertEquals(List.of("assignment-reroute-decision", "assignment-reroute-alternate"),
+                rerouteAssignment.getPath());
+        assertEquals(rerouteTimestamp, rerouteAssignment.getTimestamp());
     }
 
     @Test
@@ -1256,6 +1387,10 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     private void drainCommandsQueue() {
         amqpAdmin.purgeQueue("commands", true);
+    }
+
+    private void drainPathAssignmentsQueue() {
+        amqpAdmin.purgeQueue("path-assignments", true);
     }
 
     private void resetState() {

@@ -194,6 +194,24 @@ public class LiveItemRepository {
         }
     }
 
+    /**
+     * Updates only lifecycle routing status without disturbing the current
+     * movement checkpoint or assigned route.
+     */
+    public void updateRoutingStatus(String itemId, RoutingStatus routingStatus, Instant routingStatusUpdatedAt) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        Map<String, String> updates = new HashMap<>();
+        if (routingStatus != null) {
+            updates.put("rs", routingStatus.name());
+        }
+        if (routingStatusUpdatedAt != null) {
+            updates.put("rst", String.valueOf(routingStatusUpdatedAt.toEpochMilli()));
+        }
+        if (!updates.isEmpty()) {
+            redis.opsForHash().putAll(itemKey, updates);
+        }
+    }
+
     public void deleteItems(List<String> itemIds) {
         if (itemIds == null || itemIds.isEmpty())
             return;
