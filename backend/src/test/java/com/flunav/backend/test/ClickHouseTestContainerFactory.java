@@ -14,8 +14,8 @@ public final class ClickHouseTestContainerFactory {
                         MountableFile.forClasspathResource("init-clickhouse/002_init_events.sql"),
                         "/docker-entrypoint-initdb.d/002_init_events.sql")
                 .withCopyFileToContainer(
-                        MountableFile.forClasspathResource("init-clickhouse/003_analytics_count.sql"),
-                        "/docker-entrypoint-initdb.d/003_analytics_count.sql")
+                        MountableFile.forClasspathResource("init-clickhouse/003_analytics_count.sh", 0744),
+                        "/docker-entrypoint-initdb.d/003_analytics_count.sh")
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("init-clickhouse/005_component_analytics.sql"),
                         "/docker-entrypoint-initdb.d/005_component_analytics.sql")

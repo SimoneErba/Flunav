@@ -115,7 +115,14 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DB: ${CLICKHOUSE_DB}
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      test:
+        - CMD-SHELL
+        - >-
+          clickhouse-client --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD"
+          --query "SELECT throwIf(count() != 5, 'analytics_time_series schema mismatch')
+          FROM system.columns WHERE database = '$$CLICKHOUSE_DB'
+          AND table = 'analytics_time_series'
+          AND name IN ('bucket_start', 'bucket_seconds', 'items_entered', 'items_exited', 'items_current')"
       interval: 30s
       timeout: 10s
       retries: 3

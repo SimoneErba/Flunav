@@ -53,7 +53,7 @@ public class WebSocketService {
         this.messagingTemplate = messagingTemplate;
     }
 
-    // --- SIMULATION CONTROL EVENTS (Updated) ---
+    // --- SIMULATION CONTROL EVENTS ---
 
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status, Instant timestamp) {
         broadcastSimulationUpdate(simulationId, status, timestamp, null);
@@ -151,10 +151,6 @@ public class WebSocketService {
     public void broadcastPositionLost(String itemId, Instant timestamp) {
         PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST, null, null);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
-    }
-
-    public void broadcastLiveAnalytic(ThroughputMetric metric) {
-        broadcastThroughputMetric(null, metric);
     }
 
     public void broadcastThroughputMetric(String simulationId, ThroughputMetric metric) {

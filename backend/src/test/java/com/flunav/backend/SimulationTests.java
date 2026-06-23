@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -287,6 +288,69 @@ class SimulationTests extends BaseIntegrationTest {
                 simulationService.destroySimulation("capacity-sim-" + index);
             }
         }
+    }
+
+    @Test
+    void simulationBuildStartsAndCompletesWithSingleBuildPermit() throws Exception {
+        String simulationId = "single-build-sim";
+        try {
+            var created = simulationService.createSimulation(simulationId, Instant.now());
+            assertTrue(Set.of(
+                    com.flunav.backend.models.simulation.SimulationStatus.QUEUED,
+                    com.flunav.backend.models.simulation.SimulationStatus.BUILDING)
+                    .contains(created.getStatus()));
+
+            waitFor(() -> simulationService.getSimulationState(simulationId).getStatus()
+                    == com.flunav.backend.models.simulation.SimulationStatus.READY,
+                    Duration.ofSeconds(20));
+        } finally {
+            simulationService.destroySimulation(simulationId);
+        }
+    }
+
+    @Test
+    void secondBuildQueuesUntilBuildingCapacityIsAvailable() throws Exception {
+        String blockerId = "build-capacity-blocker";
+        String queuedId = "queued-build-sim";
+        Instant now = Instant.now();
+        try {
+            liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                    blockerId,
+                    now,
+                    com.flunav.backend.models.simulation.SimulationStatus.BUILDING,
+                    now,
+                    null,
+                    1.0,
+                    0.0));
+
+            simulationService.createSimulation(queuedId, now);
+            assertEquals(com.flunav.backend.models.simulation.SimulationStatus.QUEUED,
+                    simulationService.getSimulationState(queuedId).getStatus());
+
+            simulationService.updateSimulationStatus(
+                    blockerId,
+                    com.flunav.backend.models.simulation.SimulationStatus.READY,
+                    now);
+            simulationService.processWaitingQueue();
+
+            waitFor(() -> simulationService.getSimulationState(queuedId).getStatus()
+                    == com.flunav.backend.models.simulation.SimulationStatus.READY,
+                    Duration.ofSeconds(20));
+        } finally {
+            simulationService.destroySimulation(queuedId);
+            simulationService.destroySimulation(blockerId);
+        }
+    }
+
+    private void waitFor(BooleanSupplier condition, Duration timeout) throws Exception {
+        Instant deadline = Instant.now().plus(timeout);
+        while (Instant.now().isBefore(deadline)) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        fail("Condition was not met within " + timeout);
     }
 
     @AfterEach

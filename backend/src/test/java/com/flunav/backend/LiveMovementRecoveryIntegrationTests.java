@@ -83,6 +83,7 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
 
     @AfterEach
     void cleanup() {
+        liveSystemScheduler.cancelAll();
         resetState();
     }
 

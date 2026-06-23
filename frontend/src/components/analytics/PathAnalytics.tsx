@@ -20,14 +20,20 @@ interface PathAnalyticsProps {
 
 const BUCKET_SECONDS = 5;
 const BUCKET_MS = BUCKET_SECONDS * 1000;
+const HISTORY_BUCKET_SECONDS = 300;
+const HISTORY_BUCKET_MS = HISTORY_BUCKET_SECONDS * 1000;
 const HISTORY_HOURS = 24;
 
-const emptyBucket = (timestamp: number, previousCurrent = 0): ThroughputMetric => ({
+const emptyBucket = (
+  timestamp: number,
+  previousCurrent = 0,
+  bucketSeconds = BUCKET_SECONDS
+): ThroughputMetric => ({
   timestamp: new Date(timestamp).toISOString(),
   itemsEntered: 0,
   itemsExited: 0,
   itemsCurrent: previousCurrent,
-  bucketSeconds: BUCKET_SECONDS,
+  bucketSeconds,
 });
 
 export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
@@ -39,7 +45,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
   const { activeSimulation } = useSimulationContext();
 
   const simulationId = activeSimulation?.id ?? null;
-  const simulationTimestamp = activeSimulation?.lastProcessedTimestamp ?? activeSimulation?.timestamp ?? null;
+  const restoreTimestamp = activeSimulation?.timestamp ?? null;
 
   const fillTimeGaps = useCallback((rawData: ThroughputMetric[]): ThroughputMetric[] => {
     if (rawData.length < 2) return rawData;
@@ -56,10 +62,16 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
 
       const currentMs = new Date(current.timestamp ?? 0).getTime();
       const nextMs = new Date(next.timestamp ?? 0).getTime();
-      const gapBuckets = Math.floor((nextMs - currentMs) / BUCKET_MS);
+      const gapBuckets = Math.floor((nextMs - currentMs) / HISTORY_BUCKET_MS);
 
       for (let j = 1; j < gapBuckets; j++) {
-        filled.push(emptyBucket(currentMs + j * BUCKET_MS, current.itemsCurrent ?? 0));
+        filled.push(
+          emptyBucket(
+            currentMs + j * HISTORY_BUCKET_MS,
+            current.itemsCurrent ?? 0,
+            HISTORY_BUCKET_SECONDS
+          )
+        );
       }
     }
 
@@ -74,11 +86,16 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
 
     const fetchHistory = async () => {
       try {
-        const to = simulationTimestamp ?? new Date().toISOString();
+        const to = restoreTimestamp ?? new Date().toISOString();
         const from = new Date(new Date(to).getTime() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
         const response = simulationId
-          ? await analyticsApi.getThroughputHistory(undefined, from, to, BUCKET_SECONDS)
-          : await analyticsApi.getThroughputHistory(HISTORY_HOURS, undefined, undefined, BUCKET_SECONDS);
+          ? await analyticsApi.getThroughputHistory(undefined, from, to, HISTORY_BUCKET_SECONDS)
+          : await analyticsApi.getThroughputHistory(
+              HISTORY_HOURS,
+              undefined,
+              undefined,
+              HISTORY_BUCKET_SECONDS
+            );
 
         if (mounted && response.data) {
           setData(fillTimeGaps(response.data));
@@ -94,7 +111,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
     return () => {
       mounted = false;
     };
-  }, [analyticsApi, fillTimeGaps, simulationId, simulationTimestamp]);
+  }, [analyticsApi, fillTimeGaps, restoreTimestamp, simulationId]);
 
   useEffect(() => {
     const handleUpdate = (metric: ThroughputMetric) => {
@@ -147,7 +164,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
           System Throughput
         </h2>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {simulationId ? 'Simulation' : 'Live'} updates (5 sec)
+          {simulationId ? 'Simulation' : 'Live'} updates (5 sec, 5 min history)
         </span>
       </div>
 

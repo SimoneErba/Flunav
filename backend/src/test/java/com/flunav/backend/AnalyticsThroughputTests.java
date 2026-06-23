@@ -7,9 +7,11 @@ import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.services.ClickHouseService;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.LocationService;
+import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.ThroughputBucketService;
 
@@ -25,6 +27,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.support.AbstractMessageChannel;
+import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.test.context.TestConstructor;
 
 import java.net.URI;
@@ -33,8 +39,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,7 +71,10 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private final OrientDBService orientDBService;
     private final LiveItemRepository liveItemRepository;
     private final LiveLocationRepository liveLocationRepository;
+    private final LiveSimulationRepository liveSimulationRepository;
+    private final LiveSystemScheduler liveSystemScheduler;
     private final StringRedisTemplate redisTemplate;
+    private final AbstractMessageChannel brokerChannel;
     private final int serverPort;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -75,7 +87,11 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             OrientDBService orientDBService,
             LiveItemRepository liveItemRepository,
             LiveLocationRepository liveLocationRepository,
+            LiveSimulationRepository liveSimulationRepository,
+            LiveSystemScheduler liveSystemScheduler,
             StringRedisTemplate redisTemplate,
+            @org.springframework.beans.factory.annotation.Qualifier("brokerChannel")
+            AbstractMessageChannel brokerChannel,
             @LocalServerPort int serverPort) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
@@ -84,7 +100,10 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         this.orientDBService = orientDBService;
         this.liveItemRepository = liveItemRepository;
         this.liveLocationRepository = liveLocationRepository;
+        this.liveSimulationRepository = liveSimulationRepository;
+        this.liveSystemScheduler = liveSystemScheduler;
         this.redisTemplate = redisTemplate;
+        this.brokerChannel = brokerChannel;
         this.serverPort = serverPort;
     }
 
@@ -96,6 +115,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        liveSystemScheduler.cancelAll();
         truncateAnalyticsTables();
         resetState();
     }
@@ -173,6 +193,96 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     @Test
+    void futureSimulationBucketFlushesAtSimulationProgressAndKeepsReductionCurrentCount() {
+        Instant eventTimestamp = Instant.now().plus(Duration.ofHours(1));
+        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        List<Message<?>> messages = captureBrokerMessages(() -> {
+            try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+                createLocation("analytics-future-start", LocationType.GENERIC, 100);
+                eventProcessor.processEvent(new ItemCreatedEvent("analytics-future-item", "Future Item", 1.0, true,
+                        "analytics-future-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+                liveItemRepository.saveItemState("analytics-unrecorded-item", "analytics-future-start",
+                        PositionType.LOCATION, eventTimestamp, 0.0, "Unrecorded", List.of(), null, null);
+            }
+            throughputBucketService.flushCompletedBuckets();
+        });
+
+        JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID);
+        assertEquals(1, metric.path("itemsEntered").asLong());
+        assertEquals(1, metric.path("itemsCurrent").asLong(),
+                "Current count must describe state at the last reduction in the bucket");
+    }
+
+    @Test
+    void pastSimulationBucketFlushesToSimulationWebSocketTopic() {
+        Instant eventTimestamp = Instant.now().minus(Duration.ofHours(1));
+        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        List<Message<?>> messages = captureBrokerMessages(() -> {
+            try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+                createLocation("analytics-past-start", LocationType.GENERIC, 100);
+                eventProcessor.processEvent(new ItemCreatedEvent("analytics-past-item", "Past Item", 1.0, true,
+                        "analytics-past-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+            }
+            throughputBucketService.flushCompletedBuckets();
+        });
+
+        JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID);
+        assertEquals(bucketStart(eventTimestamp).toString(), metric.path("timestamp").asText());
+    }
+
+    @Test
+    void analyticsSchemaMigrationArchivesOldTableAndCreatesBucketSchema() throws Exception {
+        int legacyTablesBefore;
+        try (Connection connection = clickHouseConnection();
+                Statement statement = connection.createStatement()) {
+            legacyTablesBefore = countLegacyAnalyticsTables(statement);
+            statement.execute("DROP TABLE analytics_time_series");
+            statement.execute("""
+                    CREATE TABLE analytics_time_series
+                    (
+                        minute DateTime,
+                        items_entered UInt32,
+                        items_exited UInt32,
+                        movements_count UInt32
+                    )
+                    ENGINE = SummingMergeTree()
+                    ORDER BY minute
+                    """);
+            statement.execute("INSERT INTO analytics_time_series VALUES (now(), 1, 2, 3)");
+        }
+
+        var result = CLICKHOUSE_CONTAINER.execInContainer(
+                "bash", "/docker-entrypoint-initdb.d/003_analytics_count.sh");
+        assertEquals(0, result.getExitCode(), result.getStderr());
+
+        try (Connection connection = clickHouseConnection();
+                Statement statement = connection.createStatement()) {
+            assertEquals(legacyTablesBefore + 1, countLegacyAnalyticsTables(statement));
+            try (ResultSet columns = statement.executeQuery("""
+                    SELECT name, type
+                    FROM system.columns
+                    WHERE database = 'default' AND table = 'analytics_time_series'
+                    ORDER BY position
+                    """)) {
+                List<String> schema = new ArrayList<>();
+                while (columns.next()) {
+                    schema.add(columns.getString("name") + ":" + columns.getString("type"));
+                }
+                assertEquals(List.of(
+                        "bucket_start:DateTime64(3)",
+                        "bucket_seconds:UInt16",
+                        "items_entered:UInt64",
+                        "items_exited:UInt64",
+                        "items_current:UInt64"), schema);
+            }
+        }
+    }
+
+    @Test
     void throughputHistoryEndpointReturnsBucketValues() throws Exception {
         Instant timestamp = Instant.now();
         createLocation("analytics-endpoint-start", LocationType.GENERIC, 100);
@@ -218,13 +328,84 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private void truncateAnalyticsTables() throws Exception {
         throughputBucketService.flushBuckets();
         clickHouseService.flushEvents();
-        try (Connection connection = DriverManager.getConnection(
-                CLICKHOUSE_CONTAINER.getJdbcUrl(),
-                CLICKHOUSE_CONTAINER.getUsername(),
-                CLICKHOUSE_CONTAINER.getPassword());
+        try (Connection connection = clickHouseConnection();
                 Statement statement = connection.createStatement()) {
             statement.execute("TRUNCATE TABLE Events");
             statement.execute("TRUNCATE TABLE analytics_time_series");
+        }
+    }
+
+    private void saveSimulationState(Instant progress) {
+        liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
+                SIMULATION_ID,
+                progress.minusSeconds(ThroughputBucketService.BUCKET_SECONDS),
+                com.flunav.backend.models.simulation.SimulationStatus.PLAYING,
+                Instant.now(),
+                progress,
+                1.0,
+                100.0));
+    }
+
+    private List<Message<?>> captureBrokerMessages(Runnable action) {
+        List<Message<?>> messages = new ArrayList<>();
+        ChannelInterceptor interceptor = new ChannelInterceptor() {
+            @Override
+            public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                messages.add(message);
+                return message;
+            }
+        };
+        brokerChannel.addInterceptor(interceptor);
+        try {
+            action.run();
+        } finally {
+            brokerChannel.removeInterceptor(interceptor);
+        }
+        return messages;
+    }
+
+    private JsonNode throughputMetricFrom(List<Message<?>> messages, String simulationId) {
+        String expectedDestination = "/topic/simulations/" + simulationId + "/analytics/throughput";
+        return messages.stream()
+                .filter(message -> expectedDestination.equals(
+                        message.getHeaders().get("simpDestination", String.class)))
+                .map(Message::getPayload)
+                .map(this::payloadJson)
+                .map(envelope -> envelope.path("payload"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing throughput message for " + expectedDestination));
+    }
+
+    private JsonNode payloadJson(Object payload) {
+        try {
+            if (payload instanceof byte[] bytes) {
+                return objectMapper.readTree(bytes);
+            }
+            if (payload instanceof String text) {
+                return objectMapper.readTree(text);
+            }
+            return objectMapper.valueToTree(payload);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to read broker payload", e);
+        }
+    }
+
+    private Connection clickHouseConnection() throws Exception {
+        return DriverManager.getConnection(
+                CLICKHOUSE_CONTAINER.getJdbcUrl(),
+                CLICKHOUSE_CONTAINER.getUsername(),
+                CLICKHOUSE_CONTAINER.getPassword());
+    }
+
+    private int countLegacyAnalyticsTables(Statement statement) throws Exception {
+        try (ResultSet tables = statement.executeQuery("""
+                SELECT count()
+                FROM system.tables
+                WHERE database = 'default'
+                  AND startsWith(name, 'analytics_time_series_legacy_')
+                """)) {
+            assertTrue(tables.next());
+            return tables.getInt(1);
         }
     }
 

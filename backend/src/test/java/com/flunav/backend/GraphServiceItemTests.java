@@ -154,6 +154,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     @AfterEach
     void cleanup() {
+        liveSystemScheduler.cancelAll();
         resetState();
         drainCommandsQueue();
         drainPathAssignmentsQueue();

@@ -61,7 +61,7 @@ public class SimulationService {
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
     private final Map<String, Future<?>> activePlaybacks = new ConcurrentHashMap<>();
     private final Map<String, PlaybackCancellationReason> playbackCancellationReasons = new ConcurrentHashMap<>();
-    private final Semaphore buildPermits = new Semaphore(2);
+    private final Semaphore buildPermits;
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
 
     public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
@@ -87,6 +87,7 @@ public class SimulationService {
         this.maxBuildingSimulations = maxBuildingSimulations;
         this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
         this.minFreeMemoryBytes = minFreeMemoryBytes;
+        this.buildPermits = new Semaphore(maxBuildingSimulations > 0 ? maxBuildingSimulations : Integer.MAX_VALUE);
     }
 
     public SimulationState createSimulation(Instant timestamp) {
@@ -216,6 +217,7 @@ public class SimulationService {
      */
     public void destroySimulation(String simulationId) {
         cancelPlayback(simulationId);
+        waitingQueue.removeIf(request -> request.simulationId().equals(simulationId));
         SimulationState state = simulationCache.remove(simulationId);
         try {
             orientDBService.dropDatabase(simulationId);
@@ -241,9 +243,6 @@ public class SimulationService {
         if (state == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulation not found: " + simulationId);
         }
-        // commented bc it can cause race conditions, we need to send hartbeat
-        // separately
-        // updateHeartbeat(simulationId);
         return state;
     }
 
@@ -386,7 +385,6 @@ public class SimulationService {
     public DomainEvent getScheduledEvent(String itemId) {
         SimulationState state = getCurrentSimulation();
         if (state != null) {
-            // Fetch it from the specific simulation's state map
             return state.getScheduledEventsByItem().get(itemId);
         }
         return null;
@@ -539,10 +537,6 @@ public class SimulationService {
         if (maxActiveSimulations > 0 && counts.active() >= maxActiveSimulations) {
             rejectCapacity("Maximum active simulations reached: " + maxActiveSimulations);
         }
-        if (!hasBuildingCapacity(counts)) {
-            rejectCapacity("Maximum building simulations reached: " + maxBuildingSimulations);
-        }
-
         long liveActiveItems = liveItemRepository.countActiveItems(null);
         if (maxActiveItemsPerSimulation > 0 && liveActiveItems > maxActiveItemsPerSimulation) {
             rejectCapacity("Active item count " + liveActiveItems + " exceeds simulation limit "
@@ -572,7 +566,7 @@ public class SimulationService {
         int building = 0;
         for (var metadata : liveSimulationRepository.getAllSimulationStates()) {
             SimulationStatus status = metadata.status();
-            if (status == SimulationStatus.BUILDING || status == SimulationStatus.QUEUED) {
+            if (status == SimulationStatus.BUILDING) {
                 building++;
             }
             if (status != SimulationStatus.FAILED) {

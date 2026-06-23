@@ -595,47 +595,6 @@ public class ClickHouseService {
         return Long.parseLong(String.valueOf(value));
     }
 
-    public ThroughputMetric getLatestThroughput() {
-        String sql = """
-                SELECT
-                    bucket_start as ts,
-                    items_entered as entered,
-                    items_exited as exited,
-                    items_current as current,
-                    bucket_seconds as bucketSeconds
-                FROM default.analytics_time_series
-                ORDER BY bucket_start DESC
-                LIMIT 1
-                FORMAT JSONEachRow
-                SETTINGS
-                    date_time_output_format = 'iso',
-                    output_format_json_quote_64bit_integers = 0
-                """;
-
-        try (QueryResponse response = client.query(sql).get();
-                InputStream inputStream = response.getInputStream()) {
-
-            MappingIterator<Map<String, Object>> it = objectMapper.readerFor(Map.class)
-                    .readValues(inputStream);
-
-            if (it.hasNext()) {
-                Map<String, Object> row = it.next();
-
-                return new ThroughputMetric(
-                        parseClickHouseInstant(row.get("ts")),
-                        asLong(row.get("entered")),
-                        asLong(row.get("exited")),
-                        asLong(row.get("current")),
-                        (int) asLong(row.get("bucketSeconds")));
-            }
-
-        } catch (Exception e) {
-            logger.error("Failed to fetch latest throughput", e);
-        }
-
-        return new ThroughputMetric(Instant.now(), 0, 0, 0, 5);
-    }
-
     public CompletableFuture<List<BadActorMetric>> getTopActiveComponents(int limit) {
         String sql = String.format("""
                     SELECT

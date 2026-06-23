@@ -12,6 +12,7 @@ import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -27,15 +28,18 @@ public class ThroughputBucketService {
 
     private final ClickHouseService clickHouseService;
     private final LiveItemRepository liveItemRepository;
+    private final SimulationService simulationService;
     private final WebSocketService webSocketService;
     private final Map<BucketKey, BucketAccumulator> buckets = new HashMap<>();
 
     public ThroughputBucketService(
             ClickHouseService clickHouseService,
             LiveItemRepository liveItemRepository,
+            @Lazy SimulationService simulationService,
             WebSocketService webSocketService) {
         this.clickHouseService = clickHouseService;
         this.liveItemRepository = liveItemRepository;
+        this.simulationService = simulationService;
         this.webSocketService = webSocketService;
     }
 
@@ -68,6 +72,7 @@ public class ThroughputBucketService {
                 ignored -> new BucketAccumulator());
         accumulator.itemsEntered += entered;
         accumulator.itemsExited += exited;
+        accumulator.itemsCurrent = countCurrentItems(simulationId);
     }
 
     public synchronized void flushBuckets() {
@@ -84,12 +89,15 @@ public class ThroughputBucketService {
             return;
         }
 
-        Instant now = Instant.now();
+        Instant physicalNow = Instant.now();
         Iterator<Map.Entry<BucketKey, BucketAccumulator>> iterator = buckets.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<BucketKey, BucketAccumulator> entry = iterator.next();
             BucketKey key = entry.getKey();
-            if (!includeCurrentBucket && key.bucketStart().plusSeconds(BUCKET_SECONDS).isAfter(now)) {
+            Instant progress = key.simulationId() == null
+                    ? physicalNow
+                    : simulationProgress(key.simulationId(), physicalNow);
+            if (!includeCurrentBucket && key.bucketStart().plusSeconds(BUCKET_SECONDS).isAfter(progress)) {
                 continue;
             }
 
@@ -98,7 +106,7 @@ public class ThroughputBucketService {
                     key.bucketStart(),
                     accumulator.itemsEntered,
                     accumulator.itemsExited,
-                    countCurrentItems(key.simulationId()),
+                    accumulator.itemsCurrent,
                     BUCKET_SECONDS);
 
             if (key.simulationId() == null) {
@@ -134,6 +142,16 @@ public class ThroughputBucketService {
         }
     }
 
+    private Instant simulationProgress(String simulationId, Instant fallback) {
+        try {
+            return simulationService.getSimulationClock(simulationId);
+        } catch (Exception e) {
+            logger.debug("Simulation {} has no persisted clock; using physical time for bucket flushing",
+                    simulationId);
+            return fallback;
+        }
+    }
+
     private Instant bucketStart(Instant timestamp) {
         long epochMillis = timestamp.toEpochMilli();
         long bucketMillis = BUCKET_SECONDS * 1000L;
@@ -146,5 +164,6 @@ public class ThroughputBucketService {
     private static final class BucketAccumulator {
         private long itemsEntered;
         private long itemsExited;
+        private long itemsCurrent;
     }
 }

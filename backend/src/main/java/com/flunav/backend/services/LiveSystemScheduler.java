@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -58,7 +60,6 @@ public class LiveSystemScheduler {
                 }
             }, delay, TimeUnit.MILLISECONDS);
 
-            // Store both the future and the original event
             scheduledTasksByItem.put(itemId, new ScheduledTask(future, event));
         }
     }
@@ -69,15 +70,29 @@ public class LiveSystemScheduler {
      * previously projected event should fire.
      */
     public void cancelInternalEvent(String itemId) {
-        // Update cancellation to use the record
         ScheduledTask task = scheduledTasksByItem.remove(itemId);
         if (task != null && task.future() != null) {
-            task.future().cancel(false); // cancel the actual thread
+            task.future().cancel(false);
         }
+    }
+
+    /**
+     * Cancels every pending live event so test resets and application shutdown
+     * cannot execute movement work against state that is being destroyed.
+     */
+    public void cancelAll() {
+        scheduledTasksByItem.values().forEach(task -> task.future().cancel(false));
+        scheduledTasksByItem.clear();
     }
 
     public DomainEvent getScheduledEvent(String itemId) {
         ScheduledTask task = scheduledTasksByItem.get(itemId);
         return task != null ? task.event() : null;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        cancelAll();
+        scheduler.shutdownNow();
     }
 }

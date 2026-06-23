@@ -849,8 +849,7 @@ public class EventProcessor {
 
     private AppliedDestination applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
         List<String> explicitDestinations = normalizeDestinations(item.getDestinations());
-        boolean explicit = !explicitDestinations.isEmpty();
-        List<String> destinations = explicit
+        List<String> destinations = !explicitDestinations.isEmpty()
                 ? explicitDestinations
                 : destinationMappingService.resolveDestinations(item.getProperties(), timestamp);
         item.setDestinations(destinations);
@@ -859,12 +858,12 @@ public class EventProcessor {
             item.setPath(null);
             item.setRoutingStatus(RoutingStatus.UNROUTED);
             item.setRoutingStatusUpdatedAt(timestamp);
-            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null, explicit);
+            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null);
         }
         if (item.getLocationId() == null) {
             item.setRoutingStatus(RoutingStatus.UNROUTED);
             item.setRoutingStatusUpdatedAt(timestamp);
-            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null, explicit);
+            return new AppliedDestination(destinations, null, RoutingStatus.UNROUTED, null);
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
@@ -877,8 +876,8 @@ public class EventProcessor {
         item.setRoutingStatus(decision.routingStatus());
         item.setRoutingStatusUpdatedAt(timestamp);
         item.setPath(decision.path());
-        return new AppliedDestination(destinations, decision.selectedExitId(), decision.routingStatus(), decision.path(),
-                explicit);
+        return new AppliedDestination(destinations, decision.selectedExitId(), decision.routingStatus(),
+                decision.path());
     }
 
     private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
@@ -971,7 +970,6 @@ public class EventProcessor {
             List<String> destinations,
             String selectedExitId,
             RoutingStatus routingStatus,
-            List<String> path,
-            boolean explicit) {
+            List<String> path) {
     }
 }
