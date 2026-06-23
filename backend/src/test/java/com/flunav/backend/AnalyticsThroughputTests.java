@@ -14,6 +14,7 @@ import com.flunav.backend.services.LocationService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.ThroughputBucketService;
+import com.flunav.backend.services.TimeService;
 
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.ItemCreatedEvent;
@@ -67,6 +68,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private final ClickHouseService clickHouseService;
     private final EventProcessor eventProcessor;
     private final ThroughputBucketService throughputBucketService;
+    private final TimeService timeService;
     private final LocationService locationService;
     private final OrientDBService orientDBService;
     private final LiveItemRepository liveItemRepository;
@@ -83,6 +85,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             ClickHouseService clickHouseService,
             EventProcessor eventProcessor,
             ThroughputBucketService throughputBucketService,
+            TimeService timeService,
             LocationService locationService,
             OrientDBService orientDBService,
             LiveItemRepository liveItemRepository,
@@ -96,6 +99,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.throughputBucketService = throughputBucketService;
+        this.timeService = timeService;
         this.locationService = locationService;
         this.orientDBService = orientDBService;
         this.liveItemRepository = liveItemRepository;
@@ -116,6 +120,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         liveSystemScheduler.cancelAll();
+        timeService.reset();
         truncateAnalyticsTables();
         resetState();
     }
@@ -137,7 +142,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     @Test
-    void itemDeletedIncrementsExitedAndLowersCurrentCount() {
+    void administrativeItemDeletionDoesNotIncrementExited() {
         createLocation("analytics-delete-start", LocationType.GENERIC, 100);
         liveItemRepository.saveItemState("analytics-deleted-item", "analytics-delete-start", PositionType.LOCATION,
                 Instant.now(), 0.0, "Deleted", List.of(), null, null);
@@ -145,13 +150,10 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
         ItemDeletedEvent deleteEvent = new ItemDeletedEvent("analytics-deleted-item");
         liveItemRepository.deleteItem("analytics-deleted-item");
-        throughputBucketService.recordSuccessfulReduction(deleteEvent, Map.of("status", "PROCESSED_SUCCESSFULLY"), 0);
+        throughputBucketService.recordSuccessfulReduction(deleteEvent, Map.of("status", "PROCESSED_SUCCESSFULLY"));
         throughputBucketService.flushBuckets();
 
-        ThroughputMetric metric = metricForBucket(deleteEvent.getTimestamp());
-        assertEquals(0, metric.getItemsEntered());
-        assertEquals(1, metric.getItemsExited());
-        assertEquals(0, metric.getItemsCurrent());
+        assertTrue(clickHouseService.getThroughputHistory(1).join().isEmpty());
     }
 
     @Test
@@ -174,6 +176,33 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         assertEquals(0, metric.getItemsEntered());
         assertEquals(3, metric.getItemsExited());
         assertEquals(0, metric.getItemsCurrent());
+    }
+
+    @Test
+    void completedIdleBucketResetsRatesAndRefreshesCurrentCount() {
+        Instant firstProgress = Instant.parse("2030-01-01T00:00:10Z");
+        Instant eventTimestamp = firstProgress.minusSeconds(ThroughputBucketService.BUCKET_SECONDS);
+        timeService.useFixedClock(firstProgress);
+        createLocation("analytics-idle-start", LocationType.GENERIC, 100);
+
+        List<Message<?>> firstMessages = captureBrokerMessages(() -> {
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-idle-item", "Idle", 1.0, true,
+                    "analytics-idle-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+            throughputBucketService.flushCompletedBuckets();
+        });
+
+        JsonNode activeMetric = throughputMetricFrom(firstMessages, null);
+        assertEquals(1, activeMetric.path("itemsEntered").asLong());
+        assertEquals(1, activeMetric.path("itemsCurrent").asLong());
+
+        liveItemRepository.deleteItem("analytics-idle-item");
+        timeService.useFixedClock(firstProgress.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+
+        List<Message<?>> idleMessages = captureBrokerMessages(throughputBucketService::flushCompletedBuckets);
+        JsonNode idleMetric = throughputMetricFrom(idleMessages, null);
+        assertEquals(0, idleMetric.path("itemsEntered").asLong());
+        assertEquals(0, idleMetric.path("itemsExited").asLong());
+        assertEquals(0, idleMetric.path("itemsCurrent").asLong());
     }
 
     @Test
@@ -209,7 +238,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             throughputBucketService.flushCompletedBuckets();
         });
 
-        JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID);
+        JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID, bucketStart(eventTimestamp));
         assertEquals(1, metric.path("itemsEntered").asLong());
         assertEquals(1, metric.path("itemsCurrent").asLong(),
                 "Current count must describe state at the last reduction in the bucket");
@@ -232,6 +261,62 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
         JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID);
         assertEquals(bucketStart(eventTimestamp).toString(), metric.path("timestamp").asText());
+    }
+
+    @Test
+    void simulationIdleBucketResetsRatesAtVirtualProgress() {
+        Instant eventTimestamp = Instant.now().plus(Duration.ofHours(2));
+        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        captureBrokerMessages(() -> {
+            try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+                createLocation("analytics-sim-idle-start", LocationType.GENERIC, 100);
+                eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-idle-item", "Sim Idle", 1.0, true,
+                        "analytics-sim-idle-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+            }
+            throughputBucketService.flushCompletedBuckets();
+        });
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            liveItemRepository.deleteItem("analytics-sim-idle-item");
+        }
+        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS * 2L));
+
+        List<Message<?>> idleMessages = captureBrokerMessages(throughputBucketService::flushCompletedBuckets);
+        JsonNode idleMetric = throughputMetricFrom(idleMessages, SIMULATION_ID);
+        assertEquals(0, idleMetric.path("itemsEntered").asLong());
+        assertEquals(0, idleMetric.path("itemsExited").asLong());
+        assertEquals(0, idleMetric.path("itemsCurrent").asLong());
+    }
+
+    @Test
+    void simulationHistoryRecoversEmittedBuckets() {
+        Instant eventTimestamp = Instant.now().minusSeconds(10);
+        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("analytics-sim-history-start", LocationType.GENERIC, 100);
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-history-item", "Sim History", 1.0, true,
+                    "analytics-sim-history-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+        }
+        throughputBucketService.flushCompletedBuckets();
+
+        ThroughputMetric metric = throughputBucketService.getSimulationHistory(
+                SIMULATION_ID,
+                eventTimestamp.minusSeconds(ThroughputBucketService.BUCKET_SECONDS),
+                eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS),
+                ThroughputBucketService.BUCKET_SECONDS)
+                .join()
+                .stream()
+                .filter(candidate -> bucketStart(eventTimestamp).equals(candidate.getTimestamp()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(1, metric.getItemsEntered());
+        assertEquals(0, metric.getItemsExited());
+        assertEquals(1, metric.getItemsCurrent());
     }
 
     @Test
@@ -365,13 +450,24 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     private JsonNode throughputMetricFrom(List<Message<?>> messages, String simulationId) {
-        String expectedDestination = "/topic/simulations/" + simulationId + "/analytics/throughput";
+        return throughputMetricFrom(messages, simulationId, null);
+    }
+
+    private JsonNode throughputMetricFrom(
+            List<Message<?>> messages,
+            String simulationId,
+            Instant expectedTimestamp) {
+        String expectedDestination = simulationId == null
+                ? "/topic/analytics/throughput"
+                : "/topic/simulations/" + simulationId + "/analytics/throughput";
         return messages.stream()
                 .filter(message -> expectedDestination.equals(
                         message.getHeaders().get("simpDestination", String.class)))
                 .map(Message::getPayload)
                 .map(this::payloadJson)
                 .map(envelope -> envelope.path("payload"))
+                .filter(payload -> expectedTimestamp == null
+                        || expectedTimestamp.toString().equals(payload.path("timestamp").asText()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing throughput message for " + expectedDestination));
     }

@@ -44,6 +44,7 @@ public class SimulationService {
     private final WebSocketService webSocketService;
     private final LiveItemRepository liveItemRepository;
     private final LiveSimulationRepository liveSimulationRepository;
+    private final ThroughputBucketService throughputBucketService;
     private final TopologyProvider topologyProvider;
     private final ItemMovementProcessor itemMovementProcessor;
     private final int maxActiveSimulations;
@@ -69,6 +70,7 @@ public class SimulationService {
             @Lazy HistoricalGraphBuilder historicalGraphBuilder,
             LiveItemRepository liveItemRepository,
             LiveSimulationRepository liveSimulationRepository,
+            @Lazy ThroughputBucketService throughputBucketService,
             @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
             @Lazy ItemMovementProcessor itemMovementProcessor,
             @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
@@ -81,6 +83,7 @@ public class SimulationService {
         this.webSocketService = webSocketService;
         this.liveItemRepository = liveItemRepository;
         this.liveSimulationRepository = liveSimulationRepository;
+        this.throughputBucketService = throughputBucketService;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
         this.maxActiveSimulations = maxActiveSimulations;
@@ -230,6 +233,7 @@ public class SimulationService {
             logger.warn("Failed to cleanup Redis data for simulation {}: {}", simulationId, e.getMessage());
         }
         liveSimulationRepository.deleteState(simulationId);
+        throughputBucketService.cleanupSimulationHistory(simulationId);
 
         if (state != null) {
             logger.info("Successfully destroyed simulation: {}", simulationId);

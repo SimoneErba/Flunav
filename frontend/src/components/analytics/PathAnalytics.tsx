@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -18,8 +18,7 @@ interface PathAnalyticsProps {
   className?: string;
 }
 
-const BUCKET_SECONDS = 5;
-const BUCKET_MS = BUCKET_SECONDS * 1000;
+const LIVE_BUCKET_SECONDS = 5;
 const HISTORY_BUCKET_SECONDS = 300;
 const HISTORY_BUCKET_MS = HISTORY_BUCKET_SECONDS * 1000;
 const HISTORY_HOURS = 24;
@@ -27,7 +26,7 @@ const HISTORY_HOURS = 24;
 const emptyBucket = (
   timestamp: number,
   previousCurrent = 0,
-  bucketSeconds = BUCKET_SECONDS
+  bucketSeconds = HISTORY_BUCKET_SECONDS
 ): ThroughputMetric => ({
   timestamp: new Date(timestamp).toISOString(),
   itemsEntered: 0,
@@ -36,9 +35,54 @@ const emptyBucket = (
   bucketSeconds,
 });
 
+const metricTimestamp = (metric: ThroughputMetric): number =>
+  new Date(metric.timestamp ?? 0).getTime();
+
+const historyBucketStart = (timestamp: number): number =>
+  Math.floor(timestamp / HISTORY_BUCKET_MS) * HISTORY_BUCKET_MS;
+
+/**
+ * Projects 5-second websocket metrics into the same 5-minute buckets used by
+ * history so every point on the chart has one consistent unit.
+ */
+const mergeLiveMetrics = (
+  history: ThroughputMetric[],
+  liveMetrics: Map<number, ThroughputMetric>
+): ThroughputMetric[] => {
+  const buckets = new Map<number, ThroughputMetric>();
+
+  history.forEach((metric) => {
+    const timestamp = metricTimestamp(metric);
+    if (Number.isFinite(timestamp)) {
+      buckets.set(timestamp, metric);
+    }
+  });
+
+  [...liveMetrics.entries()]
+    .sort(([left], [right]) => left - right)
+    .forEach(([timestamp, metric]) => {
+      const bucketTimestamp = historyBucketStart(timestamp);
+      const current = buckets.get(bucketTimestamp) ?? emptyBucket(bucketTimestamp);
+      buckets.set(bucketTimestamp, {
+        timestamp: new Date(bucketTimestamp).toISOString(),
+        itemsEntered: (current.itemsEntered ?? 0) + (metric.itemsEntered ?? 0),
+        itemsExited: (current.itemsExited ?? 0) + (metric.itemsExited ?? 0),
+        itemsCurrent: metric.itemsCurrent ?? current.itemsCurrent ?? 0,
+        bucketSeconds: HISTORY_BUCKET_SECONDS,
+      });
+    });
+
+  return [...buckets.values()]
+    .sort((left, right) => metricTimestamp(left) - metricTimestamp(right))
+    .slice(-(HISTORY_HOURS * 60 * 60) / HISTORY_BUCKET_SECONDS);
+};
+
 export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
   const [data, setData] = useState<ThroughputMetric[]>([]);
   const [loading, setLoading] = useState(true);
+  const historyRef = useRef<ThroughputMetric[]>([]);
+  const liveMetricsRef = useRef<Map<number, ThroughputMetric>>(new Map());
+  const analyticsContextRef = useRef<string | null>(null);
 
   const { analyticsApi } = useApi();
   const { connected, subscribeToThroughputUpdates } = useWebSocketEvents();
@@ -46,6 +90,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
 
   const simulationId = activeSimulation?.id ?? null;
   const restoreTimestamp = activeSimulation?.timestamp ?? null;
+  const analyticsEndTimestamp = activeSimulation?.lastProcessedTimestamp ?? restoreTimestamp;
 
   const fillTimeGaps = useCallback((rawData: ThroughputMetric[]): ThroughputMetric[] => {
     if (rawData.length < 2) return rawData;
@@ -82,23 +127,52 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    setData([]);
+    const contextKey = simulationId ?? 'live';
+    if (analyticsContextRef.current !== contextKey) {
+      analyticsContextRef.current = contextKey;
+      historyRef.current = [];
+      liveMetricsRef.current = new Map();
+      setData([]);
+    }
 
     const fetchHistory = async () => {
       try {
-        const to = restoreTimestamp ?? new Date().toISOString();
-        const from = new Date(new Date(to).getTime() - HISTORY_HOURS * 60 * 60 * 1000).toISOString();
-        const response = simulationId
-          ? await analyticsApi.getThroughputHistory(undefined, from, to, HISTORY_BUCKET_SECONDS)
-          : await analyticsApi.getThroughputHistory(
-              HISTORY_HOURS,
-              undefined,
-              undefined,
-              HISTORY_BUCKET_SECONDS
-            );
+        const endMs = new Date(analyticsEndTimestamp ?? new Date().toISOString()).getTime();
+        const currentBucketStartMs = historyBucketStart(endMs);
+        const historyToMs = currentBucketStartMs - 1;
+        const historyFromMs = historyToMs - HISTORY_HOURS * 60 * 60 * 1000;
 
-        if (mounted && response.data) {
-          setData(fillTimeGaps(response.data));
+        const [historyResponse, currentResponse] = await Promise.all([
+          analyticsApi.getThroughputHistory(
+            undefined,
+            new Date(historyFromMs).toISOString(),
+            new Date(historyToMs).toISOString(),
+            HISTORY_BUCKET_SECONDS
+          ),
+          analyticsApi.getThroughputHistory(
+            undefined,
+            new Date(currentBucketStartMs).toISOString(),
+            new Date(endMs).toISOString(),
+            LIVE_BUCKET_SECONDS
+          ),
+        ]);
+
+        if (mounted) {
+          const history = fillTimeGaps(historyResponse.data ?? []);
+          const currentMetrics = new Map<number, ThroughputMetric>();
+          (currentResponse.data ?? []).forEach((metric) => {
+            const timestamp = metricTimestamp(metric);
+            if (Number.isFinite(timestamp)) {
+              currentMetrics.set(timestamp, metric);
+            }
+          });
+          liveMetricsRef.current.forEach((metric, timestamp) => {
+            currentMetrics.set(timestamp, metric);
+          });
+
+          historyRef.current = history;
+          liveMetricsRef.current = currentMetrics;
+          setData(mergeLiveMetrics(history, currentMetrics));
         }
       } catch (err) {
         console.error('Failed to load analytics history', err);
@@ -111,34 +185,15 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
     return () => {
       mounted = false;
     };
-  }, [analyticsApi, fillTimeGaps, restoreTimestamp, simulationId]);
+  }, [analyticsApi, analyticsEndTimestamp, connected, fillTimeGaps, simulationId]);
 
   useEffect(() => {
     const handleUpdate = (metric: ThroughputMetric) => {
-      setData((prev) => {
-        if (!metric.timestamp) return prev;
-        if (prev.length === 0) return [metric];
+      const timestamp = metricTimestamp(metric);
+      if (!Number.isFinite(timestamp)) return;
 
-        const newData = [...prev];
-        const last = newData[newData.length - 1];
-        const lastTime = new Date(last.timestamp ?? 0).getTime();
-        const metricTime = new Date(metric.timestamp).getTime();
-        const lastBucket = Math.floor(lastTime / BUCKET_MS);
-        const currentBucket = Math.floor(metricTime / BUCKET_MS);
-
-        if (lastBucket === currentBucket) {
-          newData[newData.length - 1] = metric;
-          return newData;
-        }
-
-        const gapBuckets = currentBucket - lastBucket;
-        for (let j = 1; j < gapBuckets; j++) {
-          newData.push(emptyBucket(lastTime + j * BUCKET_MS, last.itemsCurrent ?? 0));
-        }
-
-        newData.push(metric);
-        return newData.slice(-720);
-      });
+      liveMetricsRef.current.set(timestamp, metric);
+      setData(mergeLiveMetrics(historyRef.current, liveMetricsRef.current));
     };
 
     const unsubscribe = connected
@@ -164,7 +219,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
           System Throughput
         </h2>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {simulationId ? 'Simulation' : 'Live'} updates (5 sec, 5 min history)
+          {simulationId ? 'Simulation' : 'Live'} · 5 min totals, refreshed every 5 sec
         </span>
       </div>
 

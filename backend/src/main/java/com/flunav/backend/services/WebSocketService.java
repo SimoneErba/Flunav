@@ -154,7 +154,9 @@ public class WebSocketService {
     }
 
     public void broadcastThroughputMetric(String simulationId, ThroughputMetric metric) {
-        sendToTopic(simulationId, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
+        try (var ignored = UserContextHolder.enterSenderContext(null)) {
+            sendToTopic(simulationId, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
+        }
     }
 
     // --- HELPER ---

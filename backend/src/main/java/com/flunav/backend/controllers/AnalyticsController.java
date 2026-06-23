@@ -16,16 +16,22 @@ import org.springframework.web.server.ResponseStatusException;
 import com.flunav.backend.models.analytics.EntityEventType;
 import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.ThroughputMetric;
+import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.services.ClickHouseService;
+import com.flunav.backend.services.ThroughputBucketService;
 
 @RestController
 @RequestMapping("/api/analytics")
 public class AnalyticsController {
 
     private final ClickHouseService clickHouseService;
+    private final ThroughputBucketService throughputBucketService;
 
-    public AnalyticsController(ClickHouseService clickHouseService) {
+    public AnalyticsController(
+            ClickHouseService clickHouseService,
+            ThroughputBucketService throughputBucketService) {
         this.clickHouseService = clickHouseService;
+        this.throughputBucketService = throughputBucketService;
     }
 
     @GetMapping("/throughput/history")
@@ -42,11 +48,20 @@ public class AnalyticsController {
         }
 
         Instant now = Instant.now();
-        CompletableFuture<List<ThroughputMetric>> history = from != null || to != null
-                ? clickHouseService.getThroughputHistory(from, to, bucketSeconds)
-                : clickHouseService.getThroughputHistory(
-                        now.minusSeconds(Math.max(1, hours) * 3600L),
-                        now,
+        Instant effectiveTo = to != null ? to : now;
+        Instant effectiveFrom = from != null
+                ? from
+                : effectiveTo.minusSeconds(Math.max(1, hours) * 3600L);
+        if (effectiveFrom.isAfter(effectiveTo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must be before to");
+        }
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        CompletableFuture<List<ThroughputMetric>> history = simulationId == null
+                ? clickHouseService.getThroughputHistory(effectiveFrom, effectiveTo, bucketSeconds)
+                : throughputBucketService.getSimulationHistory(
+                        simulationId,
+                        effectiveFrom,
+                        effectiveTo,
                         bucketSeconds);
 
         return history

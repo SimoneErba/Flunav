@@ -297,12 +297,6 @@ public class EventProcessor {
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
-            long chuteItemsExited = event instanceof ChuteEmptyEvent e
-                    ? Optional.ofNullable(liveLocationRepository.getItemsAtLocation(e.getEntityId()))
-                            .map(Set::size)
-                            .orElse(0)
-                    : 0;
-
             Map<String, Object> result = switch (event) {
                 case ItemCreatedEvent e -> {
                     try {
@@ -719,12 +713,13 @@ public class EventProcessor {
                 }
 
                 case ChuteEmptyEvent e -> {
-                    // Correctly clear items from the chute location in Redis
-                    Set<String> items = liveLocationRepository.getItemsAtLocation(e.getEntityId());
+                    Set<String> items = Optional.ofNullable(liveLocationRepository.getItemsAtLocation(e.getEntityId()))
+                            .orElseGet(Set::of);
+                    long removedItems = 0;
                     for (String item : items) {
                         liveLocationRepository.removeItemFromLocation(e.getEntityId(), item);
                         liveItemRepository.deleteItem(item);
-
+                        removedItems++;
                     }
                     if (shouldBroadcast)
                         webSocketService.broadcastChuteEmptied(e.getEntityId(), e.getTimestamp());
@@ -733,7 +728,9 @@ public class EventProcessor {
                     if (manageLogic) {
                         itemMovementProcessor.wakeUpPrecedingConveyors(e.getEntityId());
                     }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                    yield Map.of(
+                            "status", "PROCESSED_SUCCESSFULLY",
+                            "itemsExited", removedItems);
                 }
 
                 case ConnectionLengthChangedEvent e -> {
@@ -837,7 +834,7 @@ public class EventProcessor {
                 }
             };
             if (shouldBroadcast) {
-                throughputBucketService.recordSuccessfulReduction(event, result, chuteItemsExited);
+                throughputBucketService.recordSuccessfulReduction(event, result);
             }
             return result;
         });

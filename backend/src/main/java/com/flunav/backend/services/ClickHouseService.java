@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -48,6 +50,7 @@ public class ClickHouseService {
     private static final Logger logger = LoggerFactory.getLogger(ClickHouseService.class);
     private final Client client;
     private final ObjectMapper objectMapper;
+    private final String clickhouseDatabase;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
             .withZone(ZoneOffset.UTC);
     private final LinkedBlockingDeque<DomainEvent> eventQueue = new LinkedBlockingDeque<>();
@@ -59,12 +62,14 @@ public class ClickHouseService {
             @Value("${clickhouse.password}") String password,
             ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.clickhouseDatabase = extractDatabase(clickhouseUrl);
         try {
             this.client = new Client.Builder()
                     .addEndpoint(clickhouseUrl)
                     .setUsername(username)
                     .setPassword(password)
                     .build();
+            ensureAnalyticsSchema();
             logger.info("ClickHouse Client V2 initialized successfully.");
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
@@ -186,6 +191,79 @@ public class ClickHouseService {
     public record EventPage(List<DomainEvent> events, EventPageCursor nextCursor, int rowCount) {
         public boolean hasMore(int pageSize) {
             return rowCount == pageSize && nextCursor != null;
+        }
+    }
+
+    /**
+     * Ensures persisted throughput data uses the bucket schema expected by the
+     * application. Legacy tables are archived rather than dropped so deployment can
+     * proceed without silently querying incompatible columns or destroying data.
+     */
+    private void ensureAnalyticsSchema() {
+        try {
+            String columnsSql = """
+                    SELECT name, type
+                    FROM system.columns
+                    WHERE database = {database:String}
+                      AND table = 'analytics_time_series'
+                    FORMAT JSONEachRow
+                    """;
+            Map<String, String> columns = new HashMap<>();
+            try (QueryResponse response = client.query(columnsSql, Map.of("database", clickhouseDatabase)).get();
+                    InputStream inputStream = response.getInputStream()) {
+                MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+                while (rows.hasNext()) {
+                    Map<String, Object> row = rows.next();
+                    columns.put(String.valueOf(row.get("name")), String.valueOf(row.get("type")));
+                }
+            }
+
+            boolean valid = columns.size() == 5
+                    && "DateTime64(3)".equals(columns.get("bucket_start"))
+                    && "UInt16".equals(columns.get("bucket_seconds"))
+                    && "UInt64".equals(columns.get("items_entered"))
+                    && "UInt64".equals(columns.get("items_exited"))
+                    && "UInt64".equals(columns.get("items_current"));
+
+            if (!columns.isEmpty() && !valid) {
+                String archive = "analytics_time_series_legacy_" + Instant.now().toEpochMilli();
+                client.query("RENAME TABLE " + clickhouseDatabase + ".analytics_time_series TO "
+                        + clickhouseDatabase + "." + archive).get();
+                logger.warn("Archived incompatible analytics table as {}.{}", clickhouseDatabase, archive);
+            }
+
+            if (!valid) {
+                client.query("""
+                        CREATE TABLE IF NOT EXISTS %s.analytics_time_series
+                        (
+                            bucket_start DateTime64(3),
+                            bucket_seconds UInt16,
+                            items_entered UInt64,
+                            items_exited UInt64,
+                            items_current UInt64
+                        )
+                        ENGINE = MergeTree()
+                        PARTITION BY toYYYYMM(bucket_start)
+                        ORDER BY (bucket_start, bucket_seconds)
+                        """.formatted(clickhouseDatabase)).get();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to initialize ClickHouse analytics schema", e);
+        }
+    }
+
+    private String extractDatabase(String clickhouseUrl) {
+        try {
+            String path = URI.create(clickhouseUrl).getPath();
+            String database = path == null || path.isBlank() || "/".equals(path)
+                    ? "default"
+                    : path.substring(path.lastIndexOf('/') + 1);
+            if (!database.matches("[A-Za-z0-9_]+")) {
+                throw new IllegalArgumentException("Invalid ClickHouse database name");
+            }
+            return database;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("ClickHouse URL must identify a valid database", e);
         }
     }
 
@@ -442,7 +520,7 @@ public class ClickHouseService {
                         sum(items_entered) as entered,
                         sum(items_exited) as exited,
                         argMax(items_current, bucket_start) as current
-                    FROM default.analytics_time_series
+                    FROM %s.analytics_time_series
                     WHERE bucket_start >= {from:DateTime64(3)}
                       AND bucket_start <= {to:DateTime64(3)}
                     GROUP BY ts
@@ -451,7 +529,7 @@ public class ClickHouseService {
                     SETTINGS
                         date_time_output_format = 'iso',
                         output_format_json_quote_64bit_integers = 0
-                """.formatted(normalizedBucketSeconds);
+                """.formatted(normalizedBucketSeconds, clickhouseDatabase);
 
         return CompletableFuture.supplyAsync(() -> {
             List<ThroughputMetric> metrics = new ArrayList<>();
@@ -475,7 +553,7 @@ public class ClickHouseService {
                 }
             } catch (Exception e) {
                 logger.error("Failed to fetch throughput history", e);
-                return new ArrayList<>();
+                throw new CompletionException("Failed to fetch throughput history", e);
             }
             return metrics;
         });
