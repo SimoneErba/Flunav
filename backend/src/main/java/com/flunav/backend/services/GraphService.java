@@ -4,6 +4,7 @@ import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.DisplayRuleColorResult;
+import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
@@ -99,17 +100,25 @@ public class GraphService {
             var customDisplayRules = this.displayRulesService.getDisplayRules();
 
             for (var item : activeItems) {
-                item.setCustomColor(
-                        this.displayRulesService.applyDisplayRules(item.getProperties(), customDisplayRules));
+                DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                        itemRootFields(item), item.getProperties(), customDisplayRules);
+                if (style != null) {
+                    item.setCustomColor(style.getFillColor());
+                    item.setCustomBorderColor(style.getBorderColor());
+                    item.setCustomBorderWidth(style.getBorderWidth());
+                }
             }
 
             for (var loc : topology.nodeMap.values()) {
-                loc.setCustomColor(this.displayRulesService.applyDisplayRules(loc.getProperties(), customDisplayRules));
+                DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                        locationRootFields(loc), loc.getProperties(), customDisplayRules);
+                loc.setCustomColor(style != null ? style.getFillColor() : null);
             }
 
             for (var conv : topology.conveyorMap.values()) {
-                conv.setCustomColor(
-                        this.displayRulesService.applyDisplayRules(conv.getProperties(), customDisplayRules));
+                DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                        conveyorRootFields(conv), conv.getProperties(), customDisplayRules);
+                conv.setCustomColor(style != null ? style.getFillColor() : null);
             }
 
             return new GraphData(
@@ -134,6 +143,7 @@ public class GraphService {
         // Cleanup is limited to live mode because simulation state must remain
         // replayable while future projections are still being built.
         Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
+        Map<String, Double> itemPriorities = fetchItemPriorities();
 
         List<RedisLiveItem> liveRawItems = redisRepository.getAllActiveItems();
 
@@ -179,6 +189,7 @@ public class GraphService {
 
                 if (simulatedItem != null) {
                     simulatedItem.setName(rawItem.getName());
+                    simulatedItem.setPriority(itemPriorities.get(id));
                     simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
                     simulatedItem.setDestinations(destinations);
                     simulatedItem.setSelectedExitId(selectedExitId);
@@ -191,6 +202,7 @@ public class GraphService {
                         ItemResponse finished = new ItemResponse();
                         finished.setId(id);
                         finished.setName(rawItem.getName());
+                        finished.setPriority(itemPriorities.get(id));
                         finished.setActive(false);
                         finished.setProgress(1.0);
                         finished.setCurrentEdgeId(positionId);
@@ -220,27 +232,35 @@ public class GraphService {
     public DisplayRuleColorResult computeColors(List<DisplayRule> rules) {
         Topology topology = fetchTopology();
 
-        Map<String, String> locationColors = topology.nodeMap.entrySet().stream()
-                .filter(e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules) != null)
+        Map<String, DisplayRuleVisualStyle> locationStyles = topology.nodeMap.entrySet().stream()
+                .filter(e -> fillStyle(displayRulesService.applyDisplayRules(
+                        locationRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
-                        e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules)));
+                        e -> fillStyle(displayRulesService.applyDisplayRules(
+                                locationRootFields(e.getValue()), e.getValue().getProperties(), rules))));
 
-        Map<String, String> conveyorColors = topology.conveyorMap.entrySet().stream()
-                .filter(e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules) != null)
+        Map<String, DisplayRuleVisualStyle> conveyorStyles = topology.conveyorMap.entrySet().stream()
+                .filter(e -> fillStyle(displayRulesService.applyDisplayRules(
+                        conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
-                        e -> displayRulesService.applyDisplayRules(e.getValue().getProperties(), rules)));
+                        e -> fillStyle(displayRulesService.applyDisplayRules(
+                                conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules))));
 
-        // Items need live state — fetch only IDs + properties, no physics calculation
         Map<String, Map<String, Object>> items = fetchItemProperties();
-        Map<String, String> itemColors = items.entrySet().stream()
-                .filter(e -> displayRulesService.applyDisplayRules(e.getValue(), rules) != null)
+        Map<String, Double> priorities = fetchItemPriorities();
+        Map<String, DisplayRuleVisualStyle> itemStyles = items.entrySet().stream()
+                .filter(e -> displayRulesService.applyDisplayRules(
+                        Map.of("id", e.getKey(), "priority", priorities.getOrDefault(e.getKey(), 0.0)),
+                        e.getValue(), rules) != null)
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
-                        e -> displayRulesService.applyDisplayRules(e.getValue(), rules)));
+                        e -> displayRulesService.applyDisplayRules(
+                                Map.of("id", e.getKey(), "priority", priorities.getOrDefault(e.getKey(), 0.0)),
+                                e.getValue(), rules)));
 
-        return new DisplayRuleColorResult(itemColors, locationColors, conveyorColors);
+        return new DisplayRuleColorResult(itemStyles, locationStyles, conveyorStyles);
     }
 
     private Map<String, Map<String, Object>> fetchItemProperties() {
@@ -403,6 +423,74 @@ public class GraphService {
         item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
         item.setActive(true);
         return item;
+    }
+
+    private Map<String, Double> fetchItemPriorities() {
+        Map<String, Double> priorities = new HashMap<>();
+        try (ODatabaseSession session = orientDBService.getSession()) {
+            if (session == null) {
+                return priorities;
+            }
+            try (OResultSet rs = session.query("SELECT customId, priority FROM Item")) {
+                while (rs != null && rs.hasNext()) {
+                    OResult result = rs.next();
+                    String id = result.getProperty("customId");
+                    Number priority = result.getProperty("priority");
+                    if (id != null && priority != null) {
+                        priorities.put(id, priority.doubleValue());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not fetch item priorities from OrientDB");
+        }
+        return priorities;
+    }
+
+    private Map<String, Object> itemRootFields(ItemResponse item) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", item.getId());
+        fields.put("name", item.getName());
+        fields.put("active", item.getActive());
+        fields.put("priority", item.getPriority());
+        fields.put("locationId", item.getLocationId());
+        fields.put("currentEdgeId", item.getCurrentEdgeId());
+        fields.put("entryTimestamp", item.getEntryTimestamp());
+        fields.put("progress", item.getProgress());
+        fields.put("routingStatus", item.getRoutingStatus());
+        return fields;
+    }
+
+    private Map<String, Object> locationRootFields(LocationResponse location) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", location.getId());
+        fields.put("name", location.getName());
+        fields.put("type", location.getType());
+        fields.put("active", location.getActive());
+        fields.put("capacity", location.getCapacity());
+        fields.put("latitude", location.getLatitude());
+        fields.put("longitude", location.getLongitude());
+        return fields;
+    }
+
+    private Map<String, Object> conveyorRootFields(ConveyorResponse conveyor) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", conveyor.getId());
+        fields.put("name", conveyor.getName());
+        fields.put("sourceId", conveyor.getSourceId());
+        fields.put("targetId", conveyor.getTargetId());
+        fields.put("length", conveyor.getLength());
+        fields.put("speed", conveyor.getSpeed());
+        fields.put("active", conveyor.getActive());
+        fields.put("mainPath", conveyor.getMainPath());
+        fields.put("capacity", conveyor.getCapacity());
+        return fields;
+    }
+
+    private DisplayRuleVisualStyle fillStyle(DisplayRuleVisualStyle style) {
+        return style == null || style.getFillColor() == null
+                ? null
+                : new DisplayRuleVisualStyle(style.getFillColor(), null, null);
     }
 
     private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {

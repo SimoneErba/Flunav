@@ -5,7 +5,7 @@ import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents"
 import { hashToNumber } from "../utils/graphUtils";
 import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
-import { getItemPriorityVisualAttributes, isHighPriorityItem } from "../utils/itemPriority";
+import { isHighPriorityItem } from "../utils/itemPriority";
 
 /**
  * Narrows websocket property values before applying them to graph coordinates.
@@ -259,6 +259,9 @@ export const useGraphLiveEvents = (
                 properties: item.properties,
                 isActive: item.active,
                 customColor: item.customColor,
+                customBorderColor: item.customBorderColor,
+                customBorderWidth: item.customBorderWidth,
+                priority: item.priority,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
                 currentEdgeId,
@@ -266,7 +269,8 @@ export const useGraphLiveEvents = (
                 routingStatus: item.routingStatus,
                 routingStatusUpdatedAt: item.routingStatusUpdatedAt,
                 path: item.path,
-                ...getItemPriorityVisualAttributes(item)
+                borderColor: item.customBorderColor || item.customColor || "#FF0000",
+                borderSize: item.customBorderWidth ?? 0,
             });
 
             const isConveyor = Boolean(currentEdgeId);
@@ -292,6 +296,9 @@ export const useGraphLiveEvents = (
                 entryTimestamp, 
                 progress: item.progress || 0,
                 customColor: item.customColor,
+                customBorderColor: item.customBorderColor,
+                customBorderWidth: item.customBorderWidth,
+                priority: item.priority,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
                 routingStatus: item.routingStatus,
@@ -333,10 +340,9 @@ export const useGraphLiveEvents = (
                 if (currentItem) {
                     const updatedItem = { ...currentItem, ...update.properties };
                     activeItemsRef.current.set(update.id, updatedItem);
-                    const priorityAttrs = getItemPriorityVisualAttributes(updatedItem);
-                    graph.setNodeAttribute(update.id, "highPriority", priorityAttrs.highPriority);
-                    graph.setNodeAttribute(update.id, "borderColor", priorityAttrs.borderColor);
-                    graph.setNodeAttribute(update.id, "borderSize", priorityAttrs.borderSize);
+                    graph.setNodeAttribute(update.id, "borderColor",
+                        updatedItem.customBorderColor || updatedItem.customColor || "#FF0000");
+                    graph.setNodeAttribute(update.id, "borderSize", updatedItem.customBorderWidth ?? 0);
                     graph.setNodeAttribute(update.id, "type", "borderedSquare");
                     refreshHighPriorityCount();
                 }

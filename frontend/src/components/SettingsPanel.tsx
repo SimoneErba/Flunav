@@ -130,7 +130,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   const addRule = () => {
     setRules(prev => [
       ...prev,
-      { _localId: `rule_${Date.now()}`, fieldName: '', dataType: DisplayRuleDataTypeEnum.String, operator: DisplayRuleOperatorEnum.Equal, value: '', color: '#ffffff' }
+      { _localId: `rule_${Date.now()}`, fieldName: '', dataType: DisplayRuleDataTypeEnum.String, operator: DisplayRuleOperatorEnum.Equal, value: '' }
     ]);
   };
 
@@ -153,7 +153,11 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
           dataType: r.dataType,
           operator: r.operator,
           value: r.value,
+          secondOperator: r.secondOperator,
+          secondValue: r.secondValue,
           color: r.color,
+          borderColor: r.borderColor,
+          borderWidth: r.borderWidth,
           priority: index + 1
         };
       });

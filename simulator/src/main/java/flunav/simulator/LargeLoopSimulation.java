@@ -134,9 +134,9 @@ class LargeLoopSimulation implements Simulation {
             attributes.put("weight", 0.5 + (random.nextDouble() * 20.0));
             attributes.put("length", 20 + random.nextInt(60));
             attributes.put("barcode", "L" + String.format("%09d", random.nextInt(1000000000)));
-            attributes.put("priority", random.nextBoolean() ? "HIGH" : "NORMAL");
+            double priority = random.nextBoolean() ? 1.0 : 0.0;
 
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.5, true, spawnPoint,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.5, priority, true, spawnPoint,
                     flunav.types.PositionType.LOCATION, 0.0, attributes), "POST");
 
             new Thread(() -> {

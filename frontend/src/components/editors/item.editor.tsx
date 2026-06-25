@@ -7,6 +7,7 @@ export interface ItemEditorData {
   id: string;
   label?: string;
   isActive?: boolean;
+  priority?: number;
   properties?: Record<string, unknown>;
   path?: string[];
   locationId?: string | null;
@@ -19,25 +20,30 @@ export interface ItemEditorData {
 interface ItemEditorProps {
   data: ItemEditorData;
   onClose: () => void;
-  onSubmit: (updatedData: { name: string; properties: Record<string, unknown> }) => void; 
+  onSubmit: (updatedData: { name: string; priority: number; properties: Record<string, unknown> }) => void;
   onDelete: (id: string) => void;
 }
 
 export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProps) => {
   // Master State
   const [name, setName] = useState(data.label || "");
+  const [priority, setPriority] = useState(data.priority ?? 0);
   const [properties, setProperties] = useState(data.properties || {});
 
   // Sync state if data prop changes (e.g. selection change)
   useEffect(() => {
     setName(data.label || "");
-    setProperties(data.properties || {});
+    setPriority(data.priority ?? 0);
+    setProperties(Object.fromEntries(
+      Object.entries(data.properties || {}).filter(([key]) => key.toLowerCase() !== "priority")
+    ));
   }, [data]);
 
   const handleSubmit = () => {
     // Single payload sent to parent
     onSubmit({
       name: name,
+      priority,
       properties: properties
     });
     // Optional: close on save, or stay open
@@ -82,6 +88,22 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
         />
       </div>
 
+      <div>
+        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+          Priority
+        </label>
+        <input
+          type="number"
+          min="0"
+          max="1"
+          step="0.01"
+          required
+          value={priority}
+          onChange={(event) => setPriority(Math.min(1, Math.max(0, Number(event.target.value))))}
+          className="w-full p-2 rounded border text-sm bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+        />
+      </div>
+
       {/* Status (Read Only) */}
       <div>
           <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
@@ -115,7 +137,8 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
       <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
         <PropertiesEditor 
           properties={properties} 
-          onChange={(newProps) => setProperties(newProps)} 
+          onChange={(newProps) => setProperties(newProps)}
+          reservedKeys={["priority"]}
         />
       </div>
 

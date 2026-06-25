@@ -11,6 +11,7 @@ import java.util.Map;
 public class ItemCreatedEvent extends EntityEvent {
     private final String name;
     private final Double speed;
+    private final Double priority;
     private final boolean active;
     private final String locationId;
     private final flunav.types.PositionType positionType;
@@ -20,19 +21,37 @@ public class ItemCreatedEvent extends EntityEvent {
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
             flunav.types.PositionType positionType, Double progress, Map<String, Object> properties) {
-        this(itemId, name, speed, active, locationId, positionType, progress, null, properties, null);
+        this(itemId, name, speed, 0.0, active, locationId, positionType, progress, null, properties, null);
     }
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
             flunav.types.PositionType positionType, Double progress, Map<String, Object> properties,
             Instant timestamp) {
-        this(itemId, name, speed, active, locationId, positionType, progress, null, properties, timestamp);
+        this(itemId, name, speed, 0.0, active, locationId, positionType, progress, null, properties, timestamp);
     }
 
     public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
             flunav.types.PositionType positionType, Double progress, List<String> destinations,
             Map<String, Object> properties) {
-        this(itemId, name, speed, active, locationId, positionType, progress, destinations, properties, null);
+        this(itemId, name, speed, 0.0, active, locationId, positionType, progress, destinations, properties, null);
+    }
+
+    public ItemCreatedEvent(String itemId, String name, Double speed, boolean active, String locationId,
+            flunav.types.PositionType positionType, Double progress, List<String> destinations,
+            Map<String, Object> properties, Instant timestamp) {
+        this(itemId, name, speed, 0.0, active, locationId, positionType, progress, destinations, properties, timestamp);
+    }
+
+    public ItemCreatedEvent(String itemId, String name, Double speed, Double priority, boolean active,
+            String locationId, flunav.types.PositionType positionType, Double progress,
+            Map<String, Object> properties) {
+        this(itemId, name, speed, priority, active, locationId, positionType, progress, null, properties, null);
+    }
+
+    public ItemCreatedEvent(String itemId, String name, Double speed, Double priority, boolean active,
+            String locationId, flunav.types.PositionType positionType, Double progress, List<String> destinations,
+            Map<String, Object> properties) {
+        this(itemId, name, speed, priority, active, locationId, positionType, progress, destinations, properties, null);
     }
 
     @JsonCreator
@@ -40,6 +59,7 @@ public class ItemCreatedEvent extends EntityEvent {
             @JsonProperty("entityId") String itemId,
             @JsonProperty("name") String name,
             @JsonProperty("speed") Double speed,
+            @JsonProperty("priority") Double priority,
             @JsonProperty("active") boolean active,
             @JsonProperty("locationId") String locationId,
             @JsonProperty("positionType") flunav.types.PositionType positionType,
@@ -50,6 +70,7 @@ public class ItemCreatedEvent extends EntityEvent {
         super(itemId, "ITEM_CREATED", timestamp);
         this.name = name;
         this.speed = speed;
+        this.priority = priority;
         this.active = active;
         this.locationId = locationId;
         this.positionType = positionType;

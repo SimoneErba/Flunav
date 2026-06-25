@@ -102,7 +102,7 @@ class MultiPath implements Simulation {
             attributes.put("depth", depth);
             attributes.put("barcode", barcode);
 
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "Entry", flunav.types.PositionType.LOCATION,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, 0.0, true, "Entry", flunav.types.PositionType.LOCATION,
                     0.0, attributes), "POST");
 
             if (destination != null) {

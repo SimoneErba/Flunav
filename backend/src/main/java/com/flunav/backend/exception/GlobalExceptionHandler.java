@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
@@ -24,9 +25,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(CompletionException.class)
     public ResponseEntity<Object> handleCompletionException(CompletionException ex) {
         Throwable cause = ex.getCause();
+        if (cause instanceof IllegalArgumentException illegalArgumentException) {
+            return handleIllegalArgumentException(illegalArgumentException);
+        }
         logger.error("Async Exception Occurred: {}", cause.getMessage(), cause);
         return buildErrorResponse(cause, "An unexpected error occurred during an asynchronous operation.",
                 HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Object> handleUnreadableRequest(HttpMessageNotReadableException ex) {
+        logger.warn("Request body could not be parsed: {}", ex.getMessage());
+        return buildErrorResponse(ex, "Request body contains an invalid value.", HttpStatus.BAD_REQUEST);
     }
 
     /**

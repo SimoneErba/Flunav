@@ -19,6 +19,7 @@ import flunav.events.DomainEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
 import flunav.events.ItemPathChangedEvent;
+import flunav.events.ItemPriorityUpdatedEvent;
 import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.events.ItemRenamedEvent;
 
@@ -59,11 +60,19 @@ public class ItemController {
     @BlockInDemo
     @PostMapping()
     public CompletableFuture<ResponseEntity<Map<String, Object>>> createItem(@RequestBody ItemInput item) {
+        try {
+            validatePriority(item.getPriority());
+            validateProperties(item.getProperties());
+        } catch (IllegalArgumentException e) {
+            logger.warn("Item creation validation failed for {}: {}", item.getId(), e.getMessage());
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+        }
 
         var event = new ItemCreatedEvent(
                 item.getId(),
                 item.getName(),
                 item.getSpeed(),
+                item.getPriority(),
                 item.getActive(),
                 item.getLocationId(),
                 item.getPositionType(),
@@ -104,11 +113,17 @@ public class ItemController {
 
                     @SuppressWarnings("unchecked")
                     Map<String, Object> props = (Map<String, Object>) value;
+                    validateProperties(props);
                     events.add(new ItemPropertiesUpdatedEvent(id, props));
                 } else {
                     logger.warn("Invalid type for 'properties' on item {}", id);
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
+            }
+
+            if (updates.containsKey("priority")) {
+                Double priority = validatePriority(updates.get("priority"));
+                events.add(new ItemPriorityUpdatedEvent(id, priority));
             }
 
             if (updates.containsKey("path")) {
@@ -170,6 +185,24 @@ public class ItemController {
             throw new IllegalArgumentException("Path must be a list of strings.");
         }
         return itemService.validatePath(rawPath.stream().map(String.class::cast).toList());
+    }
+
+    private Double validatePriority(Object value) {
+        if (!(value instanceof Number number)) {
+            throw new IllegalArgumentException("priority must be a number");
+        }
+        double priority = number.doubleValue();
+        if (!Double.isFinite(priority) || priority < 0.0 || priority > 1.0) {
+            throw new IllegalArgumentException("priority must be finite and between 0.0 and 1.0");
+        }
+        return priority;
+    }
+
+    private void validateProperties(Map<String, Object> properties) {
+        if (properties != null
+                && properties.keySet().stream().anyMatch(key -> key != null && key.equalsIgnoreCase("priority"))) {
+            throw new IllegalArgumentException("priority is a top-level item field");
+        }
     }
 
     @BlockInDemo

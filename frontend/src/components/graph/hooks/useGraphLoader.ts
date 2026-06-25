@@ -3,7 +3,7 @@ import { useLoadGraph, useSigma } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { GraphData, ConveyorResponse, ItemResponse, DisplayRuleColorResult } from "../../../api-client/api";
 import { hashToNumber } from "../utils/graphUtils";
-import { getItemPriorityVisualAttributes, isHighPriorityItem } from "../utils/itemPriority";
+import { isHighPriorityItem } from "../utils/itemPriority";
 
 export const useGraphLoader = (
     initialGraphData: GraphData,
@@ -119,8 +119,9 @@ export const useGraphLoader = (
                 destinations: item.destinations, selectedExitId: item.selectedExitId,
                 routingStatus: item.routingStatus,
                 routingStatusUpdatedAt: item.routingStatusUpdatedAt,
-                isActive: item.active, customColor: item.customColor,
-                ...getItemPriorityVisualAttributes(item),
+                isActive: item.active, priority: item.priority, customColor: item.customColor,
+                borderColor: item.customBorderColor || item.customColor || "#FF0000",
+                borderSize: item.customBorderWidth ?? 0,
             });
         });
 
@@ -146,16 +147,22 @@ export const useGraphLoader = (
         graph.forEachNode((nodeId, attrs) => {
             if (attrs.isItem) {
                 // Item node — patch color + update ref
-                const newColor = colorOverrides.itemColors?.[nodeId];
-                const color = newColor ?? attrs.customColor ?? "#FF0000";
+                const style = colorOverrides.itemStyles?.[nodeId];
+                const color = style?.fillColor ?? attrs.customColor ?? "#FF0000";
                 graph.setNodeAttribute(nodeId, "color", color);
+                graph.setNodeAttribute(nodeId, "borderColor", style?.borderColor ?? color);
+                graph.setNodeAttribute(nodeId, "borderSize", style?.borderWidth ?? 0);
 
                 // Keep the ref in sync so the animation loop sees the new color
                 const item = activeItemsRef.current.get(nodeId);
-                if (item) item.customColor = newColor ?? null;
+                if (item) {
+                    item.customColor = style?.fillColor ?? null;
+                    item.customBorderColor = style?.borderColor ?? null;
+                    item.customBorderWidth = style?.borderWidth ?? null;
+                }
             } else {
                 // Location node
-                const newColor = colorOverrides.locationColors?.[nodeId];
+                const newColor = colorOverrides.locationStyles?.[nodeId]?.fillColor;
                 const color = newColor ?? attrs.customColor ?? "#69b3a2";
                 graph.setNodeAttribute(nodeId, "color", color);
             }
@@ -163,7 +170,7 @@ export const useGraphLoader = (
 
         // Patch conveyor edge colors
         graph.forEachEdge((edgeId, attrs) => {
-            const newColor = colorOverrides.conveyorColors?.[edgeId];
+            const newColor = colorOverrides.conveyorStyles?.[edgeId]?.fillColor;
             if (newColor !== undefined) {
                 graph.setEdgeAttribute(edgeId, "color", newColor);
                 graph.setEdgeAttribute(edgeId, "originalColor", newColor);

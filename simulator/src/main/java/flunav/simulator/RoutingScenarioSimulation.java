@@ -175,13 +175,14 @@ abstract class RoutingScenarioSimulation implements Simulation {
         properties.put("scenario", topology.name());
         properties.put("trafficClass", trafficClass);
         properties.put("weightKg", Math.round((4.0 + propertyRandom.nextDouble() * 28.0) * 100.0) / 100.0);
-        properties.put("priority", propertyRandom.nextInt(5) == 0 ? "EXPEDITE" : "STANDARD");
+        double priority = propertyRandom.nextInt(5) == 0 ? 1.0 : 0.0;
         properties.put("barcode", topology.itemPrefix() + String.format("%08d", propertyRandom.nextInt(100_000_000)));
 
         SimulatorUtils.sendEvent(new ItemCreatedEvent(
                 itemId,
                 itemId,
                 1.6,
+                priority,
                 true,
                 entry,
                 PositionType.LOCATION,

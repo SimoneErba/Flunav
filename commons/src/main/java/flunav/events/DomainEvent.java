@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ItemPathChangedEvent.class, name = "ITEM_PATH_CHANGED"),
         @JsonSubTypes.Type(value = ItemPositionChangedEvent.class, name = "ITEM_POSITION_CHANGED"),
         @JsonSubTypes.Type(value = ItemPositionDeletedEvent.class, name = "ITEM_POSITION_DELETED"),
+        @JsonSubTypes.Type(value = ItemPriorityUpdatedEvent.class, name = "ITEM_PRIORITY_UPDATED"),
         @JsonSubTypes.Type(value = ItemPropertiesUpdatedEvent.class, name = "ITEM_PROPERTIES_UPDATED"),
         @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"),
         @JsonSubTypes.Type(value = ItemRoutingDecisionRequestedEvent.class, name = "ITEM_ROUTING_DECISION_REQUESTED"),

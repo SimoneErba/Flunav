@@ -21,6 +21,8 @@ public class Item {
     private String name;
 
     private boolean active;
+    @Setter
+    private Double priority;
     private Map<String, Object> properties;
 
     @Setter
@@ -51,9 +53,14 @@ public class Item {
     private Double currentProgress;
 
     public Item(String id, String name, boolean active, Map<String, Object> properties) {
+        this(id, name, active, 0.0, properties);
+    }
+
+    public Item(String id, String name, boolean active, Double priority, Map<String, Object> properties) {
         this.id = id;
         this.name = name;
         this.active = active;
+        this.priority = priority;
         this.properties = properties;
     }
 
@@ -61,6 +68,7 @@ public class Item {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.active = event.isActive();
+        this.priority = event.getPriority();
         this.properties = event.getProperties();
     }
 

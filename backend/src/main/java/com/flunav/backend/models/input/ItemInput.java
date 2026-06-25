@@ -1,6 +1,9 @@
 package com.flunav.backend.models.input;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -16,6 +19,10 @@ public class ItemInput {
     private String id;
     private String name;
     private Double speed;
+    @NotNull
+    @DecimalMin("0.0")
+    @DecimalMax("1.0")
+    private Double priority;
     private Boolean active;
     private String locationId;
     private flunav.types.PositionType positionType;
@@ -39,6 +46,7 @@ public class ItemInput {
         this.id = event.getEntityId();
         this.name = event.getName();
         this.speed = event.getSpeed();
+        this.priority = event.getPriority();
         this.active = event.isActive();
         this.locationId = event.getLocationId();
         this.positionType = event.getPositionType();

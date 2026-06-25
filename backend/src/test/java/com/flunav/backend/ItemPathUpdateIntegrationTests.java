@@ -37,6 +37,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 
 @SpringBootTest(properties = {
@@ -114,6 +115,7 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
         item.setId(itemId);
         item.setName("Path Item");
         item.setActive(true);
+        item.setPriority(0.0);
         item.setLocationId(pathA);
         item.setPositionType(PositionType.LOCATION);
         item.setDestinations(List.of("path-destination"));
@@ -203,8 +205,52 @@ class ItemPathUpdateIntegrationTests extends BaseIntegrationTest {
         assertEquals(List.of(pathA, pathB), restoredPathEvent.getPath());
     }
 
+    @Test
+    void itemPriorityUpdateRequiresTopLevelFiniteRangeAndRejectsPropertyCollision() throws Exception {
+        assertEquals(400, performPut("/api/items/" + itemId, "{\"priority\":\"HIGH\"}").getStatus());
+        assertEquals(400, performPut("/api/items/" + itemId, "{\"priority\":1.01}").getStatus());
+        assertEquals(400, performPut("/api/items/" + itemId, "{\"properties\":{\"Priority\":0.5}}").getStatus());
+
+        MockHttpServletResponse response = performPut("/api/items/" + itemId, "{\"priority\":0.65}");
+
+        assertEquals(200, response.getStatus());
+        assertEquals(0.65, itemService.getItemById(itemId).getPriority());
+    }
+
+    @Test
+    void itemCreationRequiresValidTopLevelPriority() throws Exception {
+        String base = "{\"id\":\"%s\",\"name\":\"Priority Item\",\"active\":true,"
+                + "\"locationId\":\"%s\",\"positionType\":\"LOCATION\",\"properties\":{}}";
+        assertEquals(400, performPost("/api/items", base.formatted("missing-priority", pathA)).getStatus());
+        assertEquals(400, performPost("/api/items",
+                base.formatted("string-priority", pathA).replace("\"properties\":{}",
+                        "\"priority\":\"HIGH\",\"properties\":{}")).getStatus());
+        assertEquals(400, performPost("/api/items",
+                base.formatted("property-priority", pathA).replace("\"properties\":{}",
+                        "\"priority\":0.5,\"properties\":{\"priority\":0.5}")).getStatus());
+
+        MockHttpServletResponse response = performPost("/api/items",
+                base.formatted("valid-priority", pathA).replace("\"properties\":{}",
+                        "\"priority\":0.5,\"properties\":{}"));
+
+        assertEquals(201, response.getStatus());
+        assertEquals(0.5, itemService.getItemById("valid-priority").getPriority());
+    }
+
     private MockHttpServletResponse performPut(String path, String body) throws Exception {
         MvcResult result = mockMvc.perform(put(path)
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andReturn();
+        if (result.getRequest().isAsyncStarted()) {
+            result = mockMvc.perform(asyncDispatch(result)).andReturn();
+        }
+        return result.getResponse();
+    }
+
+    private MockHttpServletResponse performPost(String path, String body) throws Exception {
+        MvcResult result = mockMvc.perform(post(path)
                         .header("Authorization", authorization)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))

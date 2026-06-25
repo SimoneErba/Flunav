@@ -4,11 +4,12 @@ import toast from "react-hot-toast";
 interface PropertiesEditorProps {
   properties: Record<string, unknown>;
   onChange: (updatedProperties: Record<string, unknown>) => void;
+  reservedKeys?: string[];
 }
 
 type PropertyType = "text" | "number" | "boolean" | "datetime";
 
-export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditorProps) => {
+export const PropertiesEditor = ({ properties = {}, onChange, reservedKeys = [] }: PropertiesEditorProps) => {
   // State for adding new property
   const [isAdding, setIsAdding] = useState(false);
   const [newKey, setNewKey] = useState("");
@@ -59,6 +60,10 @@ export const PropertiesEditor = ({ properties = {}, onChange }: PropertiesEditor
     }
     if (Object.prototype.hasOwnProperty.call(properties, newKey)) {
       toast.error("Key already exists");
+      return;
+    }
+    if (reservedKeys.some(key => key.toLowerCase() === newKey.trim().toLowerCase())) {
+      toast.error(`${newKey.trim()} is a dedicated field`);
       return;
     }
 

@@ -11,9 +11,9 @@ interface RuleRowProps {
 
 const validOperators: Record<NonNullable<DisplayRuleDataTypeEnum>, Array<DisplayRuleOperatorEnum>> = {
   STRING: [DisplayRuleOperatorEnum.Equal],
-  NUMBER: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.Lesser],
+  NUMBER: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.GreaterOrEqual, DisplayRuleOperatorEnum.Lesser, DisplayRuleOperatorEnum.LesserOrEqual],
   BOOLEAN: [DisplayRuleOperatorEnum.Equal],
-  DATETIME: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.Lesser],
+  DATETIME: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.GreaterOrEqual, DisplayRuleOperatorEnum.Lesser, DisplayRuleOperatorEnum.LesserOrEqual],
 };
 
 const InputWrapper: React.FC<{
@@ -47,7 +47,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
       defaultValue = 0;
     }
 
-    onChange({ ...rule, dataType: newType, operator, value: defaultValue });
+    onChange({ ...rule, dataType: newType, operator, value: defaultValue, secondOperator: undefined, secondValue: undefined });
   };
 
   const renderValueInput = () => {
@@ -79,10 +79,12 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
   const availableOperators = rule.dataType ? validOperators[rule.dataType] : [];
   const showOperatorSelect = rule.dataType && rule.dataType !== DisplayRuleDataTypeEnum.String && rule.dataType !== DisplayRuleDataTypeEnum.Boolean;
   const showValue = !!rule.operator;
+  const supportsRange = rule.dataType === DisplayRuleDataTypeEnum.Number
+    || rule.dataType === DisplayRuleDataTypeEnum.Datetime;
 
   // Order: drag | field | color | type | operator | value | delete
   const layoutClasses = orientation === 'horizontal'
-    ? 'grid grid-cols-[auto_1fr_auto_1fr_1fr_1fr_auto] gap-2 items-start'
+    ? 'grid grid-cols-[auto_1fr_auto_1fr_1fr_1fr_1fr_1fr_auto_auto_auto] gap-2 items-start'
     : 'flex flex-col gap-2';
 
   // -- Vertical Collapsed View --
@@ -141,7 +143,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
         <div className="relative w-10 h-10 flex items-center justify-center">
           <div
             className="w-8 h-8 rounded-full border border-gray-500"
-            style={{ backgroundColor: rule.color }}
+            style={{ backgroundColor: rule.color || "transparent" }}
           />
           <input
             type="color"
@@ -151,6 +153,9 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
             title="Select color"
           />
         </div>
+        <button type="button" onClick={() => onChange({ ...rule, color: undefined })} className="text-[10px] text-gray-400">
+          No fill
+        </button>
       </InputWrapper>
 
       {/* 3. Type */}
@@ -186,7 +191,61 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
         {showValue ? renderValueInput() : <div className="h-10 w-full" />}
       </InputWrapper>
 
-      {/* 6. Delete */}
+      <InputWrapper label="Second Op" orientation={orientation}>
+        {supportsRange ? (
+          <select
+            value={rule.secondOperator || ""}
+            onChange={event => onChange({
+              ...rule,
+              secondOperator: event.target.value
+                ? event.target.value as DisplayRuleOperatorEnum
+                : undefined,
+              secondValue: event.target.value ? rule.secondValue ?? 0 : undefined,
+            })}
+            className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+          >
+            <option value="">None</option>
+            {availableOperators.filter(operator => operator !== DisplayRuleOperatorEnum.Equal)
+              .map(operator => <option key={operator} value={operator}>{operator}</option>)}
+          </select>
+        ) : <div className="h-10" />}
+      </InputWrapper>
+
+      <InputWrapper label="Second Value" orientation={orientation}>
+        {rule.secondOperator ? (
+          <input
+            type={rule.dataType === DisplayRuleDataTypeEnum.Number ? "number" : "date"}
+            value={String(rule.secondValue ?? "")}
+            onChange={event => onChange({ ...rule, secondValue: event.target.value })}
+            className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+          />
+        ) : <div className="h-10" />}
+      </InputWrapper>
+
+      <InputWrapper label="Border" orientation={orientation}>
+        <input
+          type="color"
+          value={rule.borderColor || "#000000"}
+          onChange={event => onChange({ ...rule, borderColor: event.target.value, borderWidth: rule.borderWidth ?? 1 })}
+          className="w-10 h-10 cursor-pointer"
+        />
+        <button type="button" onClick={() => onChange({ ...rule, borderColor: undefined, borderWidth: undefined })} className="text-[10px] text-gray-400">
+          No border
+        </button>
+      </InputWrapper>
+
+      <InputWrapper label="Width" orientation={orientation}>
+        <input
+          type="number"
+          min="0"
+          step="0.5"
+          disabled={!rule.borderColor}
+          value={rule.borderWidth ?? ""}
+          onChange={event => onChange({ ...rule, borderWidth: Number(event.target.value) })}
+          className="w-20 p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+        />
+      </InputWrapper>
+
       <div className="flex items-center justify-end h-full">
         <button onClick={onDelete} className="p-2 h-10 rounded bg-red-900/50 hover:bg-red-900/80 text-red-300 transition-colors">
           🗑️

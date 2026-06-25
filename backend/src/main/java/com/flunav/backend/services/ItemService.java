@@ -160,6 +160,7 @@ public class ItemService {
                         itemVertex.setProperty("customId", itemInput.getId());
                         itemVertex.setProperty("name", itemInput.getName());
                         itemVertex.setProperty("active", itemInput.getActive());
+                        itemVertex.setProperty("priority", itemInput.getPriority());
                         itemVertex.setProperty("properties", itemInput.getProperties());
 
                         itemVertex.save();
@@ -305,6 +306,7 @@ public class ItemService {
             if (itemVertex != null) {
                 itemVertex.setProperty("name", item.getName());
                 itemVertex.setProperty("active", item.isActive());
+                itemVertex.setProperty("priority", item.getPriority());
                 itemVertex.setProperty("properties", item.getProperties());
 
                 itemVertex.save();
@@ -360,6 +362,7 @@ public class ItemService {
                 vertex.getProperty("customId"),
                 vertex.getProperty("name"),
                 vertex.getProperty("active"),
+                vertex.getProperty("priority"),
                 vertex.getProperty("properties"));
     }
 

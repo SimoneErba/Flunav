@@ -4,6 +4,7 @@ import flunav.types.DataType;
 import flunav.types.DisplayRule;
 import flunav.types.OperatorType;
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -23,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -53,29 +53,55 @@ public class DisplayRulesService {
         return REDIS_KEY_PREFIX;
     }
 
-    public boolean applies(Map<String, Object> properties, DisplayRule rule) {
+    public boolean applies(Map<String, Object> rootFields, Map<String, Object> properties, DisplayRule rule) {
         if (rule == null) {
             return false;
         }
-        return RuleActivationEvaluator.isActive(properties, rule.getFieldName(), rule.getDataType(),
-                rule.getOperator(), rule.getValue());
+        boolean first = RuleActivationEvaluator.isActive(rootFields, properties, rule.getFieldName(),
+                rule.getDataType(), rule.getOperator(), rule.getValue());
+        return first && (rule.getSecondOperator() == null
+                || RuleActivationEvaluator.isActive(rootFields, properties, rule.getFieldName(),
+                        rule.getDataType(), rule.getSecondOperator(), rule.getSecondValue()));
     }
 
-    public String applyDisplayRules(
+    public DisplayRuleVisualStyle applyDisplayRules(
+            Map<String, Object> rootFields,
             Map<String, Object> properties,
             List<DisplayRule> rules) {
 
-        if (properties == null || rules == null || rules.isEmpty()) {
+        if (rules == null || rules.isEmpty()) {
             return null;
         }
 
-        return rules.stream()
-                .sorted(Comparator.comparingInt(DisplayRule::getPriority))
-                .filter(rule -> applies(properties, rule))
-                .map(DisplayRule::getColor)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+        String fillColor = null;
+        String borderColor = null;
+        Double borderWidth = null;
+        for (DisplayRule rule : rules.stream()
+                .sorted(Comparator.comparingInt(rule -> rule.getPriority() != null ? rule.getPriority() : 0))
+                .toList()) {
+            if (!applies(rootFields, properties, rule)) {
+                continue;
+            }
+            if (fillColor == null && rule.getColor() != null && !rule.getColor().isBlank()) {
+                fillColor = rule.getColor();
+            }
+            if (borderColor == null && borderWidth == null
+                    && rule.getBorderColor() != null && !rule.getBorderColor().isBlank()
+                    && rule.getBorderWidth() != null) {
+                borderColor = rule.getBorderColor();
+                borderWidth = rule.getBorderWidth();
+            }
+            if (fillColor != null && borderColor != null) {
+                break;
+            }
+        }
+        return fillColor == null && borderColor == null
+                ? null
+                : new DisplayRuleVisualStyle(fillColor, borderColor, borderWidth);
+    }
+
+    public DisplayRuleVisualStyle applyDisplayRules(Map<String, Object> properties, List<DisplayRule> rules) {
+        return applyDisplayRules(Map.of(), properties, rules);
     }
 
     public List<DisplayRule> getDisplayRules() {
@@ -107,6 +133,9 @@ public class DisplayRulesService {
                     rules = ruleDocs.stream().map(this::toDisplayRule).collect(Collectors.toList());
                 }
             }
+            if (rules.isEmpty()) {
+                rules = defaultPriorityRules();
+            }
 
             // 3. Update Cache
             try {
@@ -121,6 +150,7 @@ public class DisplayRulesService {
     }
 
     public void updateDisplayRules(List<DisplayRule> rules) {
+        validateRules(rules);
         // 1. Update DB
         orientDBService.withTransaction(session -> {
             // Delete existing rules
@@ -150,7 +180,11 @@ public class DisplayRulesService {
         doc.setProperty("dataType", rule.getDataType());
         doc.setProperty("operator", rule.getOperator());
         doc.setProperty("value", rule.getValue());
+        doc.setProperty("secondOperator", rule.getSecondOperator());
+        doc.setProperty("secondValue", rule.getSecondValue());
         doc.setProperty("color", rule.getColor());
+        doc.setProperty("borderColor", rule.getBorderColor());
+        doc.setProperty("borderWidth", rule.getBorderWidth());
         doc.setProperty("priority", rule.getPriority());
         return doc;
     }
@@ -165,9 +199,105 @@ public class DisplayRulesService {
         String opStr = doc.getProperty("operator");
         rule.setOperator(typeStr == null ? OperatorType.EQUAL : OperatorType.fromString(opStr));
         rule.setValue(doc.getProperty("value"));
+        String secondOpStr = doc.getProperty("secondOperator");
+        rule.setSecondOperator(secondOpStr == null ? null : OperatorType.fromString(secondOpStr));
+        rule.setSecondValue(doc.getProperty("secondValue"));
         rule.setColor(doc.getProperty("color"));
+        rule.setBorderColor(doc.getProperty("borderColor"));
+        Number borderWidth = doc.getProperty("borderWidth");
+        rule.setBorderWidth(borderWidth == null ? null : borderWidth.doubleValue());
         rule.setPriority(doc.getProperty("priority"));
         return rule;
     }
 
+    private void validateRules(List<DisplayRule> rules) {
+        if (rules == null) {
+            throw new IllegalArgumentException("display rules are required");
+        }
+        for (DisplayRule rule : rules) {
+            if (rule == null || rule.getFieldName() == null || rule.getFieldName().isBlank()
+                    || rule.getDataType() == null || rule.getOperator() == null || rule.getValue() == null) {
+                throw new IllegalArgumentException("display rule field, type, operator, and value are required");
+            }
+            validateRange(rule.getDataType(), rule.getOperator(), rule.getSecondOperator(), rule.getSecondValue());
+            validateOperator(rule.getDataType(), rule.getOperator());
+            validateComparableValue(rule.getDataType(), rule.getValue());
+            if (rule.getSecondValue() != null) {
+                validateComparableValue(rule.getDataType(), rule.getSecondValue());
+            }
+            if ((rule.getBorderColor() == null) != (rule.getBorderWidth() == null)) {
+                throw new IllegalArgumentException("borderColor and borderWidth must be supplied together");
+            }
+            if (rule.getBorderWidth() != null
+                    && (!Double.isFinite(rule.getBorderWidth()) || rule.getBorderWidth() < 0.0)) {
+                throw new IllegalArgumentException("borderWidth must be finite and non-negative");
+            }
+        }
+    }
+
+    static void validateRange(DataType dataType, OperatorType firstOperator, OperatorType secondOperator,
+            Object secondValue) {
+        if (secondOperator == null && secondValue == null) {
+            return;
+        }
+        if (secondOperator == null || secondValue == null) {
+            throw new IllegalArgumentException("secondOperator and secondValue must be supplied together");
+        }
+        if (dataType != DataType.NUMBER && dataType != DataType.DATETIME) {
+            throw new IllegalArgumentException("second conditions require NUMBER or DATETIME");
+        }
+        boolean firstLower = firstOperator == OperatorType.GREATER
+                || firstOperator == OperatorType.GREATER_OR_EQUAL;
+        boolean firstUpper = firstOperator == OperatorType.LESSER
+                || firstOperator == OperatorType.LESSER_OR_EQUAL;
+        boolean secondLower = secondOperator == OperatorType.GREATER
+                || secondOperator == OperatorType.GREATER_OR_EQUAL;
+        boolean secondUpper = secondOperator == OperatorType.LESSER
+                || secondOperator == OperatorType.LESSER_OR_EQUAL;
+        if (!(firstLower && secondUpper || firstUpper && secondLower)) {
+            throw new IllegalArgumentException("range operators must use opposite directions");
+        }
+    }
+
+    private void validateOperator(DataType dataType, OperatorType operator) {
+        if ((dataType == DataType.STRING || dataType == DataType.BOOLEAN) && operator != OperatorType.EQUAL) {
+            throw new IllegalArgumentException("operator must be EQUAL for " + dataType);
+        }
+    }
+
+    private void validateComparableValue(DataType dataType, Object value) {
+        try {
+            switch (dataType) {
+                case NUMBER -> {
+                    double number = Double.parseDouble(value.toString());
+                    if (!Double.isFinite(number)) {
+                        throw new IllegalArgumentException("numeric rule value must be finite");
+                    }
+                }
+                case BOOLEAN -> {
+                    if (!"true".equalsIgnoreCase(value.toString())
+                            && !"false".equalsIgnoreCase(value.toString())) {
+                        throw new IllegalArgumentException("boolean rule value must be true or false");
+                    }
+                }
+                case DATETIME -> java.time.Instant.parse(value.toString());
+                case STRING -> {
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("display rule value is invalid for " + dataType, e);
+        }
+    }
+
+    private List<DisplayRule> defaultPriorityRules() {
+        return List.of(
+                new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.0,
+                        OperatorType.LESSER, 0.4, null, "#3b82f6", 1.0, 1),
+                new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.4,
+                        OperatorType.LESSER, 0.8, null, "#f97316", 2.0, 2),
+                new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.8,
+                        OperatorType.LESSER_OR_EQUAL, 1.0, null, "#facc15", 3.0, 3));
+    }
 }

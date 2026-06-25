@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             id String,
             name Nullable(String),
             active Nullable(Bool),
+            priority Float64,
             properties JSON,
             locationId Nullable(String),
             currentEdgeId Nullable(String),
@@ -45,7 +46,9 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             routingStatus Nullable(String),
             routingStatusUpdatedAt Nullable(String),
             path Variant(Array(String), Nothing),
-            customColor Nullable(String)
+            customColor Nullable(String),
+            customBorderColor Nullable(String),
+            customBorderWidth Nullable(Float64)
         ))
     )
 )
@@ -88,6 +91,7 @@ ALTER TABLE default.snapshots
             id String,
             name Nullable(String),
             active Nullable(Bool),
+            priority Float64,
             properties JSON,
             locationId Nullable(String),
             currentEdgeId Nullable(String),
@@ -98,6 +102,8 @@ ALTER TABLE default.snapshots
             routingStatus Nullable(String),
             routingStatusUpdatedAt Nullable(String),
             path Variant(Array(String), Nothing),
-            customColor Nullable(String)
+            customColor Nullable(String),
+            customBorderColor Nullable(String),
+            customBorderWidth Nullable(Float64)
         ))
     );

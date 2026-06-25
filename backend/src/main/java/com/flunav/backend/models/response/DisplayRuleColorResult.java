@@ -9,7 +9,7 @@ import java.util.Map;
 @AllArgsConstructor
 @NoArgsConstructor
 public class DisplayRuleColorResult {
-    private Map<String, String> itemColors;
-    private Map<String, String> locationColors;
-    private Map<String, String> conveyorColors;
+    private Map<String, DisplayRuleVisualStyle> itemStyles;
+    private Map<String, DisplayRuleVisualStyle> locationStyles;
+    private Map<String, DisplayRuleVisualStyle> conveyorStyles;
 }

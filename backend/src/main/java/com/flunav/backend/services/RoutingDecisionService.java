@@ -5,7 +5,6 @@ import com.flunav.backend.domain.Item;
 import com.flunav.backend.domain.Location;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
-import com.flunav.backend.utils.PriorityScoreUtils;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -495,7 +494,7 @@ public class RoutingDecisionService {
     }
 
     private double priorityScore(Item item) {
-        return item == null ? 0.0 : PriorityScoreUtils.priorityScore(item.getProperties());
+        return item == null || item.getPriority() == null ? 0.0 : item.getPriority();
     }
 
     /**

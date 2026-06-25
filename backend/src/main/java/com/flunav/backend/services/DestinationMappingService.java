@@ -57,6 +57,8 @@ public class DestinationMappingService {
                         record.getDataType(),
                         record.getOperator(),
                         record.getValue().trim(),
+                        record.getSecondOperator(),
+                        trimToNull(record.getSecondValue()),
                         record.getDestinations(),
                         record.getValidFrom(),
                         record.getValidTo(),
@@ -91,14 +93,16 @@ public class DestinationMappingService {
                         value.dataType(),
                         value.operator(),
                         value.value(),
+                        value.secondOperator(),
+                        value.secondValue(),
                         value.destinations(),
                         value.validFrom(),
                         value.validTo()))
                 .toList();
     }
 
-    public List<String> resolveDestinations(Map<String, Object> properties, Instant now) {
-        if (properties == null || properties.isEmpty()) {
+    public List<String> resolveDestinations(Map<String, Object> rootFields, Map<String, Object> properties, Instant now) {
+        if ((rootFields == null || rootFields.isEmpty()) && (properties == null || properties.isEmpty())) {
             return List.of();
         }
 
@@ -111,7 +115,7 @@ public class DestinationMappingService {
         LinkedHashSet<String> resolvedDestinations = new LinkedHashSet<>();
         for (DestinationMappingValue mapping : mappings) {
             if (effectiveNow.isBefore(mapping.validFrom()) || effectiveNow.isAfter(mapping.validTo())
-                    || !applies(properties, mapping)) {
+                    || !applies(rootFields, properties, mapping)) {
                 continue;
             }
 
@@ -119,6 +123,10 @@ public class DestinationMappingService {
         }
 
         return List.copyOf(resolvedDestinations);
+    }
+
+    public List<String> resolveDestinations(Map<String, Object> properties, Instant now) {
+        return resolveDestinations(Map.of(), properties, now);
     }
 
     public List<String> resolveDestinations(String fieldName, String fieldValue, Instant now) {
@@ -160,12 +168,18 @@ public class DestinationMappingService {
             }
             validateOperator(dataType, operator);
             validateComparableValue(dataType, record.getValue());
+            DisplayRulesService.validateRange(dataType, operator, record.getSecondOperator(), record.getSecondValue());
+            if (record.getSecondValue() != null) {
+                validateComparableValue(dataType, record.getSecondValue());
+            }
 
             String logicalRow = String.join("|",
                     fieldName.trim(),
                     dataType.name(),
                     operator.name(),
                     record.getValue().trim(),
+                    record.getSecondOperator() == null ? "" : record.getSecondOperator().name(),
+                    trimToNull(record.getSecondValue()) == null ? "" : trimToNull(record.getSecondValue()),
                     record.getValidFrom().toString(),
                     record.getValidTo().toString());
             if (!logicalRows.add(logicalRow)) {
@@ -176,6 +190,8 @@ public class DestinationMappingService {
                     dataType,
                     operator,
                     record.getValue().trim(),
+                    record.getSecondOperator(),
+                    trimToNull(record.getSecondValue()),
                     destinations,
                     record.getValidFrom(),
                     record.getValidTo()));
@@ -205,9 +221,13 @@ public class DestinationMappingService {
         redis.delete(List.of(tableKey(), indexKey()));
     }
 
-    private boolean applies(Map<String, Object> properties, DestinationMappingValue mapping) {
-        return RuleActivationEvaluator.isActive(properties, mapping.fieldName(), mapping.dataType(),
-                mapping.operator(), mapping.value());
+    private boolean applies(Map<String, Object> rootFields, Map<String, Object> properties,
+            DestinationMappingValue mapping) {
+        boolean first = RuleActivationEvaluator.isActive(rootFields, properties, mapping.fieldName(),
+                mapping.dataType(), mapping.operator(), mapping.value());
+        return first && (mapping.secondOperator() == null
+                || RuleActivationEvaluator.isActive(rootFields, properties, mapping.fieldName(),
+                        mapping.dataType(), mapping.secondOperator(), mapping.secondValue()));
     }
 
     private void validateOperator(DataType dataType, OperatorType operator) {
@@ -219,7 +239,12 @@ public class DestinationMappingService {
     private void validateComparableValue(DataType dataType, String value) {
         try {
             switch (dataType) {
-                case NUMBER -> Double.parseDouble(value);
+                case NUMBER -> {
+                    double number = Double.parseDouble(value);
+                    if (!Double.isFinite(number)) {
+                        throw new IllegalArgumentException("numeric mapping value must be finite");
+                    }
+                }
                 case BOOLEAN -> {
                     if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
                         throw new IllegalArgumentException("boolean mapping value must be true or false");
@@ -253,6 +278,10 @@ public class DestinationMappingService {
         return value == null || value.isBlank();
     }
 
+    private String trimToNull(String value) {
+        return isBlank(value) ? null : value.trim();
+    }
+
     private List<String> normalizeOrderedValues(List<String> values, String fieldName) {
         if (values == null || values.isEmpty()) {
             throw new IllegalArgumentException(fieldName + " are required");
@@ -272,6 +301,8 @@ public class DestinationMappingService {
             DataType dataType,
             OperatorType operator,
             String value,
+            OperatorType secondOperator,
+            String secondValue,
             List<String> destinations,
             Instant validFrom,
             Instant validTo,
@@ -283,6 +314,8 @@ public class DestinationMappingService {
                 @JsonProperty("dataType") DataType dataType,
                 @JsonProperty("operator") OperatorType operator,
                 @JsonProperty("value") String value,
+                @JsonProperty("secondOperator") OperatorType secondOperator,
+                @JsonProperty("secondValue") String secondValue,
                 @JsonProperty("destinations") List<String> destinations,
                 @JsonProperty("validFrom") Instant validFrom,
                 @JsonProperty("validTo") Instant validTo,
@@ -292,6 +325,8 @@ public class DestinationMappingService {
             this.dataType = dataType;
             this.operator = operator;
             this.value = value;
+            this.secondOperator = secondOperator;
+            this.secondValue = secondValue;
             this.destinations = destinations;
             this.validFrom = validFrom;
             this.validTo = validTo;

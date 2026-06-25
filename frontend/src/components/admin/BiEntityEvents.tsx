@@ -1,15 +1,21 @@
 import { FormEvent, Fragment, useMemo, useState } from "react";
 import type { AxiosError } from "axios";
 import toast from "react-hot-toast";
-import { EntityEventRecord, EntityEventType } from "../../api-client";
+import { EntityEventRecord, GetEntityEventsEntityTypeEnum } from "../../api-client";
 import { useApi } from "../../hooks/useApi";
 
 const inputClass = "w-full p-2 rounded border bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500";
-const entityTypes = [EntityEventType.Item, EntityEventType.Location, EntityEventType.Conveyor];
+const entityTypes = [
+  GetEntityEventsEntityTypeEnum.Item,
+  GetEntityEventsEntityTypeEnum.Location,
+  GetEntityEventsEntityTypeEnum.Conveyor,
+];
 
 export const BiEntityEvents = () => {
   const { analyticsApi } = useApi();
-  const [entityType, setEntityType] = useState<EntityEventType>(EntityEventType.Item);
+  const [entityType, setEntityType] = useState<GetEntityEventsEntityTypeEnum>(
+    GetEntityEventsEntityTypeEnum.Item,
+  );
   const [entityId, setEntityId] = useState("");
   const [limit, setLimit] = useState(200);
   const [events, setEvents] = useState<EntityEventRecord[]>([]);
@@ -61,7 +67,7 @@ export const BiEntityEvents = () => {
         <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-[180px_minmax(240px,1fr)_120px]">
           <label className="space-y-1 text-sm font-semibold">
             <span>Entity Type</span>
-            <select value={entityType} onChange={event => setEntityType(event.target.value as EntityEventType)} className={inputClass}>
+            <select value={entityType} onChange={event => setEntityType(event.target.value as GetEntityEventsEntityTypeEnum)} className={inputClass}>
               {entityTypes.map(type => <option key={type} value={type}>{formatEntityType(type)}</option>)}
             </select>
           </label>

@@ -344,6 +344,7 @@ public class HistoricalGraphBuilder {
                         itemVertex.setProperty("customId", itemData.getId());
                         itemVertex.setProperty("name", itemData.getName());
                         itemVertex.setProperty("active", itemData.getActive());
+                        itemVertex.setProperty("priority", itemData.getPriority());
 
                         // Restore Physics State
                         // In the simulation DB, we store these as properties on the Vertex

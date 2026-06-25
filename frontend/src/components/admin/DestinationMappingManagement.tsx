@@ -16,12 +16,15 @@ const dataTypes = Object.values(DisplayRuleDataTypeEnum);
 const operatorLabels: Record<DisplayRuleOperatorEnum, string> = {
   [DisplayRuleOperatorEnum.Equal]: "=",
   [DisplayRuleOperatorEnum.Greater]: ">",
+  [DisplayRuleOperatorEnum.GreaterOrEqual]: ">=",
   [DisplayRuleOperatorEnum.Lesser]: "<",
+  [DisplayRuleOperatorEnum.LesserOrEqual]: "<=",
 };
 
 const operatorsForType = (dataType?: DisplayRuleDataTypeEnum) =>
   dataType === DisplayRuleDataTypeEnum.Number || dataType === DisplayRuleDataTypeEnum.Datetime
-    ? [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.Lesser]
+    ? [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.GreaterOrEqual,
+      DisplayRuleOperatorEnum.Lesser, DisplayRuleOperatorEnum.LesserOrEqual]
     : [DisplayRuleOperatorEnum.Equal];
 
 const normalizeDataType = (value?: string): DisplayRuleDataTypeEnum => {
@@ -36,8 +39,14 @@ const normalizeOperator = (value?: string): DisplayRuleOperatorEnum => {
   if (normalized === "GREATER" || normalized === "GREATER_THAN" || normalized === "GT") {
     return DisplayRuleOperatorEnum.Greater;
   }
+  if (normalized === "GREATER_OR_EQUAL" || normalized === "GREATER_THAN_OR_EQUAL" || normalized === "GTE") {
+    return DisplayRuleOperatorEnum.GreaterOrEqual;
+  }
   if (normalized === "LESSER" || normalized === "LESS" || normalized === "LESS_THAN" || normalized === "LT") {
     return DisplayRuleOperatorEnum.Lesser;
+  }
+  if (normalized === "LESSER_OR_EQUAL" || normalized === "LESS_THAN_OR_EQUAL" || normalized === "LTE") {
+    return DisplayRuleOperatorEnum.LesserOrEqual;
   }
   return DisplayRuleOperatorEnum.Equal;
 };
@@ -150,6 +159,7 @@ export const DestinationMappingManagement = () => {
         _localId: localId("property"),
         dataType: normalizeDataType(mapping.dataType),
         operator: normalizeOperator(mapping.operator),
+        secondOperator: mapping.secondOperator ? normalizeOperator(mapping.secondOperator) : undefined,
         destinationsText: toArrayText(mapping.destinations),
       })));
       setExitRows(exitResponse.data.map(mapping => ({
@@ -178,6 +188,8 @@ export const DestinationMappingManagement = () => {
         dataType: normalizeDataType(row.dataType),
         operator: normalizeOperator(row.operator),
         value: row.value?.trim(),
+        secondOperator: row.secondOperator,
+        secondValue: row.secondValue?.trim() || undefined,
         destinations: parseStringArray(row.destinationsText, "Destinations"),
         validFrom: row.validFrom,
         validTo: row.validTo,
@@ -215,7 +227,7 @@ export const DestinationMappingManagement = () => {
     const reader = new FileReader();
     reader.onload = () => {
       const [header, ...rows] = parseCsv(String(reader.result || ""));
-      const expected = ["fieldName", "dataType", "operator", "value", "destinations", "validFrom", "validTo"];
+      const expected = ["fieldName", "dataType", "operator", "value", "secondOperator", "secondValue", "destinations", "validFrom", "validTo"];
       if (!header || expected.some((column, index) => header[index]?.trim() !== column)) {
         toast.error(`CSV header must be ${expected.join(",")}`);
         return;
@@ -227,10 +239,12 @@ export const DestinationMappingManagement = () => {
           dataType: normalizeDataType(cells[1]),
           operator: normalizeOperator(cells[2]),
           value: cells[3]?.trim(),
-          destinations: parseStringArray(cells[4] || "", "Destinations"),
-          destinationsText: cells[4]?.trim() || "[]",
-          validFrom: normalizeDate(cells[5] || ""),
-          validTo: normalizeDate(cells[6] || ""),
+          secondOperator: cells[4]?.trim() ? normalizeOperator(cells[4]) : undefined,
+          secondValue: cells[5]?.trim() || undefined,
+          destinations: parseStringArray(cells[6] || "", "Destinations"),
+          destinationsText: cells[6]?.trim() || "[]",
+          validFrom: normalizeDate(cells[7] || ""),
+          validTo: normalizeDate(cells[8] || ""),
         })));
         toast.success("Property CSV imported. Review and save to persist.");
       } catch (error) {
@@ -284,9 +298,9 @@ export const DestinationMappingManagement = () => {
         onFile={importProperties}
       >
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm min-w-[1400px]">
+          <table className="w-full table-fixed text-sm min-w-[1650px]">
             <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700/50">
-              <tr>{["Field", "Type", "Op", "Value", "Destinations JSON", "Valid From", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
+              <tr>{["Field", "Type", "Op", "Value", "Second Op", "Second Value", "Destinations JSON", "Valid From", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {propertyRows.map(row => (
@@ -295,13 +309,15 @@ export const DestinationMappingManagement = () => {
                   <td className="p-3"><select value={row.dataType} onChange={event => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, dataType: normalizeDataType(event.target.value), operator: DisplayRuleOperatorEnum.Equal } : item))} className={inputClass}>{dataTypes.map(type => <option key={type}>{type}</option>)}</select></td>
                   <td className="p-3"><select value={row.operator} onChange={event => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, operator: normalizeOperator(event.target.value) } : item))} className={inputClass}>{operatorsForType(row.dataType).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></td>
                   <td className="p-3"><Cell value={String(row.value || "")} onChange={value => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, value } : item))} /></td>
+                  <td className="p-3"><select disabled={row.dataType !== DisplayRuleDataTypeEnum.Number && row.dataType !== DisplayRuleDataTypeEnum.Datetime} value={row.secondOperator || ""} onChange={event => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, secondOperator: event.target.value ? normalizeOperator(event.target.value) : undefined, secondValue: event.target.value ? item.secondValue || "0" : undefined } : item))} className={inputClass}><option value="">None</option>{operatorsForType(row.dataType).filter(operator => operator !== DisplayRuleOperatorEnum.Equal).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></td>
+                  <td className="p-3"><Cell value={row.secondValue} onChange={secondValue => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, secondValue } : item))} /></td>
                   <td className="p-3"><Cell value={row.destinationsText} onChange={destinationsText => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, destinationsText } : item))} list="logical-destinations" /></td>
                   <td className="p-3"><DateCell value={row.validFrom} onChange={validFrom => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validFrom } : item))} /></td>
                   <td className="p-3"><DateCell value={row.validTo} onChange={validTo => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validTo } : item))} /></td>
                   <td className="p-3"><DeleteButton onClick={() => setPropertyRows(rows => rows.filter(item => item._localId !== row._localId))} /></td>
                 </tr>
               ))}
-              {!propertyRows.length && <EmptyRow columns={8} loading={loading} />}
+              {!propertyRows.length && <EmptyRow columns={10} loading={loading} />}
             </tbody>
           </table>
         </div>

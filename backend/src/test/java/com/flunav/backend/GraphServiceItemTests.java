@@ -31,6 +31,7 @@ import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
+import flunav.events.ItemPriorityUpdatedEvent;
 import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
@@ -279,7 +280,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent("item-failed",
                 "Failed Item", 1.0, true, "failed-start", PositionType.LOCATION, 0.0,
-                List.of("failed-chute"), Map.of("priority", "NORMAL"), now));
+                List.of("failed-chute"), Map.of(), now));
 
         var item = itemService.getItemById("item-failed");
 
@@ -451,7 +452,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals(List.of("mixed-destination-a"),
                 destinationMappingService.resolveDestinations(Map.of("flight", "KL123"), now));
         assertEquals(List.of("mixed-destination-b"),
-                destinationMappingService.resolveDestinations(Map.of("priority", 11), now));
+                destinationMappingService.resolveDestinations(
+                        Map.of("priority", 11), Map.of("priority", 0), now));
 
         destinationMappingService.saveMapDestinations(new MapDestinationsEvent("legacyField", List.of(
                 new DestinationMappingRecord("legacy-value", List.of("legacy-destination"), now.minusSeconds(60),
@@ -522,10 +524,27 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void destinationMappingRangeUsesBothInclusiveAndExclusiveConditions() {
+        Instant now = Instant.now();
+        DestinationMappingRecord range = new DestinationMappingRecord(
+                "priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, "0.4",
+                OperatorType.LESSER, "0.8", List.of("range-destination"),
+                now.minusSeconds(60), now.plusSeconds(3600));
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(range)));
+
+        assertEquals(List.of("range-destination"),
+                destinationMappingService.resolveDestinations(Map.of("priority", 0.4), Map.of(), now));
+        assertTrue(destinationMappingService
+                .resolveDestinations(Map.of("priority", 0.8), Map.of(), now).isEmpty());
+    }
+
+    @Test
     void destinationMappingOperatorAliasesMatchCanonicalOperators() {
         assertEquals(OperatorType.EQUAL, OperatorType.fromString("EQUALS"));
         assertEquals(OperatorType.GREATER, OperatorType.fromString("GREATER_THAN"));
+        assertEquals(OperatorType.GREATER_OR_EQUAL, OperatorType.fromString("GTE"));
         assertEquals(OperatorType.LESSER, OperatorType.fromString("LESS_THAN"));
+        assertEquals(OperatorType.LESSER_OR_EQUAL, OperatorType.fromString("LTE"));
     }
 
     @Test
@@ -598,7 +617,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "capacity-normal-item", "Normal Item", 1.0, true, "capacity-start",
                 PositionType.LOCATION, 0.0, List.of("capacity-destination"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         var item = itemService.getItemById("capacity-normal-item");
         assertEquals("capacity-far", item.getSelectedExitId());
@@ -617,7 +636,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                     "rapid-item-" + index, "Rapid Item " + index, 1.0, true, "rapid-start",
                     PositionType.LOCATION, 0.0, List.of("rapid-chute"),
-                    Map.of("priority", "NORMAL"), now.plusMillis(index)));
+                    Map.of(), now.plusMillis(index)));
         }
 
         long selectedCount = itemService.getAllItems().stream()
@@ -641,14 +660,14 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                     "projected-item-" + index, "Projected Item " + index, 1.0, true, "projected-start",
                     PositionType.LOCATION, 0.0, List.of("projected-chute"),
-                    Map.of("priority", "NORMAL"), now.plusMillis(index)));
+                    Map.of(), now.plusMillis(index)));
         }
         assertEquals(0, liveLocationRepository.getItemCount("projected-chute"));
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "projected-item-2", "Projected Item 2", 1.0, true, "projected-start",
                 PositionType.LOCATION, 0.0, List.of("projected-chute"),
-                Map.of("priority", "NORMAL"), now.plusMillis(2)));
+                Map.of(), now.plusMillis(2)));
 
         assertEquals("projected-chute", itemService.getItemById("projected-item-0").getSelectedExitId());
         assertEquals("projected-chute", itemService.getItemById("projected-item-1").getSelectedExitId());
@@ -668,17 +687,17 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "priority-normal", "Normal", 1.0, true, "priority-start",
+                "priority-normal", "Normal", 1.0, 0.0, true, "priority-start",
                 PositionType.LOCATION, 0.0, List.of("priority-chute"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "priority-high", "High", 1.0, true, "priority-start",
+                "priority-high", "High", 1.0, 1.0, true, "priority-start",
                 PositionType.LOCATION, 0.0, List.of("priority-chute"),
-                Map.of("priority", "HIGH"), now.plusMillis(1)));
+                Map.of(), now.plusMillis(1)));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "priority-high-overflow", "High Overflow", 1.0, true, "priority-start",
+                "priority-high-overflow", "High Overflow", 1.0, 1.0, true, "priority-start",
                 PositionType.LOCATION, 0.0, List.of("priority-chute"),
-                Map.of("priority", "HIGH"), now.plusMillis(2)));
+                Map.of(), now.plusMillis(2)));
 
         assertNull(itemService.getItemById("priority-normal").getSelectedExitId());
         assertEquals("priority-chute", itemService.getItemById("priority-high").getSelectedExitId());
@@ -699,13 +718,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "fractional-capacity-item", "Fractional", 1.0, true, "fractional-capacity-start",
+                "fractional-capacity-item", "Fractional", 1.0, 0.45, true, "fractional-capacity-start",
                 PositionType.LOCATION, 0.0, List.of("fractional-capacity-chute"),
-                Map.of("priority", 0.45), now));
+                Map.of(), now));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "fractional-capacity-overflow", "Fractional Overflow", 1.0, true,
+                "fractional-capacity-overflow", "Fractional Overflow", 1.0, 0.45, true,
                 "fractional-capacity-start", PositionType.LOCATION, 0.0,
-                List.of("fractional-capacity-chute"), Map.of("priority", 0.45), now.plusMillis(1)));
+                List.of("fractional-capacity-chute"), Map.of(), now.plusMillis(1)));
 
         assertEquals("fractional-capacity-chute",
                 itemService.getItemById("fractional-capacity-item").getSelectedExitId());
@@ -731,13 +750,13 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "fractional-route-balanced", "Balanced Priority", 1.0, true, "fractional-route-start",
+                "fractional-route-balanced", "Balanced Priority", 1.0, 0.45, true, "fractional-route-start",
                 PositionType.LOCATION, 0.0, List.of("fractional-route-near", "fractional-route-far"),
-                Map.of("priority", 0.45), now));
+                Map.of(), now));
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "fractional-route-urgent", "Urgent Priority", 1.0, true, "fractional-route-start",
+                "fractional-route-urgent", "Urgent Priority", 1.0, 0.80, true, "fractional-route-start",
                 PositionType.LOCATION, 0.0, List.of("fractional-route-near", "fractional-route-far"),
-                Map.of("priority", 0.80), now.plusMillis(1)));
+                Map.of(), now.plusMillis(1)));
 
         assertEquals("fractional-route-far",
                 itemService.getItemById("fractional-route-balanced").getSelectedExitId());
@@ -762,8 +781,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         liveLocationRepository.addItemToLocation("wait-chute-b", "occupant-b");
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "wait-high", "High", 1.0, true, "wait-start", PositionType.LOCATION, 0.0,
-                List.of("wait-chute-a", "wait-chute-b"), Map.of("priority", "HIGH"), now));
+                "wait-high", "High", 1.0, 1.0, true, "wait-start", PositionType.LOCATION, 0.0,
+                List.of("wait-chute-a", "wait-chute-b"), Map.of(), now));
 
         var item = itemService.getItemById("wait-high");
         assertNull(item.getSelectedExitId());
@@ -786,8 +805,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         liveLocationRepository.addItemToLocation("retry-chute", "retry-occupant");
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "retry-high", "High", 1.0, true, "retry-start", PositionType.LOCATION, 0.0,
-                List.of("retry-chute"), Map.of("priority", "HIGH"), now));
+                "retry-high", "High", 1.0, 1.0, true, "retry-start", PositionType.LOCATION, 0.0,
+                List.of("retry-chute"), Map.of(), now));
         assertEquals(RoutingStatus.WAITING_FOR_CAPACITY, itemService.getItemById("retry-high").getRoutingStatus());
 
         eventProcessor.processEventWithoutBroadcast(new ChuteEmptyEvent("retry-chute", now.plusSeconds(1)));
@@ -797,7 +816,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "retry-normal", "Normal", 1.0, true, "retry-start", PositionType.LOCATION, 0.0,
-                List.of("retry-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(2)));
+                List.of("retry-chute"), Map.of(), now.plusSeconds(2)));
         assertNull(itemService.getItemById("retry-normal").getSelectedExitId());
     }
 
@@ -816,15 +835,15 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "pending-high", "High", 1.0, true, "pending-start", PositionType.LOCATION, 0.0,
-                List.of("pending-chute"), Map.of("priority", "HIGH"), now));
+                "pending-high", "High", 1.0, 1.0, true, "pending-start", PositionType.LOCATION, 0.0,
+                List.of("pending-chute"), Map.of(), now));
         for (int index = 0; index < 1; index++) {
             liveLocationRepository.removeItemFromLocation("pending-chute", "pending-occupant-" + index);
         }
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "pending-normal", "Normal", 1.0, true, "pending-start", PositionType.LOCATION, 0.0,
-                List.of("pending-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+                List.of("pending-chute"), Map.of(), now.plusSeconds(1)));
 
         assertNull(itemService.getItemById("pending-normal").getSelectedExitId());
         assertEquals(RoutingStatus.UNROUTED, itemService.getItemById("pending-normal").getRoutingStatus());
@@ -848,8 +867,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         for (int index = 0; index < 2; index++) {
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                    "split-high-" + index, "High " + index, 1.0, true, "split-start", PositionType.LOCATION,
-                    0.0, List.of("split-chute-a", "split-chute-b"), Map.of("priority", "HIGH"),
+                    "split-high-" + index, "High " + index, 1.0, 1.0, true, "split-start", PositionType.LOCATION,
+                    0.0, List.of("split-chute-a", "split-chute-b"), Map.of(),
                     now.plusMillis(index)));
         }
         for (String chuteId : List.of("split-chute-a", "split-chute-b")) {
@@ -860,7 +879,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "split-normal", "Normal", 1.0, true, "split-start", PositionType.LOCATION, 0.0,
-                List.of("split-chute-a", "split-chute-b"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+                List.of("split-chute-a", "split-chute-b"), Map.of(), now.plusSeconds(1)));
 
         assertNotNull(itemService.getItemById("split-normal").getSelectedExitId());
     }
@@ -877,8 +896,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         }
         for (int index = 0; index < 6; index++) {
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                    "cap-high-" + index, "High " + index, 1.0, true, "cap-start", PositionType.LOCATION, 0.0,
-                    List.of("cap-chute"), Map.of("priority", "HIGH"), now.plusMillis(index)));
+                    "cap-high-" + index, "High " + index, 1.0, 1.0, true, "cap-start", PositionType.LOCATION, 0.0,
+                    List.of("cap-chute"), Map.of(), now.plusMillis(index)));
         }
         for (int index = 0; index < 5; index++) {
             liveLocationRepository.removeItemFromLocation("cap-chute", "cap-occupant-" + index);
@@ -886,7 +905,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "cap-normal", "Normal", 1.0, true, "cap-start", PositionType.LOCATION, 0.0,
-                List.of("cap-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+                List.of("cap-chute"), Map.of(), now.plusSeconds(1)));
 
         assertEquals("cap-chute", itemService.getItemById("cap-normal").getSelectedExitId());
     }
@@ -902,14 +921,14 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             liveLocationRepository.addItemToLocation("sim-live-chute", "sim-live-occupant-" + index);
         }
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
-                "sim-live-high", "High", 1.0, true, "sim-live-start", PositionType.LOCATION, 0.0,
-                List.of("sim-live-chute"), Map.of("priority", "HIGH"), now));
+                "sim-live-high", "High", 1.0, 1.0, true, "sim-live-start", PositionType.LOCATION, 0.0,
+                List.of("sim-live-chute"), Map.of(), now));
         for (int index = 0; index < 1; index++) {
             liveLocationRepository.removeItemFromLocation("sim-live-chute", "sim-live-occupant-" + index);
         }
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "sim-live-normal", "Normal", 1.0, true, "sim-live-start", PositionType.LOCATION, 0.0,
-                List.of("sim-live-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+                List.of("sim-live-chute"), Map.of(), now.plusSeconds(1)));
         assertNull(itemService.getItemById("sim-live-normal").getSelectedExitId());
 
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
@@ -923,7 +942,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             }
             eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                     "sim-normal", "Normal", 1.0, true, "sim-start", PositionType.LOCATION, 0.0,
-                    List.of("sim-chute"), Map.of("priority", "NORMAL"), now.plusSeconds(2)));
+                    List.of("sim-chute"), Map.of(), now.plusSeconds(2)));
             assertEquals("sim-chute", itemService.getItemById("sim-normal").getSelectedExitId());
         }
     }
@@ -939,12 +958,12 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         conveyorService.createConveyor("guard-bc", "guard-b", "guard-c", "BC", 10.0, 1.0, 1.0, true, true);
         conveyorService.createConveyor("guard-cd", "guard-c", "guard-d", "CD", 10.0, 1.0, 1.0, true, true);
 
-        createItem("guard-reserved", "Reserved", "guard-b", future, Map.of("priority", "NORMAL"));
+        createItem("guard-reserved", "Reserved", "guard-b", future, Map.of());
         liveItemRepository.updatePosition("guard-reserved", "guard-bc", PositionType.CONVEYOR, future, 0.0, null);
         liveItemRepository.updateRouting("guard-reserved", List.of("guard-d"), "guard-d",
                 List.of("guard-b", "guard-c", "guard-d"));
 
-        createItem("guard-extra", "Extra", "guard-c", future, Map.of("priority", "NORMAL"));
+        createItem("guard-extra", "Extra", "guard-c", future, Map.of());
         liveItemRepository.updatePosition("guard-extra", "guard-cd", PositionType.CONVEYOR, future, 0.0, null);
         liveItemRepository.updateRouting("guard-extra", List.of("guard-d"), "guard-d",
                 List.of("guard-c", "guard-d"));
@@ -988,7 +1007,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "logical-item", "Logical Item", 1.0, true, "logical-decision",
                 PositionType.LOCATION, 0.0, List.of("logical-destination"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         var item = itemService.getItemById("logical-item");
         assertNotNull(item);
@@ -1028,7 +1047,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         item.setDestinations(List.of("scheduled-destination"));
         item.setSelectedExitId(null);
         item.setPath(List.of("scheduled-entry", "scheduled-decision"));
-        item.setProperties(Map.of("priority", "NORMAL"));
+        item.setPriority(0.0);
+        item.setProperties(Map.of());
         itemService.createItem(item);
         liveConveyorRepository.addItemToConveyor("scheduled-entry-decision", "scheduled-item", now);
 
@@ -1058,7 +1078,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         conveyorService.createConveyor("disabled-main-conveyor", "disabled-decision", "disabled-loop",
                 "Main", 2.0, 1.0, 0.0, true, true);
 
-        createItem("disabled-item", "Item", "disabled-decision", now, Map.of("priority", "NORMAL"));
+        createItem("disabled-item", "Item", "disabled-decision", now, Map.of());
         List<String> existingPath = List.of("disabled-decision", "disabled-loop");
         liveItemRepository.updateRouting("disabled-item", List.of("disabled-chute"), null, existingPath);
         itemService.updateItemPosition("disabled-item", "disabled-decision", PositionType.LOCATION, now, 0.0, null);
@@ -1103,7 +1123,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             liveLocationRepository.addItemToLocation("decision-chute", "decision-occupant-" + index);
         }
 
-        createItem("decision-normal", "Normal", "decision-point", now, Map.of("priority", "NORMAL"));
+        createItem("decision-normal", "Normal", "decision-point", now, 0.0, Map.of());
         liveItemRepository.updateRouting(
                 "decision-normal", List.of("decision-chute"), null, null);
         eventProcessor.process(
@@ -1113,7 +1133,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNull(normalItem.getSelectedExitId());
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
 
-        createItem("decision-high", "High", "decision-point", now, Map.of("priority", "HIGH"));
+        createItem("decision-high", "High", "decision-point", now, 1.0, Map.of());
         liveItemRepository.updateRouting(
                 "decision-high", List.of("decision-chute"), null, null);
         eventProcessor.process(
@@ -1122,6 +1142,40 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         var highItem = waitForPath("decision-high", List.of("decision-point", "decision-chute"));
         assertEquals("decision-chute", highItem.getSelectedExitId());
         assertNull(amqpTemplate.receiveAndConvert("commands", 300));
+    }
+
+    @Test
+    void priorityUpdateKeepsCurrentRouteUntilNextDecisionPoint() {
+        Instant now = Instant.now();
+        createLocation("priority-update-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("priority-update-chute", "Chute", LocationType.CHUTE, 10);
+        createLocation("priority-update-loop", "Loop", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("priority-update-exit", "priority-update-decision", "priority-update-chute",
+                "Exit", 1.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("priority-update-main", "priority-update-decision", "priority-update-loop",
+                "Main", 2.0, 1.0, 0.0, true, true);
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("priority-update-chute", "priority-update-occupant-" + index);
+        }
+
+        createItem("priority-update-item", "Item", "priority-update-decision", now, 0.0, Map.of());
+        liveItemRepository.updateRouting(
+                "priority-update-item", List.of("priority-update-chute"), null, null);
+        eventProcessor.processEventWithoutBroadcast(
+                new ItemRoutingDecisionRequestedEvent("priority-update-item", "priority-update-decision", now));
+        assertEquals(List.of("priority-update-decision", "priority-update-loop"),
+                itemService.getItemById("priority-update-item").getPath());
+
+        eventProcessor.processEventWithoutBroadcast(
+                new ItemPriorityUpdatedEvent("priority-update-item", 1.0, now.plusMillis(1)));
+        assertEquals(List.of("priority-update-decision", "priority-update-loop"),
+                itemService.getItemById("priority-update-item").getPath());
+
+        eventProcessor.processEventWithoutBroadcast(
+                new ItemRoutingDecisionRequestedEvent(
+                        "priority-update-item", "priority-update-decision", now.plusMillis(2)));
+        assertEquals(List.of("priority-update-decision", "priority-update-chute"),
+                itemService.getItemById("priority-update-item").getPath());
     }
 
     @Test
@@ -1146,7 +1200,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 new DestinationExitMappingRecord("free-destination",
                         List.of("free-reserved-chute", "free-open-chute")))));
 
-        createItem("free-normal", "Normal", "free-decision", now, Map.of("priority", "NORMAL"));
+        createItem("free-normal", "Normal", "free-decision", now, Map.of());
         liveItemRepository.updateRouting("free-normal", List.of("free-destination"), null, null);
         eventProcessor.process(
                 new ItemPositionChangedEvent("free-normal", "free-decision", 0.0, now), true).join();
@@ -1170,7 +1224,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "stop-route-item", "Stop Route Item", 1.0, true, "stop-route-decision",
                 PositionType.LOCATION, 0.0, List.of("stop-route-preferred", "stop-route-alternate"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         var initiallyRouted = itemService.getItemById("stop-route-item");
         assertEquals("stop-route-preferred", initiallyRouted.getSelectedExitId());
@@ -1200,7 +1254,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "completed-item", "Completed Item", 1.0, true, "completed-start",
                 PositionType.LOCATION, 0.0, List.of("completed-chute"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         var assigned = itemService.getItemById("completed-item");
         assertEquals(RoutingStatus.ASSIGNED, assigned.getRoutingStatus());
@@ -1247,7 +1301,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 "assignment-reroute-item", "Reroute Item", 1.0, true, "assignment-reroute-decision",
                 PositionType.LOCATION, 0.0,
                 List.of("assignment-reroute-preferred", "assignment-reroute-alternate"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         ItemPathAssignmentMessage initialAssignment = assertInstanceOf(ItemPathAssignmentMessage.class,
                 amqpTemplate.receiveAndConvert("path-assignments", 2_000));
@@ -1288,7 +1342,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "reactivate-route-first", "First Item", 1.0, true, "reactivate-route-decision",
                 PositionType.LOCATION, 0.0, List.of("reactivate-route-preferred", "reactivate-route-alternate"),
-                Map.of("priority", "NORMAL"), now));
+                Map.of(), now));
 
         var first = itemService.getItemById("reactivate-route-first");
         assertEquals("reactivate-route-alternate", first.getSelectedExitId());
@@ -1298,7 +1352,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "reactivate-route-second", "Second Item", 1.0, true, "reactivate-route-decision",
                 PositionType.LOCATION, 0.0, List.of("reactivate-route-preferred", "reactivate-route-alternate"),
-                Map.of("priority", "NORMAL"), now.plusSeconds(1)));
+                Map.of(), now.plusSeconds(1)));
 
         var second = itemService.getItemById("reactivate-route-second");
         assertEquals("reactivate-route-preferred", second.getSelectedExitId());
@@ -1368,10 +1422,16 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     private void createItem(String id, String name, String locationId, Instant timestamp,
             Map<String, Object> properties) {
+        createItem(id, name, locationId, timestamp, 0.0, properties);
+    }
+
+    private void createItem(String id, String name, String locationId, Instant timestamp, double priority,
+            Map<String, Object> properties) {
         ItemInput item = new ItemInput();
         item.setId(id);
         item.setName(name);
         item.setActive(true);
+        item.setPriority(priority);
         item.setLocationId(locationId);
         item.setPositionType(PositionType.LOCATION);
         item.setProperties(properties);

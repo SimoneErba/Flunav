@@ -69,7 +69,7 @@ class ClickHouseSnapshotTests {
                         42.5,
                         1.5,
                         10,
-                        Map.of("priority", 3, "enabled", true),
+                        Map.of("enabled", true),
                         "#112233")),
                 List.of(new ConveyorResponse(
                         "conveyor-1",

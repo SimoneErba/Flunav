@@ -132,8 +132,8 @@ class PriorityCapacitySimulation implements Simulation {
         cycle++;
         int flight = (cycle % 2 == 0) ? 1 : 2;
         boolean highPriority = cycle % 7 == 0;
-        String priority = highPriority ? "HIGH" : "NORMAL";
-        String label = "Flight-" + flight + "-" + priority;
+        double priority = highPriority ? 1.0 : 0.0;
+        String label = "Flight-" + flight + "-" + (highPriority ? "HIGH" : "NORMAL");
         createTrafficItem(label, priority, flight);
     }
 
@@ -147,7 +147,7 @@ class PriorityCapacitySimulation implements Simulation {
     private void prefillReservedChute(int count) throws Exception {
         logger.info("Prefilling " + RESERVED_CHUTE + " to " + count + "/" + RESERVED_CHUTE_CAPACITY);
         for (int index = 0; index < count; index++) {
-            createItem("reserved-fill-" + index, RESERVED_CHUTE, List.of(RESERVED_CHUTE), "FILLER", 0);
+            createItem("reserved-fill-" + index, RESERVED_CHUTE, List.of(RESERVED_CHUTE), 0.0, 0);
             Thread.sleep(100);
         }
     }
@@ -168,7 +168,7 @@ class PriorityCapacitySimulation implements Simulation {
         }
     }
 
-    private void createTrafficItem(String label, String priority, int flight) throws Exception {
+    private void createTrafficItem(String label, double priority, int flight) throws Exception {
         // Destination is now based on flight (mapped logically)
         String logicalDestination = (flight == 1) ? "FLIGHT-1-CHUTE" : "FLIGHT-2-CHUTE";
         List<String> destinations = List.of(logicalDestination);
@@ -177,7 +177,7 @@ class PriorityCapacitySimulation implements Simulation {
         logger.info("Injected " + itemId + " flight=" + flight + " priority=" + priority + " destinations=" + destinations);
     }
 
-    private String createItem(String label, String locationId, List<String> destinations, String priority, int flight)
+    private String createItem(String label, String locationId, List<String> destinations, double priority, int flight)
             throws Exception {
         String itemId = ITEM_PREFIX + (++itemSequence);
         sendEvent(new ItemDeletedEvent(itemId), "DELETE");
@@ -185,7 +185,6 @@ class PriorityCapacitySimulation implements Simulation {
         Map<String, Object> properties = new HashMap<>();
         properties.put("scenario", "priority-capacity");
         properties.put("label", label);
-        properties.put("priority", priority);
         properties.put("flight", flight);
         properties.put("cycle", cycle);
 
@@ -193,6 +192,7 @@ class PriorityCapacitySimulation implements Simulation {
                 itemId,
                 label,
                 1.0,
+                priority,
                 true,
                 locationId,
                 PositionType.LOCATION,

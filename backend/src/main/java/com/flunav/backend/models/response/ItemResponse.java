@@ -16,6 +16,7 @@ public class ItemResponse {
     private String id;
     private String name;
     private Boolean active;
+    private Double priority;
     private Map<String, Object> properties;
 
     // --- POSITIONING (Physics) ---
@@ -34,4 +35,14 @@ public class ItemResponse {
     private Instant routingStatusUpdatedAt;
     private List<String> path; // Ordered location IDs
     private String customColor;
+    private String customBorderColor;
+    private Double customBorderWidth;
+
+    public ItemResponse(String id, String name, Boolean active, Map<String, Object> properties,
+            String locationId, String currentEdgeId, Instant entryTimestamp, Double progress,
+            List<String> destinations, String selectedExitId, RoutingStatus routingStatus,
+            Instant routingStatusUpdatedAt, List<String> path, String customColor) {
+        this(id, name, active, 0.0, properties, locationId, currentEdgeId, entryTimestamp, progress,
+                destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor, null, null);
+    }
 }

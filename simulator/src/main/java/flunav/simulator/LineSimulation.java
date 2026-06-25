@@ -77,7 +77,7 @@ class LineSimulation implements Simulation {
             } catch (Exception ignored) {
             }
 
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, entryPoint,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, 0.0, true, entryPoint,
                     flunav.types.PositionType.LOCATION, 0.0, new HashMap<>()), "POST");
         }
     }

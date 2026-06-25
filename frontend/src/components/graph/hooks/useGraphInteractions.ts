@@ -169,9 +169,11 @@ export const useGraphInteractions = (
      */
     const handleItemSubmit = useCallback(async ({
         name,
+        priority,
         properties
     }: {
         name: string;
+        priority: number;
         properties: Record<string, unknown>;
     }) => {
         const { isReadOnly, itemApi } = stateRef.current;
@@ -182,9 +184,10 @@ export const useGraphInteractions = (
         
         try {
             graph.setNodeAttribute(id, 'label', name);
+            graph.setNodeAttribute(id, 'priority', priority);
             graph.setNodeAttribute(id, 'properties', properties);
             sigma.refresh();
-            await itemApi.updateItem(id, { name, properties });
+            await itemApi.updateItem(id, { name, priority, properties });
             toast.success("Item updated");
         } catch (error) { 
             console.error(error);

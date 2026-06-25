@@ -51,7 +51,7 @@ class PositionUpdateSimulation implements Simulation {
             String itemId = "Jumper-" + itemCounter.incrementAndGet();
 
             logger.info("Creating " + itemId + " at A");
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, "A", flunav.types.PositionType.LOCATION, 0.0,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, 0.0, true, "A", flunav.types.PositionType.LOCATION, 0.0,
                     new HashMap<>()), "POST");
 
             Thread.sleep(2000);

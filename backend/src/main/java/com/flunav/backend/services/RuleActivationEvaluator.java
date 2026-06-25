@@ -11,19 +11,38 @@ final class RuleActivationEvaluator {
     private RuleActivationEvaluator() {
     }
 
-    static boolean isActive(Map<String, Object> properties, String fieldName, DataType dataType,
+    static boolean isActive(Map<String, Object> rootFields, Map<String, Object> properties, String fieldName,
+            DataType dataType,
             OperatorType operator, Object ruleValue) {
-        if (properties == null || fieldName == null) {
+        if (fieldName == null) {
             return false;
         }
 
-        Object propValue = properties.entrySet().stream()
+        boolean rootContainsField = containsField(rootFields, fieldName);
+        Object propValue = rootContainsField ? findValue(rootFields, fieldName) : findValue(properties, fieldName);
+
+        return isActive(propValue, dataType, operator, ruleValue);
+    }
+
+    static boolean isActive(Map<String, Object> properties, String fieldName, DataType dataType,
+            OperatorType operator, Object ruleValue) {
+        return isActive(Map.of(), properties, fieldName, dataType, operator, ruleValue);
+    }
+
+    private static Object findValue(Map<String, Object> values, String fieldName) {
+        if (values == null) {
+            return null;
+        }
+        return values.entrySet().stream()
                 .filter(entry -> entry.getKey().equalsIgnoreCase(fieldName))
                 .map(Map.Entry::getValue)
                 .findFirst()
                 .orElse(null);
+    }
 
-        return isActive(propValue, dataType, operator, ruleValue);
+    private static boolean containsField(Map<String, Object> values, String fieldName) {
+        return values != null && values.keySet().stream()
+                .anyMatch(key -> key != null && key.equalsIgnoreCase(fieldName));
     }
 
     static boolean isActive(Object propValue, DataType dataType, OperatorType operator, Object ruleValue) {
@@ -49,7 +68,9 @@ final class RuleActivationEvaluator {
         return switch (operator) {
             case EQUAL -> propNum == ruleNum;
             case GREATER -> propNum > ruleNum;
+            case GREATER_OR_EQUAL -> propNum >= ruleNum;
             case LESSER -> propNum < ruleNum;
+            case LESSER_OR_EQUAL -> propNum <= ruleNum;
         };
     }
 
@@ -59,7 +80,9 @@ final class RuleActivationEvaluator {
         return switch (operator) {
             case EQUAL -> propTime.equals(ruleTime);
             case GREATER -> propTime.isAfter(ruleTime);
+            case GREATER_OR_EQUAL -> !propTime.isBefore(ruleTime);
             case LESSER -> propTime.isBefore(ruleTime);
+            case LESSER_OR_EQUAL -> !propTime.isAfter(ruleTime);
         };
     }
 }

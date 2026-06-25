@@ -272,11 +272,11 @@ class PerformanceStressSimulation implements Simulation {
             Map<String, Object> properties = new HashMap<>();
             properties.put("lane", "L-" + (random.nextInt(24) + 1));
             properties.put("wave", random.nextInt(12));
-            properties.put("priority", random.nextInt(10) == 0 ? "HIGH" : "NORMAL");
+            double priority = random.nextInt(10) == 0 ? 1.0 : 0.0;
             properties.put("barcode", "P" + String.format("%011d", itemCounter.get()));
             properties.put("lengthCm", 20 + random.nextInt(90));
 
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.2 + random.nextDouble(), true, entranceId,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.2 + random.nextDouble(), priority, true, entranceId,
                     flunav.types.PositionType.LOCATION, 0.0, properties), "POST");
             sendEvent(new ItemDestinationEvent(itemId, chuteId), "PUT");
             createdItemIds.add(itemId);

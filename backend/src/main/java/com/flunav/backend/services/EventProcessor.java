@@ -9,11 +9,11 @@ import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.DisplayRuleColorResult;
+import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveLocationRepository; // 1. IMPORT
-import com.flunav.backend.utils.PriorityScoreUtils;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
 import flunav.events.*;
@@ -300,6 +300,8 @@ public class EventProcessor {
             Map<String, Object> result = switch (event) {
                 case ItemCreatedEvent e -> {
                     try {
+                        validatePriority(e.getPriority());
+                        validateItemProperties(e.getProperties());
                         var item = new ItemInput(e);
                         AppliedDestination appliedDestination = routingCoordinator.withRoutingLock(() -> {
                             AppliedDestination destination = applyDestinationToCreatedItem(item, e.getTimestamp());
@@ -331,8 +333,13 @@ public class EventProcessor {
 
                         if (shouldBroadcast) {
                             ItemResponse response = modelMapper.map(item, ItemResponse.class);
-                            response.setCustomColor(this.displayRulesService.applyDisplayRules(item.getProperties(),
-                                    this.displayRulesService.getDisplayRules()));
+                            DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                                    itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
+                            if (style != null) {
+                                response.setCustomColor(style.getFillColor());
+                                response.setCustomBorderColor(style.getBorderColor());
+                                response.setCustomBorderWidth(style.getBorderWidth());
+                            }
                             webSocketService.broadcastItemCreated(response, e.getTimestamp());
                         }
                         yield Map.of("status", "CREATED", "itemId", e.getEntityId());
@@ -356,7 +363,8 @@ public class EventProcessor {
 
                 case MapDisplayRulesEvent e -> {
                     displayRulesService.updateDisplayRules(e.getRules());
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                    DisplayRuleColorResult styles = graphService.computeColors(e.getRules());
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY", "colors", styles);
                 }
 
                 case ItemPositionChangedEvent e -> {
@@ -467,6 +475,7 @@ public class EventProcessor {
                 }
 
                 case ItemPropertiesUpdatedEvent e -> {
+                    validateItemProperties(e.getProperties());
                     var item = itemService.getItemById(e.getEntityId());
                     item.updateProperties(e);
                     Map<String, Object> map = new HashMap<>();
@@ -474,9 +483,33 @@ public class EventProcessor {
                     var updateModel = new UpdateModel(item.getId(), map);
                     itemService.updateItem(updateModel);
                     if (shouldBroadcast) {
-                        map.put("customColor", this.displayRulesService.applyDisplayRules(item.getProperties(),
-                                this.displayRulesService.getDisplayRules()));
+                        DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                                itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
+                        map.put("customColor", style != null ? style.getFillColor() : null);
+                        map.put("customBorderColor", style != null ? style.getBorderColor() : null);
+                        map.put("customBorderWidth", style != null ? style.getBorderWidth() : null);
                         webSocketService.broadcastItemUpdated(updateModel, e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ItemPriorityUpdatedEvent e -> {
+                    validatePriority(e.getPriority());
+                    var item = itemService.getItemById(e.getEntityId());
+                    if (item == null) {
+                        throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
+                    }
+                    itemService.updateItem(new UpdateModel(item.getId(), Map.of("priority", e.getPriority())));
+                    if (shouldBroadcast) {
+                        item.setPriority(e.getPriority());
+                        DisplayRuleVisualStyle style = displayRulesService.applyDisplayRules(
+                                itemRootFields(item), item.getProperties(), displayRulesService.getDisplayRules());
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("priority", e.getPriority());
+                        updates.put("customColor", style != null ? style.getFillColor() : null);
+                        updates.put("customBorderColor", style != null ? style.getBorderColor() : null);
+                        updates.put("customBorderWidth", style != null ? style.getBorderWidth() : null);
+                        webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -613,8 +646,10 @@ public class EventProcessor {
                     var updateModel = new UpdateModel(location.getId(), map);
                     locationService.updateLocation(updateModel);
                     if (shouldBroadcast) {
-                        map.put("customColor", this.displayRulesService.applyDisplayRules(location.getProperties(),
-                                this.displayRulesService.getDisplayRules()));
+                        DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                                locationRootFields(location),
+                                location.getProperties(), this.displayRulesService.getDisplayRules());
+                        map.put("customColor", style != null ? style.getFillColor() : null);
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -682,8 +717,10 @@ public class EventProcessor {
                             e.getMainPath(),
                             e.getIsActive());
                     if (shouldBroadcast) {
-                        String customColor = this.displayRulesService.applyDisplayRules(e.getProperties(),
-                                this.displayRulesService.getDisplayRules());
+                        DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                                connectionRootFields(e),
+                                e.getProperties(), this.displayRulesService.getDisplayRules());
+                        String customColor = style != null ? style.getFillColor() : null;
                         webSocketService.broadcastConnectionCreated(new ConveyorResponse(e.getConnectionId(),
                                 e.getSourceId(), e.getTargetId(), e.getName(), e.getLength(), e.getSpeed(),
                                 e.getMinDistance(),
@@ -752,13 +789,13 @@ public class EventProcessor {
                     conveyorService.updateConveyor(conveyor);
 
                     if (shouldBroadcast) {
-                        var customColor = this.displayRulesService.applyDisplayRules(
-                                conveyor.getProperties(),
-                                this.displayRulesService.getDisplayRules());
+                        DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
+                                conveyorRootFields(conveyor),
+                                conveyor.getProperties(), this.displayRulesService.getDisplayRules());
 
                         Map<String, Object> updates = new HashMap<>();
                         updates.put("properties", e.getUpdatedProperties());
-                        updates.put("customColor", customColor);
+                        updates.put("customColor", style != null ? style.getFillColor() : null);
 
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), updates),
@@ -848,7 +885,7 @@ public class EventProcessor {
         List<String> explicitDestinations = normalizeDestinations(item.getDestinations());
         List<String> destinations = !explicitDestinations.isEmpty()
                 ? explicitDestinations
-                : destinationMappingService.resolveDestinations(item.getProperties(), timestamp);
+                : destinationMappingService.resolveDestinations(itemRootFields(item), item.getProperties(), timestamp);
         item.setDestinations(destinations);
         if (destinations.isEmpty()) {
             item.setSelectedExitId(null);
@@ -865,7 +902,8 @@ public class EventProcessor {
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
         com.flunav.backend.domain.Item routingItem = new com.flunav.backend.domain.Item(
-                item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), item.getProperties());
+                item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), item.getPriority(),
+                item.getProperties());
         routingItem.setDestinations(destinations);
         RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
                 routingItem, item.getLocationId(), positionType);
@@ -909,7 +947,7 @@ public class EventProcessor {
                             .thenComparing(com.flunav.backend.models.RedisLiveItem::getId))
                     .forEach(waitingState -> {
                         var item = itemService.getItemById(waitingState.getId());
-                        if (item == null || PriorityScoreUtils.priorityScore(item.getProperties()) <= 0.0) {
+                        if (item == null || item.getPriority() == null || item.getPriority() <= 0.0) {
                             return;
                         }
                         PositionType positionType = item.getPositionType() != null
@@ -968,5 +1006,89 @@ public class EventProcessor {
             String selectedExitId,
             RoutingStatus routingStatus,
             List<String> path) {
+    }
+
+    private void validatePriority(Double priority) {
+        if (priority == null || !Double.isFinite(priority) || priority < 0.0 || priority > 1.0) {
+            throw new IllegalArgumentException("priority must be finite and between 0.0 and 1.0");
+        }
+    }
+
+    private void validateItemProperties(Map<String, Object> properties) {
+        if (properties != null
+                && properties.keySet().stream().anyMatch(key -> key != null && key.equalsIgnoreCase("priority"))) {
+            throw new IllegalArgumentException("priority is a top-level item field");
+        }
+    }
+
+    private Map<String, Object> itemRootFields(ItemInput item) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", item.getId());
+        fields.put("name", item.getName());
+        fields.put("speed", item.getSpeed());
+        fields.put("priority", item.getPriority());
+        fields.put("active", item.getActive());
+        fields.put("locationId", item.getLocationId());
+        fields.put("positionType", item.getPositionType());
+        fields.put("progress", item.getProgress());
+        fields.put("destinations", item.getDestinations());
+        fields.put("timestamp", item.getTimestamp());
+        return fields;
+    }
+
+    private Map<String, Object> itemRootFields(com.flunav.backend.domain.Item item) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", item.getId());
+        fields.put("name", item.getName());
+        fields.put("active", item.isActive());
+        fields.put("priority", item.getPriority());
+        fields.put("positionId", item.getPositionId());
+        fields.put("positionType", item.getPositionType());
+        fields.put("entryTimestamp", item.getEntryTimestamp());
+        fields.put("routingStatus", item.getRoutingStatus());
+        return fields;
+    }
+
+    private Map<String, Object> locationRootFields(com.flunav.backend.domain.Location location) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", location.getId());
+        fields.put("name", location.getName());
+        fields.put("type", location.getType());
+        fields.put("active", location.getActive());
+        fields.put("latitude", location.getLatitude());
+        fields.put("longitude", location.getLongitude());
+        fields.put("capacity", location.getCapacity());
+        return fields;
+    }
+
+    private Map<String, Object> conveyorRootFields(Conveyor conveyor) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", conveyor.getId());
+        fields.put("sourceId", conveyor.getSourceLocationId());
+        fields.put("targetId", conveyor.getTargetLocationId());
+        fields.put("length", conveyor.getLength());
+        fields.put("speed", conveyor.getSpeed());
+        fields.put("minDistance", conveyor.getMinDistance());
+        fields.put("type", conveyor.getType());
+        fields.put("active", conveyor.isActive());
+        fields.put("mainPath", conveyor.isMainPath());
+        fields.put("capacity", conveyor.getCapacity());
+        return fields;
+    }
+
+    private Map<String, Object> connectionRootFields(ConnectionCreatedEvent event) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("id", event.getConnectionId());
+        fields.put("sourceId", event.getSourceId());
+        fields.put("targetId", event.getTargetId());
+        fields.put("name", event.getName());
+        fields.put("length", event.getLength());
+        fields.put("speed", event.getSpeed());
+        fields.put("minDistance", event.getMinDistance());
+        fields.put("type", event.getType());
+        fields.put("active", event.getIsActive());
+        fields.put("mainPath", event.getMainPath());
+        fields.put("capacity", event.getCapacity());
+        return fields;
     }
 }

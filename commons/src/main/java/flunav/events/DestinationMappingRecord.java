@@ -17,6 +17,8 @@ public class DestinationMappingRecord {
     private final DataType dataType;
     private final OperatorType operator;
     private final String value;
+    private final OperatorType secondOperator;
+    private final String secondValue;
     private final List<String> destinations;
     private final Instant validFrom;
     private final Instant validTo;
@@ -27,6 +29,8 @@ public class DestinationMappingRecord {
             @JsonProperty("dataType") DataType dataType,
             @JsonProperty("operator") OperatorType operator,
             @JsonProperty("value") String value,
+            @JsonProperty("secondOperator") OperatorType secondOperator,
+            @JsonProperty("secondValue") String secondValue,
             @JsonProperty("destinations") List<String> destinations,
             @JsonProperty("validFrom") Instant validFrom,
             @JsonProperty("validTo") Instant validTo) {
@@ -34,6 +38,8 @@ public class DestinationMappingRecord {
         this.dataType = dataType;
         this.operator = operator;
         this.value = value;
+        this.secondOperator = secondOperator;
+        this.secondValue = secondValue;
         this.destinations = destinations;
         this.validFrom = validFrom;
         this.validTo = validTo;
@@ -44,6 +50,17 @@ public class DestinationMappingRecord {
             List<String> destinations,
             Instant validFrom,
             Instant validTo) {
-        this(null, null, null, value, destinations, validFrom, validTo);
+        this(null, null, null, value, null, null, destinations, validFrom, validTo);
+    }
+
+    public DestinationMappingRecord(
+            String fieldName,
+            DataType dataType,
+            OperatorType operator,
+            String value,
+            List<String> destinations,
+            Instant validFrom,
+            Instant validTo) {
+        this(fieldName, dataType, operator, value, null, null, destinations, validFrom, validTo);
     }
 }

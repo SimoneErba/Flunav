@@ -82,10 +82,10 @@ class FutureLongConveyorSimulation implements Simulation {
 
             Map<String, Object> attributes = new HashMap<>();
             attributes.put("barcode", "F" + String.format("%011d", itemCounter.get()));
-            attributes.put("priority", random.nextInt(10) == 0 ? "HIGH" : "NORMAL");
+            double priority = random.nextInt(10) == 0 ? 1.0 : 0.0;
             attributes.put("expectedRouteMinutes", EXPECTED_ROUTE_MINUTES);
 
-            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, true, ENTRY,
+            sendEvent(new ItemCreatedEvent(itemId, itemId, 1.0, priority, true, ENTRY,
                     flunav.types.PositionType.LOCATION, 0.0, attributes), "POST");
 
             long delay = 30_000L + random.nextInt(30_001);
