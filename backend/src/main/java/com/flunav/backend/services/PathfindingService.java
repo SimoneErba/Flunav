@@ -7,6 +7,7 @@ import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
+import com.flunav.backend.repositories.PathCacheRepository;
 import flunav.types.PositionType;
 
 import org.slf4j.Logger;
@@ -24,9 +25,11 @@ public class PathfindingService {
 
     private static final Logger logger = LoggerFactory.getLogger(PathfindingService.class);
     private final OrientDBService orientDBService;
+    private final PathCacheRepository pathCacheRepository;
 
-    public PathfindingService(OrientDBService orientDBService) {
+    public PathfindingService(OrientDBService orientDBService, PathCacheRepository pathCacheRepository) {
         this.orientDBService = orientDBService;
+        this.pathCacheRepository = pathCacheRepository;
     }
 
     /**
@@ -37,6 +40,10 @@ public class PathfindingService {
      * the same path representation.
      */
     public List<String> calculateShortestPath(String sourceId, PositionType type, String destinationNodeId) {
+        var cached = pathCacheRepository.getShortestPath(sourceId, type, destinationNodeId);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
 
         // 1. Determine the Source Vertex Sub-Query
         String sourceLetClause;
@@ -84,7 +91,9 @@ public class PathfindingService {
                     return Collections.emptyList();
                 }
 
-                return new ArrayList<>(pathVertices);
+                List<String> path = new ArrayList<>(pathVertices);
+                pathCacheRepository.putShortestPath(sourceId, type, destinationNodeId, path);
+                return path;
             }
         } catch (Exception e) {
             logger.error("Error calculating shortest path from {} ({}) to {}", sourceId, type, destinationNodeId, e);

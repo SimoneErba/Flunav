@@ -108,6 +108,11 @@ public class LiveItemRepository {
         redis.opsForSet().add(activeSetKey, itemId);
     }
 
+    /**
+     * Deletes every active item in the current Redis namespace.
+     * This follows the active set so simulation cleanup and live cleanup remove the
+     * same item hashes and membership references.
+     */
     public void deleteAllItems() {
         String setKey = getNamespacedKey("active_items");
 
@@ -135,11 +140,20 @@ public class LiveItemRepository {
         redis.opsForHash().putAll(itemKey, updates);
     }
 
+    /**
+     * Updates the cached item name in hot state.
+     * Durable metadata remains in OrientDB, but active graph reads use this Redis
+     * value to avoid stale labels after a rename.
+     */
     public void updateName(String itemId, String name) {
         String itemKey = getNamespacedKey("item:" + itemId);
         redis.opsForHash().put(itemKey, "n", name);
     }
 
+    /**
+     * Stores destination, exit, and path changes using the legacy inferred status.
+     * Older call sites use this when they only know whether an exit was selected.
+     */
     public void updateRouting(String itemId, List<String> destinations, String selectedExitId, List<String> path) {
         updateRouting(itemId, destinations, selectedExitId, inferRoutingStatus(selectedExitId), null, path);
     }
@@ -187,6 +201,11 @@ public class LiveItemRepository {
         }
     }
 
+    /**
+     * Replaces only the stored route path for the item.
+     * This is used when an externally supplied path is validated separately and the
+     * current destination or routing status should remain unchanged.
+     */
     public void updatePath(String itemId, List<String> path) {
         String itemKey = getNamespacedKey("item:" + itemId);
         try {
@@ -214,12 +233,22 @@ public class LiveItemRepository {
         }
     }
 
+    /**
+     * Deletes a batch of active item states from the current namespace.
+     * Each item is removed through deleteItem so positional membership sets stay in
+     * sync with the item hashes.
+     */
     public void deleteItems(List<String> itemIds) {
         if (itemIds == null || itemIds.isEmpty())
             return;
         itemIds.forEach(this::deleteItem);
     }
 
+    /**
+     * Deletes one item from the current live or simulation context.
+     * The active simulation id is read at call time to avoid caching ThreadLocal
+     * state in the repository.
+     */
     public void deleteItem(String itemId) {
         deleteItem(itemId, DatabaseContextHolder.getSimulationId());
     }
@@ -264,6 +293,11 @@ public class LiveItemRepository {
         return getItemState(itemId, DatabaseContextHolder.getSimulationId());
     }
 
+    /**
+     * Reads one item hash from a specific live or simulation namespace.
+     * The explicit simulation id overload lets cleanup and recovery inspect state
+     * without depending on the current ThreadLocal context.
+     */
     public RedisLiveItem getItemState(String itemId, String simulationId) {
         String itemKey = (simulationId != null) ? "sim:" + simulationId + ":item:" + itemId : "item:" + itemId;
         Map<String, String> hash = redis.<String, String>opsForHash().entries(itemKey);
@@ -327,10 +361,19 @@ public class LiveItemRepository {
         return resultList;
     }
 
+    /**
+     * Counts active items in the current Redis namespace.
+     * Graph and metric code use this for hot-state totals without scanning hashes.
+     */
     public long countActiveItems() {
         return countActiveItems(DatabaseContextHolder.getSimulationId());
     }
 
+    /**
+     * Counts active items in an explicit namespace.
+     * Simulation analytics and cleanup can query a namespace even when the caller is
+     * outside that simulation context.
+     */
     public long countActiveItems(String simulationId) {
         String setKey = (simulationId != null) ? "sim:" + simulationId + ":active_items" : "active_items";
         Long size = redis.opsForSet().size(setKey);
@@ -355,6 +398,11 @@ public class LiveItemRepository {
                 .count();
     }
 
+    /**
+     * Preserves compatibility for hashes written before explicit routing statuses.
+     * A selected exit used to imply assignment, while no exit represented unrouted
+     * movement on the main path.
+     */
     private RoutingStatus inferRoutingStatus(String selectedExitId) {
         return selectedExitId == null ? RoutingStatus.UNROUTED : RoutingStatus.ASSIGNED;
     }

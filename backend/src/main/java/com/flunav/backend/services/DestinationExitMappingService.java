@@ -26,6 +26,11 @@ public class DestinationExitMappingService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Replaces the destination-to-exit table used by routing decisions.
+     * The whole table is written as one Redis value so route selection never reads
+     * a partially updated exit list.
+     */
     public void saveMappings(MapDestinationExitsEvent event) {
         List<DestinationExitMappingRecord> mappings = normalizeAndValidate(event);
         if (mappings.isEmpty()) {
@@ -39,6 +44,11 @@ public class DestinationExitMappingService {
         }
     }
 
+    /**
+     * Loads the active destination-to-exit table for the current context.
+     * Deserialization failures are raised because invalid exit mappings would make
+     * routing decisions unsafe.
+     */
     public List<DestinationExitMappingRecord> getMappings() {
         String json = redis.opsForValue().get(tableKey());
         if (json == null) {
@@ -52,6 +62,11 @@ public class DestinationExitMappingService {
         }
     }
 
+    /**
+     * Expands one logical destination into ordered physical exits.
+     * Routing preserves this order while still applying capacity and priority
+     * scoring to the resulting candidate exits.
+     */
     public List<String> getExits(String destination) {
         if (destination == null) {
             return List.of();
@@ -63,6 +78,11 @@ public class DestinationExitMappingService {
                 .orElse(List.of());
     }
 
+    /**
+     * Validates exit mappings before they affect routing.
+     * Duplicate destinations are rejected and exit order is preserved while blank
+     * or repeated exit ids are removed from the stored table.
+     */
     private List<DestinationExitMappingRecord> normalizeAndValidate(MapDestinationExitsEvent event) {
         if (event == null || event.getMappings() == null) {
             throw new IllegalArgumentException("mappings are required");
@@ -92,6 +112,11 @@ public class DestinationExitMappingService {
         return normalized;
     }
 
+    /**
+     * Builds the mapping-table key from the active simulation context.
+     * Simulation-specific exit mappings must stay isolated because they directly
+     * determine which chutes can be selected.
+     */
     private String tableKey() {
         String simulationId = DatabaseContextHolder.getSimulationId();
         return simulationId == null ? TABLE_KEY : "sim:" + simulationId + ":" + TABLE_KEY;

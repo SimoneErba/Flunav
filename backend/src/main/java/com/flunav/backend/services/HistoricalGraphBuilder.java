@@ -8,6 +8,7 @@ import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.services.ClickHouseService.Snapshot;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.id.ORID;
@@ -41,16 +42,18 @@ public class HistoricalGraphBuilder {
     private final SimulationService simulationService;
     private final LiveItemRepository liveItemRepository;
     private final TimeService timeService;
+    private final PathCacheRepository pathCacheRepository;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
             OrientDBService orientDBService, SimulationService simulationService,
-            LiveItemRepository liveItemRepository, TimeService timeService) {
+            LiveItemRepository liveItemRepository, TimeService timeService, PathCacheRepository pathCacheRepository) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.orientDBService = orientDBService;
         this.simulationService = simulationService;
         this.liveItemRepository = liveItemRepository;
         this.timeService = timeService;
+        this.pathCacheRepository = pathCacheRepository;
     }
 
     /**
@@ -380,6 +383,7 @@ public class HistoricalGraphBuilder {
                 throw new RuntimeException("Snapshot restore failed and was rolled back.", e);
             }
         });
+        pathCacheRepository.invalidateCurrentNamespace();
     }
 
     /**

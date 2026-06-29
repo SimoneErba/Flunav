@@ -27,6 +27,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
 
@@ -45,6 +46,7 @@ public class SimulationService {
     private final LiveItemRepository liveItemRepository;
     private final LiveSimulationRepository liveSimulationRepository;
     private final ThroughputBucketService throughputBucketService;
+    private final PathCacheRepository pathCacheRepository;
     private final TopologyProvider topologyProvider;
     private final ItemMovementProcessor itemMovementProcessor;
     private final int maxActiveSimulations;
@@ -71,6 +73,7 @@ public class SimulationService {
             LiveItemRepository liveItemRepository,
             LiveSimulationRepository liveSimulationRepository,
             @Lazy ThroughputBucketService throughputBucketService,
+            PathCacheRepository pathCacheRepository,
             @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
             @Lazy ItemMovementProcessor itemMovementProcessor,
             @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
@@ -84,6 +87,7 @@ public class SimulationService {
         this.liveItemRepository = liveItemRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.throughputBucketService = throughputBucketService;
+        this.pathCacheRepository = pathCacheRepository;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
         this.maxActiveSimulations = maxActiveSimulations;
@@ -231,6 +235,11 @@ public class SimulationService {
             liveItemRepository.cleanupSimulationData(simulationId);
         } catch (Exception e) {
             logger.warn("Failed to cleanup Redis data for simulation {}: {}", simulationId, e.getMessage());
+        }
+        try {
+            pathCacheRepository.cleanupSimulationData(simulationId);
+        } catch (Exception e) {
+            logger.warn("Failed to cleanup path cache for simulation {}: {}", simulationId, e.getMessage());
         }
         liveSimulationRepository.deleteState(simulationId);
         throughputBucketService.cleanupSimulationHistory(simulationId);

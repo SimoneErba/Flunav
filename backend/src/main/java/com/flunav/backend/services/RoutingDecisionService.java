@@ -5,6 +5,7 @@ import com.flunav.backend.domain.Item;
 import com.flunav.backend.domain.Location;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
+import com.flunav.backend.repositories.PathCacheRepository;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -33,18 +34,21 @@ public class RoutingDecisionService {
     private final LiveItemRepository liveItemRepository;
     private final LiveLocationRepository liveLocationRepository;
     private final ItemService itemService;
+    private final PathCacheRepository pathCacheRepository;
 
     public RoutingDecisionService(
             TopologyProvider topologyProvider,
             DestinationExitMappingService destinationExitMappingService,
             LiveItemRepository liveItemRepository,
             LiveLocationRepository liveLocationRepository,
-            ItemService itemService) {
+            ItemService itemService,
+            PathCacheRepository pathCacheRepository) {
         this.topologyProvider = topologyProvider;
         this.destinationExitMappingService = destinationExitMappingService;
         this.liveItemRepository = liveItemRepository;
         this.liveLocationRepository = liveLocationRepository;
         this.itemService = itemService;
+        this.pathCacheRepository = pathCacheRepository;
     }
 
     /**
@@ -195,6 +199,12 @@ public class RoutingDecisionService {
      * schedule items onto paths that movement processing cannot advance.
      */
     private PathResult calculateAvailablePath(String sourceLocationId, String exitId) {
+        var cached = pathCacheRepository.getAvailablePath(sourceLocationId, exitId);
+        if (cached.isPresent()) {
+            PathCacheRepository.AvailablePath path = cached.get();
+            return new PathResult(path.locations(), path.travelSeconds());
+        }
+
         Map<String, List<Conveyor>> outgoing = new HashMap<>();
         for (Conveyor conveyor : topologyProvider.getAllConveyors()) {
             if (isAvailable(conveyor)) {
@@ -216,7 +226,10 @@ public class RoutingDecisionService {
                 continue;
             }
             if (current.locationId().equals(exitId)) {
-                return new PathResult(buildPath(previous, sourceLocationId, exitId), current.distance());
+                PathResult result = new PathResult(buildPath(previous, sourceLocationId, exitId), current.distance());
+                pathCacheRepository.putAvailablePath(sourceLocationId, exitId, result.locations(),
+                        result.travelSeconds());
+                return result;
             }
 
             for (Conveyor conveyor : outgoing.getOrDefault(current.locationId(), List.of())) {
@@ -231,6 +244,11 @@ public class RoutingDecisionService {
         return null;
     }
 
+    /**
+     * Reconstructs the location path produced by the shortest-path search.
+     * The returned list is copied so callers can persist it as an immutable routing
+     * assignment in Redis.
+     */
     private List<String> buildPath(Map<String, String> previous, String sourceId, String exitId) {
         List<String> reversed = new ArrayList<>();
         String current = exitId;
@@ -277,6 +295,11 @@ public class RoutingDecisionService {
         return new RoutingDecision(null, null, null, false, RoutingStatus.FAILED, false);
     }
 
+    /**
+     * Resolves the first conveyor for a chosen location path.
+     * Routing stores both the full path and the immediate conveyor so movement
+     * scheduling can start without recalculating the path.
+     */
     private String firstConveyor(List<String> path) {
         if (path == null || path.size() < 2) {
             return null;
@@ -290,6 +313,11 @@ public class RoutingDecisionService {
                 .orElse(null);
     }
 
+    /**
+     * Normalizes the source of a routing decision to a location id.
+     * Items already on conveyors are routed from that conveyor's target location
+     * because the current segment is already committed.
+     */
     private String resolveSourceLocation(String sourceId, PositionType sourceType) {
         if (sourceType == PositionType.CONVEYOR) {
             Conveyor conveyor = findConveyor(sourceId);
@@ -298,6 +326,11 @@ public class RoutingDecisionService {
         return findLocation(sourceId) != null ? sourceId : null;
     }
 
+    /**
+     * Checks whether a conveyor can participate in route selection.
+     * Routing excludes inactive or stopped conveyors so assignments only use paths
+     * movement processing can actually advance.
+     */
     private boolean isAvailable(Conveyor conveyor) {
         return conveyor != null
                 && conveyor.isActive()
@@ -305,6 +338,11 @@ public class RoutingDecisionService {
                 && conveyor.getSpeed() > 0;
     }
 
+    /**
+     * Looks up a location and converts missing topology into a null candidate.
+     * Routing treats missing exits as unusable instead of failing the whole decision
+     * when a stale mapping references a removed location.
+     */
     private Location findLocation(String locationId) {
         try {
             return topologyProvider.getLocationById(locationId);
@@ -313,6 +351,11 @@ public class RoutingDecisionService {
         }
     }
 
+    /**
+     * Looks up a conveyor and converts missing topology into null.
+     * This keeps source normalization tolerant of stale Redis positions during
+     * recovery or cleanup.
+     */
     private Conveyor findConveyor(String conveyorId) {
         try {
             return topologyProvider.getConveyorById(conveyorId);
@@ -321,6 +364,11 @@ public class RoutingDecisionService {
         }
     }
 
+    /**
+     * Converts conveyor length and speed into route cost.
+     * A small positive floor keeps shortest-path ordering stable for zero-length
+     * segments while available conveyors still require positive speed.
+     */
     private double travelSeconds(Conveyor conveyor) {
         double length = conveyor.getLength() != null ? conveyor.getLength() : 0.0;
         return Math.max(length / conveyor.getSpeed(), 0.001);
@@ -356,6 +404,11 @@ public class RoutingDecisionService {
                 .thenComparing(RouteCandidate::exitId);
     }
 
+    /**
+     * Blends utilization pressure and travel time into one route score.
+     * Higher priority weights travel time more heavily while normal priority favors
+     * less occupied exits.
+     */
     private double routeScore(RouteCandidate candidate, double priorityScore, double maxTravelSeconds) {
         double travelScore = maxTravelSeconds <= 0.0
                 ? 0.0
@@ -478,11 +531,20 @@ public class RoutingDecisionService {
         return Math.max(0, (int) Math.ceil(capacity * PENDING_RESERVATION_FRACTION * priorityScore));
     }
 
+    /**
+     * Projects chute utilization after already allocated pending reservations.
+     * Pending demand uses this score to distribute reserved capacity across exits.
+     */
     private double projectedUtilization(PendingCandidate candidate, Map<String, Integer> reservations) {
         return (double) (candidate.baseOccupancy() + reservations.getOrDefault(candidate.exitId(), 0))
                 / candidate.capacity();
     }
 
+    /**
+     * Normalizes destination ids before deciding whether mappings are missing.
+     * Blank values are ignored here because creation/update validation handles
+     * user-facing errors before routing is called.
+     */
     private List<String> normalizeDestinations(List<String> destinations) {
         if (destinations == null || destinations.isEmpty()) {
             return List.of();
@@ -493,6 +555,11 @@ public class RoutingDecisionService {
                 .toList();
     }
 
+    /**
+     * Converts nullable item priority into the normalized routing score.
+     * Missing priority behaves as normal priority so old items continue to use
+     * capacity-protecting routing.
+     */
     private double priorityScore(Item item) {
         return item == null || item.getPriority() == null ? 0.0 : item.getPriority();
     }

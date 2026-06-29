@@ -16,6 +16,7 @@ import com.flunav.backend.services.ItemMovementProcessor;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.PathfindingService;
 import com.flunav.backend.services.PathAssignmentPublisher;
 import com.flunav.backend.services.RoutingDecisionService;
 import com.flunav.backend.services.SimulationService;
@@ -28,6 +29,7 @@ import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.ConnectionActivatedEvent;
 import flunav.events.ConnectionDeactivatedEvent;
+import flunav.events.ConnectionLengthChangedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
@@ -56,6 +58,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -90,6 +93,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final TimeService timeService;
     private final PathAssignmentPublisher pathAssignmentPublisher;
     private final WebSocketService webSocketService;
+    private final PathfindingService pathfindingService;
     private final com.flunav.backend.services.LocationService locationService;
     private final ConveyorService conveyorService;
     private final OrientDBService orientDBService;
@@ -115,6 +119,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             TimeService timeService,
             PathAssignmentPublisher pathAssignmentPublisher,
             WebSocketService webSocketService,
+            PathfindingService pathfindingService,
             com.flunav.backend.services.LocationService locationService,
             ConveyorService conveyorService,
             OrientDBService orientDBService,
@@ -138,6 +143,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.timeService = timeService;
         this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.webSocketService = webSocketService;
+        this.pathfindingService = pathfindingService;
         this.locationService = locationService;
         this.conveyorService = conveyorService;
         this.orientDBService = orientDBService;
@@ -1382,6 +1388,72 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals(List.of("exit-a", "exit-b"), destinationExitMappingService.getExits("live"));
         destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of()));
         assertTrue(destinationExitMappingService.getMappings().isEmpty());
+    }
+
+    @Test
+    void livePathCachePopulatesAndTopologyChangeInvalidatesCurrentNamespace() {
+        Instant now = Instant.now();
+        createLocation("cache-live-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("cache-live-exit", "Exit", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("cache-live-conveyor", "cache-live-start", "cache-live-exit",
+                "Exit Conveyor", 10.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "cache-live-item", "Cache Item", 1.0, true, "cache-live-start",
+                PositionType.LOCATION, 0.0, List.of("cache-live-exit"), Map.of(), now));
+        pathfindingService.calculateShortestPath("cache-live-start", PositionType.LOCATION, "cache-live-exit");
+
+        assertTrue(redisTemplate.hasKey("pathcache:v1:available"));
+        assertTrue(redisTemplate.hasKey("pathcache:v1:shortest"));
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionLengthChangedEvent("cache-live-conveyor", 20.0));
+
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("pathcache:v1:available")));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("pathcache:v1:shortest")));
+    }
+
+    @Test
+    void simulationPathCacheUsesSimulationNamespaceWithoutTouchingLiveCache() {
+        Instant now = Instant.now();
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("cache-sim-start", "Start", LocationType.JUNCTION, 0);
+            createLocation("cache-sim-exit", "Exit", LocationType.CHUTE, 10);
+            conveyorService.createConveyor("cache-sim-conveyor", "cache-sim-start", "cache-sim-exit",
+                    "Exit Conveyor", 10.0, 1.0, 0.0, false, true);
+
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                    "cache-sim-item", "Cache Item", 1.0, true, "cache-sim-start",
+                    PositionType.LOCATION, 0.0, List.of("cache-sim-exit"), Map.of(), now));
+            pathfindingService.calculateShortestPath("cache-sim-start", PositionType.LOCATION, "cache-sim-exit");
+
+            assertTrue(redisTemplate.hasKey("sim:" + SIMULATION_ID + ":pathcache:v1:available"));
+            assertTrue(redisTemplate.hasKey("sim:" + SIMULATION_ID + ":pathcache:v1:shortest"));
+        }
+
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("pathcache:v1:available")));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("pathcache:v1:shortest")));
+    }
+
+    @Test
+    void destroySimulationRemovesOnlyThatSimulationPathCache() {
+        String destroyedSimulationId = "path-cache-destroyed";
+        String otherSimulationId = "path-cache-other";
+
+        redisTemplate.opsForHash().put("pathcache:v1:available", "live", "{}");
+        redisTemplate.opsForHash().put("sim:" + destroyedSimulationId + ":pathcache:v1:available", "destroyed", "{}");
+        redisTemplate.opsForHash().put("sim:" + destroyedSimulationId + ":pathcache:v1:shortest", "destroyed", "[]");
+        redisTemplate.opsForHash().put("sim:" + otherSimulationId + ":pathcache:v1:available", "other", "{}");
+
+        simulationService.destroySimulation(destroyedSimulationId);
+
+        assertTrue(redisTemplate.hasKey("pathcache:v1:available"));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey(
+                "sim:" + destroyedSimulationId + ":pathcache:v1:available")));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey(
+                "sim:" + destroyedSimulationId + ":pathcache:v1:shortest")));
+        assertTrue(redisTemplate.hasKey("sim:" + otherSimulationId + ":pathcache:v1:available"));
     }
 
     private void createLocation(String id, String name) {

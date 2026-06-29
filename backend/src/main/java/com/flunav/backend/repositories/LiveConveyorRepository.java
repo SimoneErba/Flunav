@@ -26,9 +26,9 @@ public class LiveConveyorRepository {
     }
 
     /**
-     * Adds item to conveyor preserving order.
-     * 
-     * @param timestamp The time the item entered the conveyor (used for sorting).
+     * Adds an item to a conveyor's ordered hot-state queue.
+     * Entry timestamp is the Redis score, so movement and accumulation logic can
+     * process the leading items before the following items.
      */
     public void addItemToConveyor(String conveyorId, @NonNull String itemId, Instant timestamp) {
         String key = getNamespacedKey(conveyorId + ":items");
@@ -37,14 +37,20 @@ public class LiveConveyorRepository {
         redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
 
+    /**
+     * Removes one item from conveyor membership.
+     * Movement processing calls this when an item leaves a segment so accumulation
+     * and recovery no longer treat it as in flight on that conveyor.
+     */
     public void removeItemFromConveyor(String conveyorId, String itemId) {
         String key = getNamespacedKey(conveyorId + ":items");
         redis.opsForZSet().remove(key, itemId);
     }
 
     /**
-     * Returns items ordered from Furthest (End of belt) to Closest (Start of belt).
-     * Essential for calculating collisions/accumulation from the front backwards.
+     * Returns items ordered from conveyor exit back toward the entrance.
+     * Accumulation recalculation depends on this order so each item can account for
+     * the item physically ahead of it.
      */
     public Set<String> getItemsOrderedByDistance(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":items");
@@ -53,7 +59,9 @@ public class LiveConveyorRepository {
     }
 
     /**
-     * Returns the item at the very front of the conveyor (closest to exit).
+     * Returns the item currently closest to the conveyor exit.
+     * This is a Redis hot-state lookup used by movement logic, not a durable
+     * topology query.
      */
     public String getHeadItem(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":items");
@@ -73,27 +81,52 @@ public class LiveConveyorRepository {
         redis.opsForValue().set(key, String.valueOf(tailMeters));
     }
 
+    /**
+     * Reads the current blocked tail position for a conveyor.
+     * A missing value means no downstream blockage has reserved space on the
+     * segment.
+     */
     public Double getTailPosition(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":tail");
         String val = redis.opsForValue().get(key);
         return val != null ? Double.parseDouble(val) : null;
     }
 
+    /**
+     * Increments the legacy chute occupancy counter.
+     * Current routing primarily uses location ZSET occupancy, but this method is
+     * retained for older callers that still maintain the counter key.
+     */
     public void incrementChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
         redis.opsForValue().increment(key);
     }
 
+    /**
+     * Decrements the legacy chute occupancy counter.
+     * The counter is namespaced with conveyor hot state so simulations stay
+     * isolated from live mode.
+     */
     public void decrementChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
         redis.opsForValue().decrement(key);
     }
 
+    /**
+     * Clears the legacy chute occupancy counter for a chute.
+     * Cleanup and tests use this to remove derived hot state without touching
+     * durable location metadata.
+     */
     public void clearChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
         redis.delete(key);
     }
 
+    /**
+     * Reads the legacy chute occupancy counter.
+     * Missing Redis values are interpreted as zero so callers do not need separate
+     * existence checks.
+     */
     public Integer getChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
         String val = redis.opsForValue().get(key);

@@ -39,6 +39,11 @@ public class DestinationMappingService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Replaces the active destination-mapping table from a domain event.
+     * The complete table is stored as one Redis value so routing sees a consistent
+     * mapping set, and the TTL follows the latest validity window in the event.
+     */
     public void saveMapDestinations(MapDestinationsEvent event) {
         List<DestinationMappingRecord> mappings = normalizeAndValidate(event);
         Instant updatedAt = Instant.now();
@@ -86,6 +91,11 @@ public class DestinationMappingService {
         logger.info("Stored destination mappings count={} ttlSeconds={}", values.size(), Math.max(ttlSeconds, 0));
     }
 
+    /**
+     * Returns the stored mapping records in event DTO form.
+     * Controllers use this view to expose configuration without leaking the Redis
+     * persistence wrapper fields.
+     */
     public List<DestinationMappingRecord> getDestinationMappings() {
         return getStoredMappings().stream()
                 .map(value -> new DestinationMappingRecord(
@@ -101,6 +111,11 @@ public class DestinationMappingService {
                 .toList();
     }
 
+    /**
+     * Resolves item fields into ordered logical destinations.
+     * Mappings are evaluated at the supplied domain time so live, replay, and
+     * simulation routing all use the same validity-window semantics.
+     */
     public List<String> resolveDestinations(Map<String, Object> rootFields, Map<String, Object> properties, Instant now) {
         if ((rootFields == null || rootFields.isEmpty()) && (properties == null || properties.isEmpty())) {
             return List.of();
@@ -125,10 +140,19 @@ public class DestinationMappingService {
         return List.copyOf(resolvedDestinations);
     }
 
+    /**
+     * Resolves destinations from custom properties only.
+     * This overload is used when no first-class root fields are available.
+     */
     public List<String> resolveDestinations(Map<String, Object> properties, Instant now) {
         return resolveDestinations(Map.of(), properties, now);
     }
 
+    /**
+     * Resolves destinations from a single field/value pair.
+     * Ingestion paths use this compact overload when a scanner or external system
+     * provides one routing attribute.
+     */
     public List<String> resolveDestinations(String fieldName, String fieldValue, Instant now) {
         if (isBlank(fieldName) || isBlank(fieldValue)) {
             return List.of();
@@ -137,6 +161,11 @@ public class DestinationMappingService {
         return resolveDestinations(Map.of(fieldName.trim(), fieldValue.trim()), now);
     }
 
+    /**
+     * Normalizes mapping records before they are persisted in Redis.
+     * Defaults from the legacy event shape are applied here, and duplicate logical
+     * rows are rejected so replaying a mapping event stays deterministic.
+     */
     private List<DestinationMappingRecord> normalizeAndValidate(MapDestinationsEvent event) {
         if (event == null) {
             throw new IllegalArgumentException("MapDestinationsEvent is required");
@@ -199,6 +228,11 @@ public class DestinationMappingService {
         return normalized;
     }
 
+    /**
+     * Loads the current mapping table from the active Redis namespace.
+     * A parse failure returns an empty table rather than routing against a partially
+     * corrupted mapping payload.
+     */
     private List<DestinationMappingValue> getStoredMappings() {
         String json = redis.opsForValue().get(tableKey());
         if (json == null) {
@@ -213,6 +247,11 @@ public class DestinationMappingService {
         }
     }
 
+    /**
+     * Clears all destination-mapping keys in the current context.
+     * This removes both the current table and legacy per-field keys so old data
+     * cannot influence future route resolution.
+     */
     private void clearDestinationMappings() {
         Set<String> mapKeys = redis.keys(namespaced(MAP_PREFIX + "*"));
         if (mapKeys != null && !mapKeys.isEmpty()) {
@@ -221,6 +260,11 @@ public class DestinationMappingService {
         redis.delete(List.of(tableKey(), indexKey()));
     }
 
+    /**
+     * Evaluates both conditions for one destination-mapping row.
+     * The same rule evaluator is used by display rules so typed comparisons and
+     * root-field precedence stay consistent across mapping and styling logic.
+     */
     private boolean applies(Map<String, Object> rootFields, Map<String, Object> properties,
             DestinationMappingValue mapping) {
         boolean first = RuleActivationEvaluator.isActive(rootFields, properties, mapping.fieldName(),
@@ -230,12 +274,21 @@ public class DestinationMappingService {
                         mapping.dataType(), mapping.secondOperator(), mapping.secondValue()));
     }
 
+    /**
+     * Restricts mapping operators to combinations the evaluator can compare safely.
+     * Strings and booleans support equality only because ordering serialized values
+     * would make route resolution ambiguous.
+     */
     private void validateOperator(DataType dataType, OperatorType operator) {
         if ((dataType == DataType.STRING || dataType == DataType.BOOLEAN) && operator != OperatorType.EQUAL) {
             throw new IllegalArgumentException("operator must be EQUAL for " + dataType);
         }
     }
 
+    /**
+     * Parses a mapping value using the same type rules used at resolution time.
+     * Invalid values are rejected before the mapping table can affect routing.
+     */
     private void validateComparableValue(DataType dataType, String value) {
         try {
             switch (dataType) {
@@ -261,14 +314,27 @@ public class DestinationMappingService {
         }
     }
 
+    /**
+     * Returns the Redis key for the current mapping table.
+     * The key is namespaced so simulations can override mapping behavior safely.
+     */
     private String tableKey() {
         return namespaced(TABLE_KEY);
     }
 
+    /**
+     * Returns the Redis key for mapping validity metadata.
+     * The index follows the same namespace as the table it describes.
+     */
     private String indexKey() {
         return namespaced(FIELD_INDEX);
     }
 
+    /**
+     * Builds mapping keys from the active simulation context.
+     * Simulation-specific destination maps must not leak into live routing or other
+     * simulations because they affect future route assignment.
+     */
     private String namespaced(String key) {
         String simId = DatabaseContextHolder.getSimulationId();
         return (simId != null) ? "sim:" + simId + ":" + key : key;
@@ -282,6 +348,11 @@ public class DestinationMappingService {
         return isBlank(value) ? null : value.trim();
     }
 
+    /**
+     * Normalizes ordered list values while removing duplicates.
+     * LinkedHashSet preserves user/event order, which routing later uses when
+     * candidate destinations are expanded.
+     */
     private List<String> normalizeOrderedValues(List<String> values, String fieldName) {
         if (values == null || values.isEmpty()) {
             throw new IllegalArgumentException(fieldName + " are required");

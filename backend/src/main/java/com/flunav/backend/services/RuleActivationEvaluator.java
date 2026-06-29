@@ -11,6 +11,11 @@ final class RuleActivationEvaluator {
     private RuleActivationEvaluator() {
     }
 
+    /**
+     * Evaluates a rule field against root fields before custom properties.
+     * This keeps first-class domain fields such as priority and active status from
+     * being overridden by a property with the same name.
+     */
     static boolean isActive(Map<String, Object> rootFields, Map<String, Object> properties, String fieldName,
             DataType dataType,
             OperatorType operator, Object ruleValue) {
@@ -29,6 +34,10 @@ final class RuleActivationEvaluator {
         return isActive(Map.of(), properties, fieldName, dataType, operator, ruleValue);
     }
 
+    /**
+     * Finds a field case-insensitively because rule configuration is user-facing
+     * while stored property names may come from external systems.
+     */
     private static Object findValue(Map<String, Object> values, String fieldName) {
         if (values == null) {
             return null;
@@ -40,11 +49,20 @@ final class RuleActivationEvaluator {
                 .orElse(null);
     }
 
+    /**
+     * Checks whether a case-insensitive root field exists even when its value is
+     * null, so null root values still intentionally shadow custom properties.
+     */
     private static boolean containsField(Map<String, Object> values, String fieldName) {
         return values != null && values.keySet().stream()
                 .anyMatch(key -> key != null && key.equalsIgnoreCase(fieldName));
     }
 
+    /**
+     * Applies the typed comparison for one field and treats parse failures as a
+     * non-match. Display-rule reads should remain resilient to malformed external
+     * property values.
+     */
     static boolean isActive(Object propValue, DataType dataType, OperatorType operator, Object ruleValue) {
         if (propValue == null || dataType == null || operator == null || ruleValue == null) {
             return false;
@@ -62,6 +80,11 @@ final class RuleActivationEvaluator {
         }
     }
 
+    /**
+     * Compares numeric values after parsing the stored field and configured value.
+     * Validation should catch invalid rule values, while malformed property values
+     * are handled by the caller as a non-match.
+     */
     private static boolean compareNumbers(Object propValue, OperatorType operator, Object ruleValue) {
         double propNum = Double.parseDouble(propValue.toString());
         double ruleNum = Double.parseDouble(ruleValue.toString());
@@ -74,6 +97,11 @@ final class RuleActivationEvaluator {
         };
     }
 
+    /**
+     * Compares timestamp values using Instant ordering.
+     * Inclusive operators are expressed with isBefore/isAfter inversions so the
+     * evaluator handles exact boundary matches consistently.
+     */
     private static boolean compareInstants(Object propValue, OperatorType operator, Object ruleValue) {
         Instant propTime = Instant.parse(propValue.toString());
         Instant ruleTime = Instant.parse(ruleValue.toString());

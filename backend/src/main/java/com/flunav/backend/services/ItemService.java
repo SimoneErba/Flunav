@@ -212,6 +212,11 @@ public class ItemService {
         redisRepository.updatePosition(itemId, positionId, type, timestamp, offset, path);
     }
 
+    /**
+     * Updates item routing with the legacy inferred routing status.
+     * Callers that only know the selected exit use this while newer decision paths
+     * pass the explicit status and timestamp.
+     */
     public void updateItemRouting(String itemId, List<String> destinations, String selectedExitId, List<String> path) {
         redisRepository.updateRouting(itemId, destinations, selectedExitId, path);
     }
@@ -226,6 +231,11 @@ public class ItemService {
         redisRepository.updateRouting(itemId, destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path);
     }
 
+    /**
+     * Replaces an item's stored path after separate path validation.
+     * Destination and routing status are left untouched so manual path updates do
+     * not accidentally change capacity or completion state.
+     */
     public void updateItemPath(String itemId, List<String> path) {
         redisRepository.updatePath(itemId, path);
     }
@@ -239,6 +249,10 @@ public class ItemService {
         redisRepository.updateRoutingStatus(itemId, routingStatus, routingStatusUpdatedAt);
     }
 
+    /**
+     * Backfills routing status for Redis hashes written before the status field.
+     * Selected exits imply assigned routing, and missing exits imply unrouted flow.
+     */
     private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
         if (status != null) {
             return status;
@@ -280,6 +294,11 @@ public class ItemService {
         return validatedPath;
     }
 
+    /**
+     * Applies a metadata patch to the durable item record.
+     * Name changes are mirrored into Redis so active graph labels stay current
+     * without waiting for the next full item reload.
+     */
     public Item updateItem(UpdateModel model) {
         // Standard property update (OrientDB)
         Item updatedItem = vertexToLocation(this.updateService.updateVertex(model));
@@ -353,6 +372,10 @@ public class ItemService {
         }
     }
 
+    /**
+     * Converts the durable OrientDB vertex into the domain item metadata object.
+     * Hot movement fields are merged separately from Redis by read methods.
+     */
     private Item vertexToItem(OVertex vertex) {
         if (vertex == null) {
             return null;
@@ -366,6 +389,11 @@ public class ItemService {
                 vertex.getProperty("properties"));
     }
 
+    /**
+     * Keeps the update-service conversion path aligned with item metadata mapping.
+     * The method delegates to vertexToItem because items and locations share the
+     * generic update service return type.
+     */
     private Item vertexToLocation(OVertex vertex) {
         return vertexToItem(vertex);
     }

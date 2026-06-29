@@ -14,6 +14,7 @@ import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveLocationRepository; // 1. IMPORT
+import com.flunav.backend.repositories.PathCacheRepository;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
 import flunav.events.*;
@@ -72,6 +73,7 @@ public class EventProcessor {
     private final RoutingCoordinator routingCoordinator;
     private final PathAssignmentPublisher pathAssignmentPublisher;
     private final ThroughputBucketService throughputBucketService;
+    private final PathCacheRepository pathCacheRepository;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -104,6 +106,7 @@ public class EventProcessor {
             RoutingCoordinator routingCoordinator,
             PathAssignmentPublisher pathAssignmentPublisher,
             ThroughputBucketService throughputBucketService,
+            PathCacheRepository pathCacheRepository,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -130,6 +133,7 @@ public class EventProcessor {
         this.routingCoordinator = routingCoordinator;
         this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.throughputBucketService = throughputBucketService;
+        this.pathCacheRepository = pathCacheRepository;
         this.manageLogic = manageLogic;
     }
 
@@ -241,12 +245,22 @@ public class EventProcessor {
         }
     }
 
+    /**
+     * Emits structured start logging for one event reduction.
+     * The MDC already contains event identity and mode, so this method only adds
+     * reduction-specific details.
+     */
     private void logProcessingStarted(boolean shouldBroadcast) {
         logger.atDebug()
                 .addKeyValue("broadcast", shouldBroadcast)
                 .log("Event processing started");
     }
 
+    /**
+     * Emits structured completion logging after derived state was updated.
+     * Duration is measured outside storage calls so slow reducers are visible in
+     * logs without changing event semantics.
+     */
     private void logProcessingCompleted(boolean shouldBroadcast, long durationMillis) {
         logger.atDebug()
                 .addKeyValue("broadcast", shouldBroadcast)
@@ -254,6 +268,11 @@ public class EventProcessor {
                 .log("Event processing completed");
     }
 
+    /**
+     * Emits structured failure logging before the processing future is failed.
+     * The original exception is preserved so retry and caller handling can still
+     * inspect the actual failure type.
+     */
     private void logProcessingFailed(boolean shouldBroadcast, long durationMillis, Exception error) {
         logger.atError()
                 .addKeyValue("broadcast", shouldBroadcast)
@@ -262,10 +281,20 @@ public class EventProcessor {
                 .log("Event processing failed");
     }
 
+    /**
+     * Converts the monotonic processing timer into milliseconds for logs.
+     * System.nanoTime is used so wall-clock or virtual-time changes do not affect
+     * duration measurement.
+     */
     private long elapsedMillis(long startedAt) {
         return (System.nanoTime() - startedAt) / 1_000_000;
     }
 
+    /**
+     * Retries OrientDB write conflicts around one reducer operation.
+     * The event reduction remains single-call from the caller's perspective while
+     * transient concurrent modification failures get a short exponential backoff.
+     */
     private <T> T executeWithRetry(Supplier<T> operation) {
         final int MAX_RETRIES = 5;
         int attempt = 0;
@@ -286,14 +315,29 @@ public class EventProcessor {
         }
     }
 
+    /**
+     * Reduces an event and broadcasts the resulting state changes.
+     * This overload is used for normal live processing where clients and metrics
+     * should observe the event effects.
+     */
     public Map<String, Object> processEvent(DomainEvent event) {
         return processEvent(event, true);
     }
 
+    /**
+     * Reduces an event without broadcasting or throughput accounting.
+     * Replay and restore paths use this when rebuilding derived state should not
+     * look like new live activity.
+     */
     public Map<String, Object> processEventWithoutBroadcast(DomainEvent event) {
         return processEvent(event, false);
     }
 
+    /**
+     * Applies the domain effects for one event.
+     * This is the central reducer that updates OrientDB, Redis, WebSocket clients,
+     * routing assignments, and analytics side effects according to event type.
+     */
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
         UserContextHolder.setSenderId(event.getSenderId());
         return this.<Map<String, Object>>executeWithRetry(() -> {
@@ -870,6 +914,7 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
             };
+            invalidatePathCacheAfterTopologyChange(event);
             if (shouldBroadcast) {
                 throughputBucketService.recordSuccessfulReduction(event, result);
             }
@@ -877,10 +922,41 @@ public class EventProcessor {
         });
     }
 
+    /**
+     * Clears cached route paths only after topology reducers succeed.
+     * The active DatabaseContextHolder namespace decides whether live or one
+     * simulation cache is invalidated, keeping isolated graph states independent.
+     */
+    private void invalidatePathCacheAfterTopologyChange(DomainEvent event) {
+        if (event instanceof ConnectionCreatedEvent
+                || event instanceof ConnectionDeletedEvent
+                || event instanceof ConnectionSpeedChangedEvent
+                || event instanceof ConnectionLengthChangedEvent
+                || event instanceof ConnectionActivatedEvent
+                || event instanceof ConnectionDeactivatedEvent
+                || event instanceof LocationAddToMainPath
+                || event instanceof ConnectionRemoveFromMainPath
+                || event instanceof LocationCreatedEvent
+                || event instanceof LocationDeletedEvent
+                || event instanceof LocationTypeChangedEvent) {
+            pathCacheRepository.invalidateCurrentNamespace();
+        }
+    }
+
+    /**
+     * Checkpoints all items on a conveyor before a speed-changing event takes
+     * effect. The delegated processor stores distance in Redis so rescheduling uses
+     * physical progress instead of stale percentages.
+     */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
     }
 
+    /**
+     * Resolves destinations and an initial route for a newly created item.
+     * Explicit destinations win; otherwise event fields are evaluated against the
+     * destination mapping table at the item's domain timestamp.
+     */
     private AppliedDestination applyDestinationToCreatedItem(ItemInput item, Instant timestamp) {
         List<String> explicitDestinations = normalizeDestinations(item.getDestinations());
         List<String> destinations = !explicitDestinations.isEmpty()
@@ -915,6 +991,11 @@ public class EventProcessor {
                 decision.path());
     }
 
+    /**
+     * Publishes the operational command that tells external equipment the selected
+     * exit. Simulation and non-broadcast reductions skip this because command
+     * messages are live side effects, not replayable domain history.
+     */
     private void publishDestinationCommandIfNeeded(ItemCreatedEvent event, ItemInput item,
             AppliedDestination appliedDestination, boolean shouldBroadcast) {
         if (!manageLogic || !shouldBroadcast || DatabaseContextHolder.getSimulationId() != null) {
@@ -934,6 +1015,11 @@ public class EventProcessor {
         }
     }
 
+    /**
+     * Reattempts route assignment for priority items waiting on chute capacity.
+     * The routing lock serializes retries so newly opened capacity is assigned in
+     * waiting order without overbooking projected occupancy.
+     */
     private void retryWaitingHighPriorityItems(Instant timestamp, boolean shouldBroadcast) {
         routingCoordinator.withRoutingLock(() -> {
             liveItemRepository.getAllActiveItems().stream()
@@ -987,6 +1073,10 @@ public class EventProcessor {
         });
     }
 
+    /**
+     * Normalizes externally supplied destination ids while preserving order.
+     * Blank values are rejected before they can enter Redis routing state.
+     */
     private List<String> normalizeDestinations(List<String> destinations) {
         if (destinations == null || destinations.isEmpty()) {
             return List.of();
@@ -1008,12 +1098,21 @@ public class EventProcessor {
             List<String> path) {
     }
 
+    /**
+     * Validates the normalized priority score accepted by routing.
+     * The 0.0 to 1.0 range is used directly by capacity and travel-time scoring.
+     */
     private void validatePriority(Double priority) {
         if (priority == null || !Double.isFinite(priority) || priority < 0.0 || priority > 1.0) {
             throw new IllegalArgumentException("priority must be finite and between 0.0 and 1.0");
         }
     }
 
+    /**
+     * Prevents custom properties from redefining top-level item priority.
+     * Priority is a first-class routing field, so allowing a duplicate property
+     * would make display rules and route selection disagree.
+     */
     private void validateItemProperties(Map<String, Object> properties) {
         if (properties != null
                 && properties.keySet().stream().anyMatch(key -> key != null && key.equalsIgnoreCase("priority"))) {
@@ -1021,6 +1120,10 @@ public class EventProcessor {
         }
     }
 
+    /**
+     * Builds the top-level fields used by destination mapping on item creation.
+     * These fields take precedence over custom properties during rule evaluation.
+     */
     private Map<String, Object> itemRootFields(ItemInput item) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", item.getId());
@@ -1036,6 +1139,10 @@ public class EventProcessor {
         return fields;
     }
 
+    /**
+     * Builds the top-level fields used by mapping or display logic for saved items.
+     * Routing state comes from Redis overlay data on the domain item.
+     */
     private Map<String, Object> itemRootFields(com.flunav.backend.domain.Item item) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", item.getId());
@@ -1049,6 +1156,10 @@ public class EventProcessor {
         return fields;
     }
 
+    /**
+     * Builds the top-level fields used when display rules target locations.
+     * These values are topology metadata rather than transient Redis occupancy.
+     */
     private Map<String, Object> locationRootFields(com.flunav.backend.domain.Location location) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", location.getId());
@@ -1061,6 +1172,11 @@ public class EventProcessor {
         return fields;
     }
 
+    /**
+     * Builds the top-level fields used when display rules target conveyors.
+     * Conveyor speed, capacity, and main-path flags are included because they drive
+     * routing and movement behavior.
+     */
     private Map<String, Object> conveyorRootFields(Conveyor conveyor) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", conveyor.getId());
@@ -1076,6 +1192,11 @@ public class EventProcessor {
         return fields;
     }
 
+    /**
+     * Builds top-level fields for a connection before it exists as a conveyor.
+     * Creation events use this shape so destination/display rule evaluation can
+     * inspect the requested edge attributes.
+     */
     private Map<String, Object> connectionRootFields(ConnectionCreatedEvent event) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", event.getConnectionId());

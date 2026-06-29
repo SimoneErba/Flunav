@@ -129,6 +129,11 @@ public class GraphService {
         }
     }
 
+    /**
+     * Returns projected item states for the active graph context.
+     * Simulation clocks are used when a simulation is active so rendered positions
+     * match the simulation timeline instead of wall-clock time.
+     */
     public List<ItemResponse> getAllItemStates() {
         var currentSimulation = simulationService.getCurrentSimulation();
         Instant now = currentSimulation != null ? simulationService.getSimulationClock(currentSimulation)
@@ -137,11 +142,13 @@ public class GraphService {
                 false);
     }
 
+    /**
+     * Projects Redis hot item state into frontend item DTOs at the requested clock.
+     * Cleanup is limited to live mode because simulation state must remain
+     * replayable while future projections are still being built.
+     */
     private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now, boolean shouldCleanup,
             String simulationId, boolean includeFinished) {
-        // Projects Redis hot state into frontend item DTOs at the requested clock.
-        // Cleanup is limited to live mode because simulation state must remain
-        // replayable while future projections are still being built.
         Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
         Map<String, Double> itemPriorities = fetchItemPriorities();
 
@@ -229,6 +236,11 @@ public class GraphService {
         return activeItems;
     }
 
+    /**
+     * Previews the colors a proposed rule set would apply to graph entities.
+     * This runs the same matching logic as getGraphData without mutating the saved
+     * display-rule configuration.
+     */
     public DisplayRuleColorResult computeColors(List<DisplayRule> rules) {
         Topology topology = fetchTopology();
 
@@ -263,6 +275,11 @@ public class GraphService {
         return new DisplayRuleColorResult(itemStyles, locationStyles, conveyorStyles);
     }
 
+    /**
+     * Loads durable item custom properties from OrientDB for rule evaluation.
+     * Position and routing are intentionally not read here because Redis owns the
+     * hot state used by graph projection.
+     */
     private Map<String, Map<String, Object>> fetchItemProperties() {
         Map<String, Map<String, Object>> propertiesMap = new HashMap<>();
         try (ODatabaseSession session = orientDBService.getSession()) {
@@ -287,12 +304,14 @@ public class GraphService {
         return propertiesMap;
     }
 
+    /**
+     * Replays movement from the last checkpoint instead of trusting a stored screen
+     * position. This lets live, historical, and simulated graph reads derive the
+     * same visible state from timestamped movement data.
+     */
     private ItemResponse calculateCurrentState(
             String itemId, String startId, PositionType startType, Instant lastUpdate,
             List<String> path, Topology topo, Instant now, Double accDist) {
-        // Replays movement from the last checkpoint instead of trusting a stored
-        // screen position, so live, historical, and simulated graph reads derive
-        // the same visible state from timestamped movement data.
         Duration timeElapsed = Duration.between(lastUpdate, now);
         if (timeElapsed.isNegative())
             timeElapsed = Duration.ZERO;
@@ -393,9 +412,12 @@ public class GraphService {
         return edges.size() > 1 ? null : edges.get(0);
     }
 
+    /**
+     * Materializes topology once per graph read.
+     * Item projection uses this stable node/edge view even though topology and hot
+     * item state are loaded through different repositories.
+     */
     private Topology fetchTopology() {
-        // Materializes topology once per graph read so item projection uses a
-        // consistent node/edge view even if repositories fetch from different stores.
         Map<String, LocationResponse> nodeMap = new HashMap<>();
         Map<String, ConveyorResponse> conveyorMap = new ConcurrentHashMap<>();
         Map<String, List<ConveyorResponse>> outgoingEdgesMap = new HashMap<>();
@@ -425,6 +447,11 @@ public class GraphService {
         return item;
     }
 
+    /**
+     * Loads durable item priorities from OrientDB for routing and styling display.
+     * Redis keeps the live position state, but priority is metadata persisted with
+     * the item record.
+     */
     private Map<String, Double> fetchItemPriorities() {
         Map<String, Double> priorities = new HashMap<>();
         try (ODatabaseSession session = orientDBService.getSession()) {
@@ -447,6 +474,10 @@ public class GraphService {
         return priorities;
     }
 
+    /**
+     * Exposes first-class item fields to display-rule evaluation.
+     * These fields take precedence over custom properties with the same names.
+     */
     private Map<String, Object> itemRootFields(ItemResponse item) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", item.getId());
@@ -461,6 +492,11 @@ public class GraphService {
         return fields;
     }
 
+    /**
+     * Exposes first-class location fields to display-rule evaluation.
+     * Keeping these separate from custom properties lets rules target topology
+     * attributes without relying on duplicated property values.
+     */
     private Map<String, Object> locationRootFields(LocationResponse location) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", location.getId());
@@ -473,6 +509,10 @@ public class GraphService {
         return fields;
     }
 
+    /**
+     * Exposes first-class conveyor fields to display-rule evaluation.
+     * These values come from topology state rather than Redis hot state.
+     */
     private Map<String, Object> conveyorRootFields(ConveyorResponse conveyor) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("id", conveyor.getId());
@@ -493,6 +533,11 @@ public class GraphService {
                 : new DisplayRuleVisualStyle(style.getFillColor(), null, null);
     }
 
+    /**
+     * Backfills routing status for older Redis item hashes.
+     * Historical or live state without the explicit field keeps the previous
+     * selected-exit semantics so graph reads remain compatible.
+     */
     private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
         if (status != null) {
             return status;

@@ -27,8 +27,9 @@ public class LiveLocationRepository {
     // --- WRITE OPERATIONS ---
 
     /**
-     * Adds an item to a location (Junction, Chute, Station).
-     * Uses ZSET with Timestamp as score to maintain FIFO order.
+     * Adds an item to a location occupancy queue.
+     * Redis stores occupants in timestamp order so chute emptying and queue
+     * processing can use FIFO behavior without touching OrientDB.
      */
     public void addItemToLocation(String locationId, String itemId) {
         String key = getNamespacedKey(locationId);
@@ -50,8 +51,9 @@ public class LiveLocationRepository {
     }
 
     /**
-     * Removes and returns the item that has been at the location the longest.
-     * Useful for processing queues or chutes.
+     * Removes and returns the oldest item at a location.
+     * This supports queue and chute processing where the first physical arrival
+     * should be the first item released.
      */
     public String popOldestItem(String locationId) {
         String key = getNamespacedKey(locationId);
@@ -78,8 +80,9 @@ public class LiveLocationRepository {
     }
 
     /**
-     * Replaces the manual "Chute Occupancy" counter.
-     * This is the source of truth for how many items are at a node.
+     * Counts current Redis occupants at a location.
+     * Routing uses this as physical occupancy when deciding whether chute capacity
+     * is available.
      */
     public Long getItemCount(String locationId) {
         String key = getNamespacedKey(locationId);
@@ -87,12 +90,21 @@ public class LiveLocationRepository {
         return count != null ? count : 0L;
     }
 
+    /**
+     * Checks whether a location currently has no Redis occupants.
+     * This is a hot-state check and does not inspect durable topology.
+     */
     public boolean isLocationEmpty(String locationId) {
         return getItemCount(locationId) == 0;
     }
 
     // --- CLEANUP ---
 
+    /**
+     * Deletes all hot occupancy state for a removed location.
+     * Topology deletion calls this so old Redis queues cannot affect a future
+     * location with the same id.
+     */
     public void deleteLocation(String locationId) {
         String key = getNamespacedKey(locationId);
         redis.delete(key);

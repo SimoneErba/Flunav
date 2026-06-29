@@ -78,6 +78,11 @@ public class ItemMovementProcessor {
         this.manageLogic = manageLogic;
     }
 
+    /**
+     * Publishes externally ingested item events into the live processing queue.
+     * Failures are logged here because controllers and schedulers should not lose
+     * the event type context when RabbitMQ publication fails.
+     */
     public void publishEvent(DomainEvent event) {
         try {
             amqpTemplate.convertAndSend(itemEventsRoutingKey, event);
@@ -86,6 +91,11 @@ public class ItemMovementProcessor {
         }
     }
 
+    /**
+     * Freezes every item on a conveyor at the supplied timestamp before speed
+     * changes are applied. This preserves physical distance already traveled so
+     * rescheduled movement starts from the correct conveyor offset.
+     */
     public void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         var allItems = liveConveyorRepository.getItemsOrderedByDistance(edgeId);
         Instant nowInstant = timestamp;
@@ -116,6 +126,11 @@ public class ItemMovementProcessor {
         handleItemEntryToConveyor(itemId, conveyorId, timestamp, progress, previousPosId, true);
     }
 
+    /**
+     * Projects the next movement event for an item currently on a conveyor.
+     * The method handles stopped conveyors, blocked downstream segments, chute
+     * capacity, and recirculation before choosing where to schedule the item next.
+     */
     public void handleItemEntryToConveyor(String itemId, String conveyorId, Instant timestamp, Double progress,
             String previousPosId, boolean publishAssignments) {
         if (progress == null)
@@ -213,6 +228,11 @@ public class ItemMovementProcessor {
         return isNextSegmentBlocked(nextConv, null);
     }
 
+    /**
+     * Checks whether the next conveyor can accept the current item.
+     * Chute capacity is evaluated with projected assignments as well as physical
+     * occupants so future arrivals do not overbook the same destination.
+     */
     private boolean isNextSegmentBlocked(Conveyor nextConv, String itemId) {
         if (nextConv == null)
             return true;
@@ -228,11 +248,21 @@ public class ItemMovementProcessor {
         return false;
     }
 
+    /**
+     * Counts current and already assigned chute demand for capacity checks.
+     * The moving item can be excluded to avoid counting its current assignment
+     * twice while rerouting or revalidating a path.
+     */
     private long projectedChuteOccupancy(String chuteId, String itemId) {
         return liveLocationRepository.getItemCount(chuteId)
                 + liveItemRepository.countItemsAssignedToExit(chuteId, itemId);
     }
 
+    /**
+     * Rechecks upstream conveyors when a location may have become available.
+     * This wakes accumulated items after chute emptying or topology changes without
+     * waiting for their old scheduled event.
+     */
     public void wakeUpPrecedingConveyors(String locationId) {
         if (!manageLogic)
             return;
@@ -241,6 +271,11 @@ public class ItemMovementProcessor {
                 .forEach(c -> recalculateConveyorAccumulation(c.getId()));
     }
 
+    /**
+     * Recomputes stop or arrival events for every item on a conveyor.
+     * Items are processed in Redis conveyor order so accumulation calculations see
+     * the leading items before following items.
+     */
     public void recalculateConveyorAccumulation(String conveyorId) {
         if (!manageLogic)
             return;
@@ -267,6 +302,11 @@ public class ItemMovementProcessor {
         processLocationEntry(itemId, locationId, timestamp, true);
     }
 
+    /**
+     * Applies location-entry side effects and immediately advances non-chute items.
+     * Chute entries become occupancy, while other locations are treated as transient
+     * decision points or pass-through nodes in managed movement mode.
+     */
     public void processLocationEntry(String itemId, String locationId, Instant timestamp, boolean publishAssignments) {
         var location = topologyProvider.getLocationById(locationId);
         if (location == null)
@@ -345,6 +385,11 @@ public class ItemMovementProcessor {
             liveSystemScheduler.scheduleInternalEvent(event);
     }
 
+    /**
+     * Removes the pending movement event for the current context.
+     * Live mode cancels the scheduler task, while simulation mode removes the event
+     * from SimulationState so future replay projection stays isolated.
+     */
     public void cancelScheduledEvent(String itemId) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null)
@@ -353,6 +398,11 @@ public class ItemMovementProcessor {
             liveSystemScheduler.cancelInternalEvent(itemId);
     }
 
+    /**
+     * Reads the currently scheduled movement event from live or simulation state.
+     * Recovery and replay code use this to avoid scheduling duplicate arrivals for
+     * the same item.
+     */
     public DomainEvent getScheduledEvent(String itemId) {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null) {
@@ -371,6 +421,11 @@ public class ItemMovementProcessor {
         return calculateNextConveyor(itemId, currentLocationId, currentConveyorId, true);
     }
 
+    /**
+     * Chooses the next active conveyor from the current location.
+     * Assigned paths are followed when possible; blocked assigned exits recirculate
+     * onto the main path so capacity-constrained items keep moving.
+     */
     public String calculateNextConveyor(String itemId, String currentLocationId, String currentConveyorId,
             boolean publishAssignments) {
         var item = itemService.getItemById(itemId);

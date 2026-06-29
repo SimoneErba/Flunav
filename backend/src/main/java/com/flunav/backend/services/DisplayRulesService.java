@@ -45,6 +45,10 @@ public class DisplayRulesService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Builds the display-rule cache key for the current live or simulation context.
+     * Simulation-specific display rules must not affect the live graph view.
+     */
     private String getNamespacedKey() {
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null) {
@@ -53,6 +57,11 @@ public class DisplayRulesService {
         return REDIS_KEY_PREFIX;
     }
 
+    /**
+     * Evaluates one display rule against typed root fields first and custom
+     * properties second. Root fields win so top-level item, location, and conveyor
+     * attributes cannot be shadowed by similarly named custom properties.
+     */
     public boolean applies(Map<String, Object> rootFields, Map<String, Object> properties, DisplayRule rule) {
         if (rule == null) {
             return false;
@@ -64,6 +73,11 @@ public class DisplayRulesService {
                         rule.getDataType(), rule.getSecondOperator(), rule.getSecondValue()));
     }
 
+    /**
+     * Resolves the visual style produced by the ordered display rules.
+     * Fill and border can come from different matching rules, so each visual slot
+     * is filled once and higher-priority matches keep their result.
+     */
     public DisplayRuleVisualStyle applyDisplayRules(
             Map<String, Object> rootFields,
             Map<String, Object> properties,
@@ -100,10 +114,19 @@ public class DisplayRulesService {
                 : new DisplayRuleVisualStyle(fillColor, borderColor, borderWidth);
     }
 
+    /**
+     * Applies display rules to custom properties only.
+     * This overload is kept for callers that do not have separate root fields.
+     */
     public DisplayRuleVisualStyle applyDisplayRules(Map<String, Object> properties, List<DisplayRule> rules) {
         return applyDisplayRules(Map.of(), properties, rules);
     }
 
+    /**
+     * Loads display rules through a simulation-aware write-through cache.
+     * OrientDB is the durable source, Redis accelerates graph reads, and default
+     * priority rules preserve visible priority styling until a user saves rules.
+     */
     public List<DisplayRule> getDisplayRules() {
         // 1. Try Cache
         String key = getNamespacedKey();
@@ -149,6 +172,11 @@ public class DisplayRulesService {
         }
     }
 
+    /**
+     * Replaces the complete display-rule set in OrientDB and Redis.
+     * The rules are stored as one document so graph reads see a consistent ordered
+     * set rather than a partially updated collection.
+     */
     public void updateDisplayRules(List<DisplayRule> rules) {
         validateRules(rules);
         // 1. Update DB
@@ -174,6 +202,11 @@ public class DisplayRulesService {
         }
     }
 
+    /**
+     * Converts a DTO rule into an embedded OrientDB document.
+     * The field names are kept stable because saved rule documents are rehydrated
+     * directly by toDisplayRule.
+     */
     private ODocument toDocument(DisplayRule rule) {
         ODocument doc = new ODocument();
         doc.setProperty("fieldName", rule.getFieldName());
@@ -189,6 +222,11 @@ public class DisplayRulesService {
         return doc;
     }
 
+    /**
+     * Rehydrates an embedded OrientDB rule document into the shared rule DTO.
+     * Missing historical fields fall back to the earliest supported semantics so
+     * old saved rules remain usable after additive rule changes.
+     */
     private DisplayRule toDisplayRule(ODocument doc) {
         DisplayRule rule = new DisplayRule();
         rule.setFieldName(doc.getProperty("fieldName"));
@@ -210,6 +248,11 @@ public class DisplayRulesService {
         return rule;
     }
 
+    /**
+     * Validates user-supplied rules before they become graph-wide styling logic.
+     * This rejects ranges, operators, and visual border values that the evaluator
+     * cannot apply deterministically during graph projection.
+     */
     private void validateRules(List<DisplayRule> rules) {
         if (rules == null) {
             throw new IllegalArgumentException("display rules are required");
@@ -235,6 +278,11 @@ public class DisplayRulesService {
         }
     }
 
+    /**
+     * Validates the optional second condition used for numeric and datetime ranges.
+     * The two operators must bound opposite sides of the same field so the rule
+     * represents a finite interval instead of two unrelated comparisons.
+     */
     static void validateRange(DataType dataType, OperatorType firstOperator, OperatorType secondOperator,
             Object secondValue) {
         if (secondOperator == null && secondValue == null) {
@@ -259,12 +307,22 @@ public class DisplayRulesService {
         }
     }
 
+    /**
+     * Restricts operators to combinations the evaluator can compare safely.
+     * Strings and booleans only support equality because ordering them would be
+     * ambiguous across serialized values.
+     */
     private void validateOperator(DataType dataType, OperatorType operator) {
         if ((dataType == DataType.STRING || dataType == DataType.BOOLEAN) && operator != OperatorType.EQUAL) {
             throw new IllegalArgumentException("operator must be EQUAL for " + dataType);
         }
     }
 
+    /**
+     * Parses rule values using the same type expectations used at evaluation time.
+     * Invalid values are rejected on write so graph reads do not fail while applying
+     * display rules to live or simulation data.
+     */
     private void validateComparableValue(DataType dataType, Object value) {
         try {
             switch (dataType) {
@@ -291,6 +349,11 @@ public class DisplayRulesService {
         }
     }
 
+    /**
+     * Supplies baseline priority styling for a new system.
+     * These rules map the domain priority bands to border styling without requiring
+     * a persisted display-rule document during initial setup.
+     */
     private List<DisplayRule> defaultPriorityRules() {
         return List.of(
                 new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.0,
