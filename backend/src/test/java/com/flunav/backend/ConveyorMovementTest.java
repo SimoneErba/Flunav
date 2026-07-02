@@ -1,8 +1,13 @@
 package com.flunav.backend;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.domain.Item;
+import com.flunav.backend.services.RoutingDecisionService;
 import com.flunav.backend.test.SimulationTestHarness;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
+import flunav.events.ItemProcessingCompletedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 
@@ -14,6 +19,8 @@ import org.springframework.test.context.TestConstructor;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,9 +32,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConveyorMovementTest extends BaseIntegrationTest {
 
     private final SimulationTestHarness sim;
+    private final RoutingDecisionService routingDecisionService;
+    private final ObjectMapper objectMapper;
 
-    ConveyorMovementTest(SimulationTestHarness sim) {
+    ConveyorMovementTest(SimulationTestHarness sim, RoutingDecisionService routingDecisionService,
+            ObjectMapper objectMapper) {
         this.sim = sim;
+        this.routingDecisionService = routingDecisionService;
+        this.objectMapper = objectMapper;
     }
 
     @BeforeEach
@@ -108,6 +120,81 @@ class ConveyorMovementTest extends BaseIntegrationTest {
         sim.advanceSeconds(3);
         item = sim.getItem(itemId).orElseThrow();
         assertEquals(0.5, item.getProgress(), 0.05, "Item should have resumed and reached 50%");
+    }
+
+    @Test
+    void timedNodeHoldsItemBeforeReleasingToNextConveyor() {
+        Instant startTime = Instant.parse("2026-02-07T13:00:00Z");
+        sim.startAt(startTime);
+
+        String startLocId = "timed-start";
+        String timedLocId = "timed-node";
+        String endLocId = "timed-end";
+        String firstConveyorId = "timed-conv-1";
+        String secondConveyorId = "timed-conv-2";
+        String itemId = "timed-item";
+
+        sim.createLocation(startLocId, "Start Node", LocationType.JUNCTION);
+        sim.createLocation(timedLocId, "Timed Node", LocationType.TIMED_NODE, 5_000L);
+        sim.createLocation(endLocId, "End Node", LocationType.JUNCTION);
+        sim.createConveyor(firstConveyorId, startLocId, timedLocId, 10.0, 1.0, true);
+        sim.createConveyor(secondConveyorId, timedLocId, endLocId, 10.0, 1.0, true);
+
+        sim.applyEvent(new ItemCreatedEvent(itemId, "Box", 1.0, true, startLocId, PositionType.LOCATION, 0.0,
+                new HashMap<>(), startTime));
+
+        sim.advanceSeconds(10);
+        var item = sim.getItem(itemId).orElseThrow();
+        assertEquals(timedLocId, item.getLocationId());
+        assertNull(item.getCurrentEdgeId(), "Item should wait at the timed node before processing completes");
+
+        sim.advanceSeconds(4);
+        item = sim.getItem(itemId).orElseThrow();
+        assertEquals(timedLocId, item.getLocationId());
+        assertNull(item.getCurrentEdgeId(), "Item should not enter the next conveyor before the delay expires");
+
+        sim.advanceSeconds(1);
+        item = sim.getItem(itemId).orElseThrow();
+        assertEquals(secondConveyorId, item.getCurrentEdgeId());
+        assertEquals(0.0, item.getProgress(), 0.01, "Item should enter the next conveyor when processing completes");
+    }
+
+    @Test
+    void routingShortestPathIncludesTimedNodeProcessingDelay() {
+        Instant startTime = Instant.parse("2026-02-07T14:00:00Z");
+        sim.startAt(startTime);
+
+        sim.createLocation("route-start", "Start", LocationType.JUNCTION);
+        sim.createLocation("route-timed", "Timed", LocationType.TIMED_NODE, 10_000L);
+        sim.createLocation("route-plain", "Plain", LocationType.JUNCTION);
+        sim.createLocation("route-exit", "Exit", LocationType.CHUTE);
+        sim.createConveyor("route-start-timed", "route-start", "route-timed", 1.0, 1.0, true);
+        sim.createConveyor("route-timed-exit", "route-timed", "route-exit", 1.0, 1.0, true);
+        sim.createConveyor("route-start-plain", "route-start", "route-plain", 5.0, 1.0, false);
+        sim.createConveyor("route-plain-exit", "route-plain", "route-exit", 5.0, 1.0, true);
+
+        Item item = new Item("route-item", "Route Item", true, 1.0, Map.of());
+        item.setDestinations(List.of("route-exit"));
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            var decision = routingDecisionService.selectRoute(item, "route-start", PositionType.LOCATION);
+
+            assertEquals(List.of("route-start", "route-plain", "route-exit"), decision.path());
+            assertEquals("route-start-plain", decision.nextConveyorId());
+        }
+    }
+
+    @Test
+    void itemProcessingCompletedEventRoundTripsWithStableType() throws Exception {
+        ItemProcessingCompletedEvent event = new ItemProcessingCompletedEvent("timed-item", "timed-node",
+                Instant.parse("2026-02-07T15:00:00Z"));
+
+        var restored = objectMapper.readValue(objectMapper.writeValueAsBytes(event), flunav.events.DomainEvent.class);
+
+        ItemProcessingCompletedEvent restoredEvent = assertInstanceOf(ItemProcessingCompletedEvent.class, restored);
+        assertEquals("ITEM_PROCESSING_COMPLETED", restoredEvent.getEventType());
+        assertEquals("timed-item", restoredEvent.getEntityId());
+        assertEquals("timed-node", restoredEvent.getLocationId());
     }
 
     @AfterEach

@@ -10,15 +10,23 @@ const LOCATION_TYPES = [
   { value: "DECISION_POINT", label: "Decision point" },
   { value: "CHUTE", label: "Chute" },
   { value: "ACCUMULATION", label: "Accumulation" },
+  { value: "TIMED_NODE", label: "Timed node" },
   { value: "ROAD", label: "Road" },
   { value: "GENERIC", label: "Generic" },
 ];
+
+const TIME_TO_PROCESS_MS = "timeToProcessMs";
+
+const normalizeTimeToProcessMs = (value: unknown) => {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+};
 
 export interface NodeEditorData {
   nodeId: string;
   name: string;
   capacity?: number;
   locationType?: string;
+  timeToProcessMs?: number;
   properties?: Record<string, unknown>;
   itemsInChute?: ItemResponse[];
 }
@@ -26,7 +34,7 @@ export interface NodeEditorData {
 interface NodeEditorProps {
   data: NodeEditorData;
   onClose: () => void;
-  onSubmit: (updatedData: { name: string; capacity: number; locationType: string; properties: Record<string, unknown> }) => void;
+  onSubmit: (updatedData: { name: string; capacity: number; locationType: string; timeToProcessMs?: number; properties: Record<string, unknown> }) => void;
   onDelete: (nodeId: string) => void;
 }
 
@@ -35,17 +43,25 @@ export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: Nod
   const [capacity, setCapacity] = useState(data.capacity || 0);
   const [locationType, setLocationType] = useState(data.locationType || "GENERIC");
   const [properties, setProperties] = useState(data.properties || {});
+  const [timeToProcessMs, setTimeToProcessMs] = useState(normalizeTimeToProcessMs(data.timeToProcessMs));
 
   useEffect(() => {
     setName(data.name || "");
     setCapacity(data.capacity || 0);
     setLocationType(data.locationType || "GENERIC");
     setProperties(data.properties || {});
+    setTimeToProcessMs(normalizeTimeToProcessMs(data.timeToProcessMs));
   }, [data]);
 
   const handleSubmit = () => {
     if (name.trim()) {
-      onSubmit({ name: name.trim(), capacity: Number(capacity), locationType, properties });
+      onSubmit({
+        name: name.trim(),
+        capacity: Number(capacity),
+        locationType,
+        timeToProcessMs: locationType === "TIMED_NODE" ? Math.max(0, Number(timeToProcessMs) || 0) : 0,
+        properties
+      });
       onClose();
     }
   };
@@ -60,6 +76,7 @@ export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: Nod
   };
 
   const isChute = locationType === "CHUTE";
+  const isTimedNode = locationType === "TIMED_NODE";
   const itemsInChute = data.itemsInChute ?? [];
 
   const inputClass = `
@@ -127,11 +144,26 @@ export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: Nod
             className={`${inputClass} dark:[color-scheme:dark]`}
           />
         </div>
+
+        {isTimedNode && (
+          <div>
+            <label className={labelClass}>Time to process (ms)</label>
+            <input
+              type="number"
+              value={timeToProcessMs}
+              min="0"
+              step="1"
+              onChange={e => setTimeToProcessMs(Math.max(0, Number(e.target.value) || 0))}
+              onKeyDown={handleKeyPress}
+              className={`${inputClass} dark:[color-scheme:dark]`}
+            />
+          </div>
+        )}
       </div>
 
       {/* Properties */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
-        <PropertiesEditor properties={properties} onChange={setProperties} />
+        <PropertiesEditor properties={properties} onChange={setProperties} reservedKeys={[TIME_TO_PROCESS_MS]} />
       </div>
 
       {/* Items in Chute — only shown when type is CHUTE */}

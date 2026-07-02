@@ -1147,6 +1147,7 @@ export const LocationTypeEnum = {
     DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
+    TimedNode: 'TIMED_NODE',
     Road: 'ROAD',
     Generic: 'GENERIC'
 } as const;
@@ -1225,6 +1226,12 @@ export interface LocationInput {
      * @memberof LocationInput
      */
     'properties'?: { [key: string]: object; };
+    /**
+     *
+     * @type {number}
+     * @memberof LocationInput
+     */
+    'timeToProcessMs'?: number;
 }
 
 export const LocationInputTypeEnum = {
@@ -1232,6 +1239,7 @@ export const LocationInputTypeEnum = {
     DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
+    TimedNode: 'TIMED_NODE',
     Road: 'ROAD',
     Generic: 'GENERIC'
 } as const;
@@ -1294,6 +1302,12 @@ export interface LocationResponse {
     'properties'?: { [key: string]: object; };
     /**
      *
+     * @type {number}
+     * @memberof LocationResponse
+     */
+    'timeToProcessMs'?: number;
+    /**
+     *
      * @type {string}
      * @memberof LocationResponse
      */
@@ -1305,6 +1319,7 @@ export const LocationResponseTypeEnum = {
     DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
+    TimedNode: 'TIMED_NODE',
     Road: 'ROAD',
     Generic: 'GENERIC'
 } as const;

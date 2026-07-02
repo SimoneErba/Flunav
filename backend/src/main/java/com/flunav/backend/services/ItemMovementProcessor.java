@@ -9,6 +9,7 @@ import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.context.DatabaseContextHolder;
 import flunav.events.DomainEvent;
+import flunav.events.ItemProcessingCompletedEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -158,6 +159,13 @@ public class ItemMovementProcessor {
         long travelTimeMillis = (long) ((remainingDistance / speed) * 1000);
         Instant arrivalAtEnd = timestamp.plusMillis(travelTimeMillis);
 
+        var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
+        if (targetLocation != null && targetLocation.getType() == LocationType.TIMED_NODE) {
+            scheduleEvent(new ItemPositionChangedEvent(itemId, targetLocation.getId(), 100.0, arrivalAtEnd));
+            liveConveyorRepository.updateTailPosition(conveyorId, length);
+            return;
+        }
+
         String nextConveyorId = calculateNextConveyor(itemId, conveyor.getTargetLocationId(), conveyorId,
                 publishAssignments);
 
@@ -205,7 +213,6 @@ public class ItemMovementProcessor {
                 liveConveyorRepository.updateTailPosition(conveyorId, length);
             }
         } else {
-            var targetLocation = topologyProvider.getLocationById(conveyor.getTargetLocationId());
             if (targetLocation != null && targetLocation.getType() == LocationType.CHUTE) {
                 Integer capacity = targetLocation.getCapacity();
                 long projectedOccupancy = projectedChuteOccupancy(targetLocation.getId(), itemId);
@@ -325,16 +332,84 @@ public class ItemMovementProcessor {
             return;
         }
 
+        if (location.getType() == LocationType.TIMED_NODE) {
+            liveLocationRepository.addItemToLocation(locationId, itemId);
+            if (!manageLogic) {
+                return;
+            }
+
+            long processingDelayMillis = processingDelayMillis(location);
+            if (processingDelayMillis > 0L) {
+                scheduleEvent(new ItemProcessingCompletedEvent(itemId, locationId,
+                        timestamp.plusMillis(processingDelayMillis)));
+                return;
+            }
+
+            releaseTimedNodeItem(itemId, locationId, timestamp, publishAssignments, false);
+            return;
+        }
+
         if (!manageLogic) {
             return;
         }
 
+        releaseFromPassThroughLocation(itemId, locationId, timestamp, publishAssignments, false);
+    }
+
+    /**
+     * Releases an item from a timed node after its processing delay has elapsed.
+     * The current hot-state check prevents stale scheduled completions from moving
+     * an item that was manually repositioned before the timer fired.
+     */
+    public void processTimedNodeCompletion(String itemId, String locationId, Instant timestamp,
+            boolean publishAssignments) {
+        var state = liveItemRepository.getItemState(itemId);
+        if (state == null
+                || !locationId.equals(state.getPositionId())
+                || state.getType() != PositionType.LOCATION) {
+            return;
+        }
+
+        var location = topologyProvider.getLocationById(locationId);
+        if (location == null || location.getType() != LocationType.TIMED_NODE) {
+            return;
+        }
+
+        releaseTimedNodeItem(itemId, locationId, timestamp, publishAssignments, true);
+    }
+
+    /**
+     * Removes timed-node occupancy before handing the item to normal routing.
+     * Occupancy belongs to the delay interval only; after release, conveyor and
+     * location repositories resume their usual ownership.
+     */
+    private void releaseTimedNodeItem(String itemId, String locationId, Instant timestamp, boolean publishAssignments,
+            boolean broadcastReleasedPosition) {
+        liveLocationRepository.removeItemFromLocation(locationId, itemId);
+        releaseFromPassThroughLocation(itemId, locationId, timestamp, publishAssignments, broadcastReleasedPosition);
+    }
+
+    /**
+     * Advances a non-terminal location occupant onto its selected next conveyor.
+     * This is shared by normal pass-through locations and timed-node releases.
+     */
+    private void releaseFromPassThroughLocation(String itemId, String locationId, Instant timestamp,
+            boolean publishAssignments, boolean broadcastReleasedPosition) {
         String nextConveyorId = calculateNextConveyor(itemId, locationId, null, publishAssignments);
         if (nextConveyorId != null) {
             itemService.updateItemPosition(itemId, nextConveyorId, PositionType.CONVEYOR, timestamp, 0.0, null);
             liveConveyorRepository.addItemToConveyor(nextConveyorId, itemId, timestamp);
+            if (publishAssignments && broadcastReleasedPosition) {
+                webSocketService.broadcastPositionUpdate(itemId, nextConveyorId, timestamp,
+                        PositionType.CONVEYOR, 0.0);
+            }
             handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId, publishAssignments);
         }
+    }
+
+    private long processingDelayMillis(com.flunav.backend.domain.Location location) {
+        Long delay = location.getTimeToProcessMs();
+        return delay != null && delay > 0L ? delay : 0L;
     }
 
     /**

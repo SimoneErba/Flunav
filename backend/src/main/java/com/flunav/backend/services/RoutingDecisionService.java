@@ -371,7 +371,18 @@ public class RoutingDecisionService {
      */
     private double travelSeconds(Conveyor conveyor) {
         double length = conveyor.getLength() != null ? conveyor.getLength() : 0.0;
-        return Math.max(length / conveyor.getSpeed(), 0.001);
+        Location target = findLocation(conveyor.getTargetLocationId());
+        double processingDelay = target == null
+                ? 0.0
+                : processingDelaySeconds(target);
+        return Math.max(length / conveyor.getSpeed(), 0.001) + processingDelay;
+    }
+
+    private double processingDelaySeconds(Location location) {
+        Long delay = location.getTimeToProcessMs();
+        return location.getType() == LocationType.TIMED_NODE && delay != null && delay > 0L
+                ? delay / 1000.0
+                : 0.0;
     }
 
     /**

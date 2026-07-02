@@ -60,16 +60,25 @@ public class PathfindingService {
 
         // 2. Define the Weight Function (JavaScript)
         String weightFunction = "function(edge) {" +
+                "  var cost = 0.1;" +
                 "  var fixedTime = edge.getProperty('fixedTransitTime');" +
                 "  if (fixedTime != null && fixedTime > 0) {" +
-                "    return fixedTime / 1000.0;" +
-                "  }" +
+                "    cost = fixedTime / 1000.0;" +
+                "  } else {" +
                 "  var len = edge.getProperty('length');" +
                 "  var spd = edge.getProperty('speed');" +
                 "  if (len != null && spd != null && spd > 0) {" +
-                "    return len / spd;" +
+                "    cost = len / spd;" +
                 "  }" +
-                "  return 0.1;" +
+                "  }" +
+                "  var target = edge.getTo();" +
+                "  if (target != null && String(target.getProperty('type')) == 'TIMED_NODE') {" +
+                "    var delay = target.getProperty('timeToProcessMs');" +
+                "    if (delay != null && delay > 0) {" +
+                "      cost = cost + (delay / 1000.0);" +
+                "    }" +
+                "  }" +
+                "  return cost;" +
                 "}";
 
         // 3. Execute Dijkstra

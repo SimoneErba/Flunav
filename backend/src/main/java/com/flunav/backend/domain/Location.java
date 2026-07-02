@@ -28,6 +28,9 @@ public class Location {
     // Default to -1 (Unlimited)
     private Integer capacity = -1;
 
+    // Optional processing delay for TIMED_NODE locations.
+    private Long timeToProcessMs;
+
     // Calculated field (populated by Service from Redis/Graph state)
     // This is NOT stored in OrientDB as a property, but calculated at runtime.
     @Setter
@@ -41,7 +44,8 @@ public class Location {
             String id, String name, LocationType type, Boolean active,
             Map<String, Object> properties,
             Double latitude, Double longitude,
-            Integer capacity) {
+            Integer capacity,
+            Long timeToProcessMs) {
         this.id = id;
         this.name = name;
         this.type = type;
@@ -50,6 +54,7 @@ public class Location {
         this.latitude = latitude;
         this.longitude = longitude;
         this.capacity = capacity;
+        this.timeToProcessMs = timeToProcessMs;
     }
 
     public Location(LocationCreatedEvent event) {
@@ -61,6 +66,7 @@ public class Location {
         this.latitude = event.getLatitude();
         this.longitude = event.getLongitude();
         this.capacity = event.getCapacity();
+        this.timeToProcessMs = event.getTimeToProcessMs();
     }
 
     public void updateProperties(LocationPropertiesUpdatedEvent event) {
@@ -91,6 +97,10 @@ public class Location {
 
     public void updateCapacity(Integer capacity) {
         this.capacity = capacity;
+    }
+
+    public void updateTimeToProcessMs(Long timeToProcessMs) {
+        this.timeToProcessMs = timeToProcessMs;
     }
 
     public void setType(LocationType type) {

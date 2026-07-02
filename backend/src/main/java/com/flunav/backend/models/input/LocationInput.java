@@ -23,6 +23,12 @@ public class LocationInput {
     private Boolean active;
     private Boolean mainPath;
     private Map<String, Object> properties;
+    private Long timeToProcessMs;
+
+    public LocationInput(String id, String name, Double latitude, Double longitude, Double length, Double speed,
+            LocationType type, Integer capacity, Boolean active, Boolean mainPath, Map<String, Object> properties) {
+        this(id, name, latitude, longitude, length, speed, type, capacity, active, mainPath, properties, null);
+    }
 
     public LocationInput(LocationCreatedEvent event) {
         this.id = event.getEntityId();
@@ -33,5 +39,6 @@ public class LocationInput {
         this.active = event.getActive();
         this.capacity = event.getCapacity();
         this.properties = event.getProperties();
+        this.timeToProcessMs = event.getTimeToProcessMs();
     }
 }

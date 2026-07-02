@@ -4,7 +4,9 @@ import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Location;
 import com.flunav.backend.context.MdcContext;
 import com.flunav.backend.exception.DuplicateItemException;
+import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.UpdateModel;
+import com.flunav.backend.models.analytics.LocationTransitMetric;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ConveyorResponse;
@@ -32,6 +34,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -433,8 +436,10 @@ public class EventProcessor {
                             liveConveyorRepository.removeItemFromConveyor(previousPosId, e.getEntityId());
                         } else {
                             var previousLocation = topologyProvider.getLocationById(previousPosId);
-                            // Only remove if it was a buffer location
-                            if (previousLocation != null && previousLocation.getType() == LocationType.CHUTE) {
+                            // Only remove locations that own transient occupancy state.
+                            if (previousLocation != null
+                                    && (previousLocation.getType() == LocationType.CHUTE
+                                            || previousLocation.getType() == LocationType.TIMED_NODE)) {
                                 liveLocationRepository.removeItemFromLocation(previousPosId, e.getEntityId());
                             }
                         }
@@ -459,10 +464,20 @@ public class EventProcessor {
                     }
 
                     if (shouldBroadcast) {
+                        recordCompletedTransit(e, lastState, positionType);
+                    }
+
+                    if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
                                 positionType, e.getProgress());
                     }
 
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ItemProcessingCompletedEvent e -> {
+                    itemMovementProcessor.processTimedNodeCompletion(e.getEntityId(), e.getLocationId(),
+                            e.getTimestamp(), shouldBroadcast);
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -728,6 +743,22 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case LocationProcessingTimeChangedEvent e -> {
+                    var location = locationService.getLocationById(e.getEntityId());
+                    Long timeToProcessMs = e.getTimeToProcessMs() != null && e.getTimeToProcessMs() > 0L
+                            ? e.getTimeToProcessMs()
+                            : 0L;
+                    location.updateTimeToProcessMs(timeToProcessMs);
+                    Map<String, Object> updates = new HashMap<>();
+                    updates.put("timeToProcessMs", timeToProcessMs);
+                    var updateModel = new UpdateModel(location.getId(), updates);
+                    locationService.updateLocation(updateModel);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case LocationTypeChangedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     location.setType(e.getLocationType());
@@ -938,7 +969,8 @@ public class EventProcessor {
                 || event instanceof ConnectionRemoveFromMainPath
                 || event instanceof LocationCreatedEvent
                 || event instanceof LocationDeletedEvent
-                || event instanceof LocationTypeChangedEvent) {
+                || event instanceof LocationTypeChangedEvent
+                || event instanceof LocationProcessingTimeChangedEvent) {
             pathCacheRepository.invalidateCurrentNamespace();
         }
     }
@@ -950,6 +982,55 @@ public class EventProcessor {
      */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
+    }
+
+    /**
+     * Records live conveyor transit facts after the movement reducer succeeds.
+     * The raw fact is enough for ClickHouse views to maintain path timing baselines
+     * without replaying the full event stream for every analytics refresh.
+     */
+    private void recordCompletedTransit(
+            ItemPositionChangedEvent event,
+            RedisLiveItem previousState,
+            PositionType newPositionType) {
+        if (DatabaseContextHolder.getSimulationId() != null
+                || previousState == null
+                || previousState.getEntryTime() == null
+                || previousState.getPositionId() == null
+                || previousState.getType() != PositionType.CONVEYOR) {
+            return;
+        }
+
+        Conveyor previousConveyor;
+        try {
+            previousConveyor = topologyProvider.getConveyorById(previousState.getPositionId());
+        } catch (Exception e) {
+            logger.debug("Skipping transit metric for missing conveyor {}", previousState.getPositionId());
+            return;
+        }
+        if (previousConveyor == null
+                || previousConveyor.getSourceLocationId() == null
+                || previousConveyor.getTargetLocationId() == null) {
+            return;
+        }
+
+        long transitTimeMillis = Duration.between(previousState.getEntryTime(), event.getTimestamp()).toMillis();
+        if (transitTimeMillis < 0L) {
+            logger.debug("Skipping transit metric with negative duration for item {}", event.getEntityId());
+            return;
+        }
+
+        clickHouseService.saveLocationTransitMetricAsync(new LocationTransitMetric(
+                event.getTimestamp(),
+                event.getEntityId(),
+                previousConveyor.getSourceLocationId(),
+                previousConveyor.getTargetLocationId(),
+                previousState.getPositionId(),
+                previousState.getType(),
+                event.getLocationId(),
+                newPositionType,
+                transitTimeMillis,
+                List.of(previousConveyor.getSourceLocationId(), previousConveyor.getTargetLocationId())));
     }
 
     /**
@@ -1169,6 +1250,7 @@ public class EventProcessor {
         fields.put("latitude", location.getLatitude());
         fields.put("longitude", location.getLongitude());
         fields.put("capacity", location.getCapacity());
+        fields.put("timeToProcessMs", location.getTimeToProcessMs());
         return fields;
     }
 

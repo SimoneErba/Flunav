@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flunav.backend.models.analytics.EntityEventType;
+import com.flunav.backend.models.analytics.LocationTransitMetric;
 import com.flunav.backend.models.analytics.MetricEvent;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
@@ -70,6 +71,7 @@ public class ClickHouseService {
                     .setPassword(password)
                     .build();
             ensureAnalyticsSchema();
+            ensureMovementAnalyticsSchema();
             logger.info("ClickHouse Client V2 initialized successfully.");
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
@@ -80,6 +82,7 @@ public class ClickHouseService {
     @PreDestroy
     public void cleanup() {
         flushEvents();
+        flushLocationTransitMetrics();
         if (client != null) {
             client.close();
         }
@@ -146,6 +149,63 @@ public class ClickHouseService {
     private void requeueBatch(List<DomainEvent> batch) {
         for (int i = batch.size() - 1; i >= 0; i--) {
             eventQueue.offerFirst(batch.get(i));
+        }
+    }
+
+    private final LinkedBlockingDeque<LocationTransitMetric> locationTransitQueue = new LinkedBlockingDeque<>();
+
+    public void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
+        locationTransitQueue.offer(metric);
+
+        if (locationTransitQueue.size() >= BATCH_SIZE) {
+            flushLocationTransitMetrics();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushLocationTransitMetrics() {
+        if (locationTransitQueue.isEmpty()) {
+            return;
+        }
+
+        List<LocationTransitMetric> batch = new ArrayList<>();
+        locationTransitQueue.drainTo(batch, BATCH_SIZE);
+
+        if (batch.isEmpty()) {
+            return;
+        }
+
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+            for (LocationTransitMetric metric : batch) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+                row.put("item_id", metric.itemId());
+                row.put("from_location_id", metric.fromLocationId());
+                row.put("to_location_id", metric.toLocationId());
+                row.put("from_position_id", metric.fromPositionId());
+                row.put("from_position_type", metric.fromPositionType().name());
+                row.put("to_position_id", metric.toPositionId());
+                row.put("to_position_type", metric.toPositionType().name());
+                row.put("transit_time_ms", metric.transitTimeMillis());
+                row.put("path", metric.path());
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append("\n");
+            }
+
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_location_transit_events", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+
+            logger.debug("Flushed {} location transit metrics to ClickHouse", batch.size());
+        } catch (Exception e) {
+            requeueLocationTransitBatch(batch);
+            logger.error("Error flushing location transit metrics batch to ClickHouse.", e);
+        }
+    }
+
+    private void requeueLocationTransitBatch(List<LocationTransitMetric> batch) {
+        for (int i = batch.size() - 1; i >= 0; i--) {
+            locationTransitQueue.offerFirst(batch.get(i));
         }
     }
 
@@ -249,6 +309,89 @@ public class ClickHouseService {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to initialize ClickHouse analytics schema", e);
+        }
+    }
+
+    private void ensureMovementAnalyticsSchema() {
+        try {
+            client.query("""
+                    CREATE TABLE IF NOT EXISTS %s.analytics_location_transit_events
+                    (
+                        event_timestamp DateTime64(3),
+                        item_id String,
+                        from_location_id LowCardinality(String),
+                        to_location_id LowCardinality(String),
+                        from_position_id String,
+                        from_position_type LowCardinality(String),
+                        to_position_id String,
+                        to_position_type LowCardinality(String),
+                        transit_time_ms UInt64,
+                        path Array(String)
+                    )
+                    ENGINE = MergeTree()
+                    PARTITION BY toYYYYMM(event_timestamp)
+                    ORDER BY (from_location_id, to_location_id, event_timestamp, item_id)
+                    """.formatted(clickhouseDatabase)).get();
+
+            client.query("""
+                    CREATE TABLE IF NOT EXISTS %s.analytics_location_transit_counts
+                    (
+                        location_id LowCardinality(String),
+                        items_transited UInt64,
+                        last_activity SimpleAggregateFunction(max, DateTime64(3))
+                    )
+                    ENGINE = SummingMergeTree()
+                    ORDER BY location_id
+                    """.formatted(clickhouseDatabase)).get();
+
+            client.query("""
+                    CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_analytics_location_transit_counts
+                    TO %s.analytics_location_transit_counts
+                    AS
+                    SELECT
+                        to_location_id AS location_id,
+                        count() AS items_transited,
+                        max(event_timestamp) AS last_activity
+                    FROM %s.analytics_location_transit_events
+                    GROUP BY location_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase)).get();
+
+            client.query("""
+                    CREATE TABLE IF NOT EXISTS %s.analytics_path_transit_stats
+                    (
+                        from_location_id LowCardinality(String),
+                        to_location_id LowCardinality(String),
+                        sample_count_state AggregateFunction(count),
+                        avg_transit_time_ms_state AggregateFunction(avg, Float64),
+                        stddev_transit_time_ms_state AggregateFunction(stddevPop, Float64),
+                        median_transit_time_ms_state AggregateFunction(quantile(0.5), Float64),
+                        min_transit_time_ms SimpleAggregateFunction(min, UInt64),
+                        max_transit_time_ms SimpleAggregateFunction(max, UInt64),
+                        last_activity SimpleAggregateFunction(max, DateTime64(3))
+                    )
+                    ENGINE = AggregatingMergeTree()
+                    ORDER BY (from_location_id, to_location_id)
+                    """.formatted(clickhouseDatabase)).get();
+
+            client.query("""
+                    CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_analytics_path_transit_stats
+                    TO %s.analytics_path_transit_stats
+                    AS
+                    SELECT
+                        from_location_id,
+                        to_location_id,
+                        countState() AS sample_count_state,
+                        avgState(toFloat64(transit_time_ms)) AS avg_transit_time_ms_state,
+                        stddevPopState(toFloat64(transit_time_ms)) AS stddev_transit_time_ms_state,
+                        quantileState(0.5)(toFloat64(transit_time_ms)) AS median_transit_time_ms_state,
+                        min(transit_time_ms) AS min_transit_time_ms,
+                        max(transit_time_ms) AS max_transit_time_ms,
+                        max(event_timestamp) AS last_activity
+                    FROM %s.analytics_location_transit_events
+                    GROUP BY from_location_id, to_location_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase)).get();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to initialize ClickHouse movement analytics schema", e);
         }
     }
 

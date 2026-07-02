@@ -33,6 +33,7 @@ export const useGraphLoader = (
                 type: "circle",
                 id: loc.id,
                 capacity: loc.capacity,
+                timeToProcessMs: loc.timeToProcessMs,
                 locationType: loc.type,
                 properties: loc.properties,
                 customColor: loc.customColor,

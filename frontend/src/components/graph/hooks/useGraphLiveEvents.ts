@@ -354,7 +354,7 @@ export const useGraphLiveEvents = (
             if (graph.hasNode(loc.id)) return;
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id!), y: loc.longitude ?? hashToNumber(loc.id + "random"), locationType: loc.type,
-                label: loc.name, size: 10, color: loc.customColor || "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, properties: loc.properties, customColor: loc.customColor
+                label: loc.name, size: 10, color: loc.customColor || "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, timeToProcessMs: loc.timeToProcessMs, properties: loc.properties, customColor: loc.customColor
             });
         }, simulationId));
 

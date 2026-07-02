@@ -22,6 +22,9 @@ public class LocationResponse {
     // Optional Capacity (for Chutes/Sinks)
     private Integer capacity;
 
+    // Optional processing delay for timed nodes
+    private Long timeToProcessMs;
+
     // Metadata
     private Map<String, Object> properties;
     private String customColor;

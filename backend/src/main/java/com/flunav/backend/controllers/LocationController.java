@@ -48,6 +48,9 @@ public class LocationController {
     public record CapacityUpdateRequest(Integer capacity) {
     }
 
+    public record ProcessingTimeUpdateRequest(Long timeToProcessMs) {
+    }
+
     public record TypeUpdateRequest(LocationType type) {
     }
 
@@ -78,7 +81,8 @@ public class LocationController {
                 location.getLongitude(),
                 location.getType(),
                 location.getCapacity(),
-                location.getProperties());
+                location.getProperties(),
+                normalizeProcessingTime(location.getTimeToProcessMs()));
 
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> {
@@ -196,6 +200,17 @@ public class LocationController {
                     return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
                 }
             }
+
+            if (updates.containsKey("timeToProcessMs")) {
+                Object value = updates.get("timeToProcessMs");
+                if (value != null && !(value instanceof Number)) {
+                    logger.warn("Validation failed for location {}: 'timeToProcessMs' must be a number, but was {}", id,
+                            value.getClass().getSimpleName());
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+                events.add(new LocationProcessingTimeChangedEvent(id,
+                        normalizeProcessingTime(value instanceof Number number ? number.longValue() : null)));
+            }
         } catch (Exception e) {
             logger.error("An unexpected error occurred during payload validation for location {}", id, e);
             return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
@@ -280,6 +295,15 @@ public class LocationController {
     }
 
     @BlockInDemo
+    @PutMapping("/{id}/time-to-process")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationProcessingTime(
+            @PathVariable String id, @RequestBody ProcessingTimeUpdateRequest request) {
+        var event = new LocationProcessingTimeChangedEvent(id, normalizeProcessingTime(request.timeToProcessMs()));
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(result -> ResponseEntity.ok(result));
+    }
+
+    @BlockInDemo
     @PutMapping("/{id}/type")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> updateLocationType(
             @PathVariable String id, @RequestBody TypeUpdateRequest request) {
@@ -302,5 +326,12 @@ public class LocationController {
         var event = new LocationDeletedEvent(id);
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(result -> ResponseEntity.noContent().build());
+    }
+
+    private Long normalizeProcessingTime(Long timeToProcessMs) {
+        if (timeToProcessMs == null || timeToProcessMs <= 0L) {
+            return null;
+        }
+        return timeToProcessMs;
     }
 }

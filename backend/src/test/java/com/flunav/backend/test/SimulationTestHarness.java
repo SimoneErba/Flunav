@@ -58,8 +58,13 @@ public class SimulationTestHarness {
     }
 
     public void createLocation(String id, String name, LocationType type) {
+        createLocation(id, name, type, null);
+    }
+
+    public void createLocation(String id, String name, LocationType type, Long timeToProcessMs) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
-            var loc = new LocationCreatedEvent(id, name, true, 0.0, 0.0, type, 100, new HashMap<>());
+            var loc = new LocationCreatedEvent(id, name, true, 0.0, 0.0, type, 100, new HashMap<>(),
+                    timeToProcessMs);
             applyEvent(loc);
         }
     }

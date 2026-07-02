@@ -158,6 +158,34 @@ export const useGraphAnimation = (
                 // Location items can be advanced optimistically only when the next
                 // edge is unambiguous; otherwise they stay at the location node.
                 else if (item.locationId) {
+                    if (!graph.hasNode(item.locationId)) return;
+
+                    const locNode = graph.getNodeAttributes(item.locationId);
+                    const processingDelayMs = locNode.locationType === "TIMED_NODE"
+                        ? Number(locNode.timeToProcessMs ?? 0)
+                        : 0;
+                    const entryTime = new Date(item.entryTimestamp).getTime();
+                    let overflow = 0;
+
+                    if (processingDelayMs > 0) {
+                        let timeElapsed = simTime - entryTime;
+                        if (timeElapsed < 0 && timeElapsed > -500) {
+                            timeElapsed = 0;
+                        }
+
+                        if (timeElapsed < processingDelayMs) {
+                            graph.setNodeAttribute(itemId, "x", locNode.x);
+                            graph.setNodeAttribute(itemId, "y", locNode.y);
+                            graph.setNodeAttribute(itemId, "hidden", false);
+                            graph.setNodeAttribute(itemId, "currentEdgeId", null);
+                            graph.setNodeAttribute(itemId, "locationId", item.locationId);
+                            needsRefresh = true;
+                            return;
+                        }
+
+                        overflow = timeElapsed - processingDelayMs;
+                    }
+
                     const nextTargetNodeId = getNextFromPath(item.locationId);
                     const nextEdgeKey = findNextEdge(item.locationId, graph, nextTargetNodeId);
                     
@@ -168,7 +196,7 @@ export const useGraphAnimation = (
                              ...item, 
                              currentEdgeId: nextEdgeAttrs.id, 
                              locationId: undefined, 
-                             entryTimestamp: new Date(simTime).toISOString() 
+                             entryTimestamp: new Date(simTime - overflow).toISOString() 
                          };
 
                          activeItemsRef.current.set(itemId, newItem);
@@ -177,8 +205,7 @@ export const useGraphAnimation = (
                          graph.setNodeAttribute(itemId, "locationId", null);
 
                          needsRefresh = true;
-                    } else if (graph.hasNode(item.locationId)) {
-                        const locNode = graph.getNodeAttributes(item.locationId);
+                    } else {
                         graph.setNodeAttribute(itemId, "x", locNode.x);
                         graph.setNodeAttribute(itemId, "y", locNode.y);
                         graph.setNodeAttribute(itemId, "hidden", false);

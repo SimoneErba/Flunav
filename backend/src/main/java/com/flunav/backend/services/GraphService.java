@@ -328,6 +328,13 @@ public class GraphService {
         } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
             // CASE B: Started on a Node
             lastNodeId = startId;
+            Duration processingDuration = processingDuration(topo.nodeMap.get(startId));
+            if (!processingDuration.isZero()) {
+                if (timeElapsed.compareTo(processingDuration) < 0) {
+                    return createItemResponse(itemId, null, startId, lastUpdate, 1.0);
+                }
+                timeElapsed = timeElapsed.minus(processingDuration);
+            }
             currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
 
             if (currentEdge == null) {
@@ -368,10 +375,37 @@ public class GraphService {
             String arrivalNodeId = currentEdge.getTargetId();
 
             lastNodeId = arrivalNodeId;
+            Duration processingDuration = processingDuration(topo.nodeMap.get(arrivalNodeId));
+            if (!processingDuration.isZero()) {
+                Instant arrivalTime = now.minus(timeElapsed);
+                if (timeElapsed.compareTo(processingDuration) < 0) {
+                    return createItemResponse(itemId, null, arrivalNodeId, arrivalTime, 1.0);
+                }
+                timeElapsed = timeElapsed.minus(processingDuration);
+            }
             currentEdge = findNextEdge(arrivalNodeId, topo.outgoingEdgesMap, path);
         }
 
         return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
+    }
+
+    /**
+     * Converts timed-node metadata into a graph-projection delay.
+     * Only timed nodes wait; all other location types remain pass-through for
+     * animation and snapshot projection.
+     */
+    private Duration processingDuration(LocationResponse location) {
+        long delayMillis = location == null
+                ? 0L
+                : processingDelayMillis(location);
+        return delayMillis <= 0L ? Duration.ZERO : Duration.ofMillis(delayMillis);
+    }
+
+    private long processingDelayMillis(LocationResponse location) {
+        Long delay = location.getTimeToProcessMs();
+        return location.getType() == flunav.types.LocationType.TIMED_NODE && delay != null && delay > 0L
+                ? delay
+                : 0L;
     }
 
     /**
@@ -506,6 +540,7 @@ public class GraphService {
         fields.put("capacity", location.getCapacity());
         fields.put("latitude", location.getLatitude());
         fields.put("longitude", location.getLongitude());
+        fields.put("timeToProcessMs", location.getTimeToProcessMs());
         return fields;
     }
 

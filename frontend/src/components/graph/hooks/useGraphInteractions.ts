@@ -134,11 +134,13 @@ export const useGraphInteractions = (
         name,
         capacity,
         locationType,
-        properties
+        properties,
+        timeToProcessMs
     }: {
         name: string;
         capacity: number;
         locationType: string;
+        timeToProcessMs?: number;
         properties: Record<string, unknown>;
     }) => {
         const { isReadOnly, locationApi } = stateRef.current;
@@ -151,9 +153,10 @@ export const useGraphInteractions = (
             graph.setNodeAttribute(nodeId, 'label', name);
             graph.setNodeAttribute(nodeId, 'capacity', capacity);
             graph.setNodeAttribute(nodeId, 'locationType', locationType);
+            graph.setNodeAttribute(nodeId, 'timeToProcessMs', timeToProcessMs);
             graph.setNodeAttribute(nodeId, 'properties', properties);
             sigma.refresh();
-            await locationApi.updateLocation(nodeId, { name, capacity, type: locationType, properties });
+            await locationApi.updateLocation(nodeId, { name, capacity, type: locationType, timeToProcessMs, properties });
             toast.success("Location updated");
         } catch (error) { 
             console.error(error);
@@ -461,7 +464,7 @@ export const useGraphInteractions = (
                     // It's a location: Open editor
                     const { isReadOnly } = stateRef.current;
                     if (isReadOnly) { notifyReadOnly(); return; }
-                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity, properties: attrs.properties, locationType: attrs.locationType, itemsInChute: attrs.itemsInChute });
+                    setSelectedNodeData({ nodeId: node, name: attrs.label, capacity: attrs.capacity, timeToProcessMs: attrs.timeToProcessMs, properties: attrs.properties, locationType: attrs.locationType, itemsInChute: attrs.itemsInChute });
                 }
             }
         });

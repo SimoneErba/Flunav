@@ -79,9 +79,13 @@ public class LocationService {
             vertex.setProperty("longitude", location.getLongitude());
             vertex.setProperty("type", location.getType());
             vertex.setProperty("active", location.getActive());
+            vertex.setProperty("properties", location.getProperties());
 
             if (location.getCapacity() != null) {
                 vertex.setProperty("capacity", location.getCapacity());
+            }
+            if (location.getTimeToProcessMs() != null) {
+                vertex.setProperty("timeToProcessMs", location.getTimeToProcessMs());
             }
 
             vertex.save();
@@ -141,6 +145,7 @@ public class LocationService {
             locationVertex.setProperty("properties", location.getProperties());
 
             locationVertex.setProperty("capacity", location.getCapacity());
+            locationVertex.setProperty("timeToProcessMs", location.getTimeToProcessMs());
 
             locationVertex.save();
 
@@ -182,6 +187,7 @@ public class LocationService {
         }
 
         Integer capacity = vertex.getProperty("capacity");
+        Long timeToProcessMs = numberToLong(vertex.getProperty("timeToProcessMs"));
 
         String typeStr = vertex.getProperty("type");
 
@@ -200,6 +206,11 @@ public class LocationService {
                 vertex.getProperty("properties"),
                 vertex.getProperty("latitude"),
                 vertex.getProperty("longitude"),
-                capacity);
+                capacity,
+                timeToProcessMs);
+    }
+
+    private Long numberToLong(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
     }
 }

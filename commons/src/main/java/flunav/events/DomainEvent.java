@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ItemPositionChangedEvent.class, name = "ITEM_POSITION_CHANGED"),
         @JsonSubTypes.Type(value = ItemPositionDeletedEvent.class, name = "ITEM_POSITION_DELETED"),
         @JsonSubTypes.Type(value = ItemPriorityUpdatedEvent.class, name = "ITEM_PRIORITY_UPDATED"),
+        @JsonSubTypes.Type(value = ItemProcessingCompletedEvent.class, name = "ITEM_PROCESSING_COMPLETED"),
         @JsonSubTypes.Type(value = ItemPropertiesUpdatedEvent.class, name = "ITEM_PROPERTIES_UPDATED"),
         @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"),
         @JsonSubTypes.Type(value = ItemRoutingDecisionRequestedEvent.class, name = "ITEM_ROUTING_DECISION_REQUESTED"),
@@ -35,6 +36,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = LocationDeactivatedEvent.class, name = "LOCATION_DEACTIVATED"),
         @JsonSubTypes.Type(value = LocationDeletedEvent.class, name = "LOCATION_DELETED"),
         @JsonSubTypes.Type(value = LocationPropertiesUpdatedEvent.class, name = "LOCATION_PROPERTIES_UPDATED"),
+        @JsonSubTypes.Type(value = LocationProcessingTimeChangedEvent.class, name = "LOCATION_PROCESSING_TIME_CHANGED"),
         @JsonSubTypes.Type(value = LocationTypeChangedEvent.class, name = "LOCATION_TYPE_CHANGED"),
         @JsonSubTypes.Type(value = ChuteEmptyEvent.class, name = "CHUTE_EMPTY"),
 

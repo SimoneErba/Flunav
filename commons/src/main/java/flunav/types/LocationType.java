@@ -24,6 +24,9 @@ public enum LocationType {
     // Represents a track with a finite capacity, used for buffering items.
     ACCUMULATION("ACCUMULATION"),
 
+    // Represents a processing point where items wait before continuing.
+    TIMED_NODE("TIMED_NODE"),
+
     // Represents a physical, non-motorized path (e.g., a gravity slide).
     // Typically has length but no speed.
     ROAD("ROAD"),
