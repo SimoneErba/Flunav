@@ -69,6 +69,7 @@ class ClickHouseSnapshotTests {
                         42.5,
                         1.5,
                         10,
+                        250L,
                         Map.of("enabled", true),
                         "#112233")),
                 List.of(new ConveyorResponse(
