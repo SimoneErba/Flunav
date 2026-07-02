@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             latitude Nullable(Float64),
             longitude Nullable(Float64),
             capacity Nullable(Int32),
+            timeToProcessMs Nullable(Int64),
             properties JSON,
             customColor Nullable(String)
         )),
@@ -69,6 +70,7 @@ ALTER TABLE default.snapshots
             latitude Nullable(Float64),
             longitude Nullable(Float64),
             capacity Nullable(Int32),
+            timeToProcessMs Nullable(Int64),
             properties JSON,
             customColor Nullable(String)
         )),
