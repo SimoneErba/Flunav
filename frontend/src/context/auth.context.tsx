@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { axiosInstance } from "../api/axiosInstance"; 
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import type { InternalAxiosRequestConfig } from "axios";
+import { axiosInstance } from "../api/axiosInstance";
 import { AuthControllerApi, Configuration } from "../api-client";
 import { baseURL } from "../api/config";
 
@@ -18,6 +19,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
 }
 
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+};
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const useAuth = () => {
@@ -32,11 +37,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Al caricamento, controlliamo se c'è un token salvato
+  // Bootstrap auth exclusively from localStorage so route guards resolve immediately.
   useEffect(() => {
     if (import.meta.env.VITE_DEMO_MODE === 'true') {
       const demoUser = { username: "Demo User", role: "ADMIN" };
       setToken("demo-token");
+      setRefreshToken("demo-refresh-token");
       setUser(demoUser);
       setIsLoading(false);
       return;
@@ -48,8 +54,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (storedToken && storedUser) {
       setToken(storedToken);
-      if (storedRefreshToken) setRefreshToken(storedRefreshToken);
       setUser(JSON.parse(storedUser));
+      setRefreshToken(storedRefreshToken);
+    } else {
+      setToken(null);
+      setRefreshToken(null);
+      setUser(null);
     }
     setIsLoading(false);
   }, []);
@@ -65,58 +75,74 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem("flumen_user", JSON.stringify(newUser));
   };
 
-  const logout = () => {
+  // Clear in-memory and persisted auth before forcing navigation to the public login route.
+  const logout = useCallback(() => {
     setToken(null);
     setRefreshToken(null);
     setUser(null);
     localStorage.removeItem("flumen_token");
     localStorage.removeItem("flumen_refresh_token");
     localStorage.removeItem("flumen_user");
-    // Opzionale: ricarica la pagina per pulire stati residui
-    window.location.href = "/login";
-  };
+    delete axiosInstance.defaults.headers.common.Authorization;
 
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
+  }, []);
+
+  // Refresh at most once per request and force logout on any unrecoverable auth failure.
   useEffect(() => {
+    const authApi = new AuthControllerApi(new Configuration({ basePath: baseURL }), undefined, axiosInstance);
+
     const interceptor = axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config;
-        
-        // Prevent infinite loop: if the 401 comes from the refresh endpoint itself, logout
-        if (originalRequest.url?.includes("/auth/refresh-token")) {
-            logout();
-            return Promise.reject(error);
+        const originalRequest = error.config as RetryableRequestConfig | undefined;
+        const status = error.response?.status;
+
+        if (!originalRequest) {
+          return Promise.reject(error);
         }
 
-        // Se errore 401/403 e non abbiamo già provato a fare refresh
-        if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry && refreshToken) {
+        if (originalRequest.url?.includes("/auth/refresh-token")) {
+          logout();
+          return Promise.reject(error);
+        }
+
+        if (status === 401 || status === 403) {
+          if (!refreshToken || originalRequest._retry) {
+            delete originalRequest.headers.Authorization;
+            logout();
+            return Promise.reject(error);
+          }
+
           originalRequest._retry = true;
-          
+
           try {
-            // Usiamo axios diretto o un'istanza dedicata per evitare loop
-            const authApi = new AuthControllerApi(new Configuration({ basePath: baseURL }));
             const response = await authApi.refreshtoken({ refreshToken });
-            
             const { accessToken: newToken, refreshToken: newRefreshToken } = response.data;
-            
+
             if (newToken) {
-                // Aggiorna stato e storage
-                setToken(newToken);
-                if (newRefreshToken) {
-                    setRefreshToken(newRefreshToken);
-                    localStorage.setItem("flumen_refresh_token", newRefreshToken);
-                }
-                localStorage.setItem("flumen_token", newToken);
-                
-                // Aggiorna header richiesta originale
-                originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                return axiosInstance(originalRequest);
+              setToken(newToken);
+              localStorage.setItem("flumen_token", newToken);
+
+              if (newRefreshToken) {
+                setRefreshToken(newRefreshToken);
+                localStorage.setItem("flumen_refresh_token", newRefreshToken);
+              }
+
+              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+              return axiosInstance(originalRequest);
             }
+
+            logout();
           } catch (refreshError) {
             console.error("Token refresh failed", refreshError);
+            delete originalRequest.headers.Authorization;
             logout();
           }
         }
+
         return Promise.reject(error);
       }
     );
@@ -124,7 +150,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => {
       axiosInstance.interceptors.response.eject(interceptor);
     };
-  }, [refreshToken]); // Dipende da refreshToken perché lo usa nella closure
+  }, [logout, refreshToken]);
 
   if (isLoading) {
     return <div className="h-screen w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">Loading...</div>;

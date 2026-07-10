@@ -8,14 +8,14 @@ export const axiosInstance = axios.create({
 
 axiosInstance.interceptors.request.use(
   (config) => {
-    // 1. Read the token directly from storage (Source of Truth)
     const token = localStorage.getItem("flumen_token");
-    
-    // 2. If token exists, inject it into headers
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else if (config.headers.Authorization) {
+      delete config.headers.Authorization;
     }
-    
+
     return config;
   },
   (error) => {

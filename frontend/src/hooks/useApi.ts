@@ -45,7 +45,7 @@ export const useApi = () => {
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const destinationMappingApi = useMemo(() => new DestinationMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const destinationExitMappingApi = useMemo(() => new DestinationExitMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
-    const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined), [apiConfig]);
+    const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const analyticsApi = useMemo(() => new AnalyticsControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
 
