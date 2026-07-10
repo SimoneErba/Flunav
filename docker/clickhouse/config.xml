@@ -1,40 +1,27 @@
 <clickhouse>
+    <background_pool_size>4</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>1</background_merges_mutations_concurrency_ratio>
+    <background_schedule_pool_size>32</background_schedule_pool_size>
+    <background_buffer_flush_schedule_pool_size>4</background_buffer_flush_schedule_pool_size>
+
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>0</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>0</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>0</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+
     <asynchronous_metric_log remove="1"/>
-
-    <query_log replace="replace">
-        <database>system</database>
-        <table>query_log</table>
-        <engine>Engine = MergeTree PARTITION BY event_date ORDER BY event_time
-            TTL event_date + INTERVAL 20 DAY,
-            event_date + INTERVAL 1 SECOND WHERE query = 'SELECT 1 FORMAT TabSeparated'</engine>
-    </query_log>
-
-    <trace_log replace="replace">
-        <database>system</database>
-        <table>trace_log</table>
-        <engine>Engine = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 7 DAY</engine>
-    </trace_log>
-
+    <background_schedule_pool_log remove="1"/>
+    <error_log remove="1"/>
+    <metric_log remove="1"/>
+    <part_log remove="1"/>
     <processors_profile_log remove="1"/>
-
-    <text_log replace="replace">
-        <level>information</level>
-        <database>system</database>
-        <table>text_log</table>
-        <engine>Engine = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 7 DAY</engine>
-    </text_log>
-
-    <part_log replace="replace">
-        <database>system</database>
-        <table>part_log</table>
-        <engine>Engine = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 7 DAY</engine>
-    </part_log>
-
-    <metric_log replace="replace">
-        <database>system</database>
-        <table>metric_log</table>
-        <engine>Engine = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 20 DAY</engine>
-    </metric_log>
+    <query_log remove="1"/>
+    <query_metric_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <text_log remove="1"/>
+    <trace_log remove="1"/>
 
     <prometheus>
         <port>9363</port>

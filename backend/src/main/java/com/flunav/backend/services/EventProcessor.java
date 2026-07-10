@@ -231,7 +231,7 @@ public class EventProcessor {
                 boolean persistAfterProcessing = event instanceof MapDestinationsEvent
                         || event instanceof MapDestinationExitsEvent
                         || event instanceof MapDisplayRulesEvent;
-                if (simulationId == null && !persistAfterProcessing) {
+                if (simulationId == null && !persistAfterProcessing && !(event instanceof PathTraversedEvent)) {
                     clickHouseService.saveEventAsync(event);
                 }
 
@@ -576,12 +576,15 @@ public class EventProcessor {
                 case ItemDeletedEvent e -> {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     if (lastState != null) {
-                        // TODO: do we really need to fire these events for analytics?
                         if (lastState.getPositionId() != null && lastState.getType() != null) {
-                            itemMovementProcessor
-                                    .publishEvent(new PathTraversedEvent(e.getEntityId(), lastState.getPositionId(),
-                                            lastState.getType(), lastState.getPositionId(),
-                                            lastState.getType(), List.of(lastState.getPositionId())));
+                            recordPathTraversal(new PathTraversedEvent(
+                                    e.getEntityId(),
+                                    lastState.getPositionId(),
+                                    lastState.getType(),
+                                    lastState.getPositionId(),
+                                    lastState.getType(),
+                                    List.of(lastState.getPositionId()),
+                                    e.getTimestamp()));
                         }
                     }
                     itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
@@ -625,6 +628,7 @@ public class EventProcessor {
                             e.getTimestamp(),
                             shouldBroadcast);
 
+                    recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
@@ -679,6 +683,7 @@ public class EventProcessor {
 
                 case ItemPathChangedEvent e -> {
                     itemService.updateItemPath(e.getEntityId(), e.getPath());
+                    recordCurrentPathTraversal(e.getEntityId(), e.getPath(), e.getTimestamp());
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(
                                 new UpdateModel(e.getEntityId(), Map.of("path", e.getPath())), e.getTimestamp());
@@ -829,6 +834,21 @@ public class EventProcessor {
                             .orElseGet(Set::of);
                     long removedItems = 0;
                     for (String item : items) {
+                        RedisLiveItem itemState = liveItemRepository.getItemState(item);
+                        String positionId = itemState != null && itemState.getPositionId() != null
+                                ? itemState.getPositionId()
+                                : e.getEntityId();
+                        PositionType positionType = itemState != null && itemState.getType() != null
+                                ? itemState.getType()
+                                : PositionType.LOCATION;
+                        recordPathTraversal(new PathTraversedEvent(
+                                item,
+                                positionId,
+                                positionType,
+                                positionId,
+                                positionType,
+                                List.of(positionId),
+                                e.getTimestamp()));
                         liveLocationRepository.removeItemFromLocation(e.getEntityId(), item);
                         liveItemRepository.deleteItem(item);
                         removedItems++;
@@ -936,6 +956,7 @@ public class EventProcessor {
                 }
 
                 case PathTraversedEvent e -> {
+                    recordPathTraversal(e);
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -993,8 +1014,7 @@ public class EventProcessor {
             ItemPositionChangedEvent event,
             RedisLiveItem previousState,
             PositionType newPositionType) {
-        if (DatabaseContextHolder.getSimulationId() != null
-                || previousState == null
+        if (previousState == null
                 || previousState.getEntryTime() == null
                 || previousState.getPositionId() == null
                 || previousState.getType() != PositionType.CONVEYOR) {
@@ -1022,6 +1042,7 @@ public class EventProcessor {
 
         clickHouseService.saveLocationTransitMetricAsync(new LocationTransitMetric(
                 event.getTimestamp(),
+                currentSimulationScope(),
                 event.getEntityId(),
                 previousConveyor.getSourceLocationId(),
                 previousConveyor.getTargetLocationId(),
@@ -1031,6 +1052,45 @@ public class EventProcessor {
                 newPositionType,
                 transitTimeMillis,
                 List.of(previousConveyor.getSourceLocationId(), previousConveyor.getTargetLocationId())));
+    }
+
+    /**
+     * Records a path-assignment fact from the item's current hot position.
+     * The analytics event is reduced in-thread so simulation ThreadLocal context is
+     * captured before any async queue flush can occur.
+     */
+    private void recordCurrentPathTraversal(String itemId, List<String> path, Instant timestamp) {
+        if (path == null) {
+            return;
+        }
+
+        RedisLiveItem itemState = liveItemRepository.getItemState(itemId);
+        if (itemState == null || itemState.getPositionId() == null) {
+            return;
+        }
+
+        PositionType positionType = itemState.getType() != null ? itemState.getType() : PositionType.LOCATION;
+        recordPathTraversal(new PathTraversedEvent(
+                itemId,
+                itemState.getPositionId(),
+                positionType,
+                itemState.getPositionId(),
+                positionType,
+                path,
+                timestamp));
+    }
+
+    /**
+     * Writes path traversal analytics without adding analytics-only facts to the
+     * replay event store or crossing RabbitMQ boundaries.
+     */
+    private void recordPathTraversal(PathTraversedEvent event) {
+        clickHouseService.savePathTraversalMetricAsync(event);
+    }
+
+    private String currentSimulationScope() {
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        return simulationId != null ? simulationId : "live";
     }
 
     /**

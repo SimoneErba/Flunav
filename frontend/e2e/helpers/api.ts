@@ -29,6 +29,7 @@ export type ItemSeed = {
   id: string;
   name: string;
   locationId: string;
+  priority?: number;
   positionType?: "LOCATION" | "CONVEYOR";
   progress?: number;
   timestamp?: string;
@@ -119,6 +120,7 @@ export const createItem = async (
       id: item.id,
       name: item.name,
       active: true,
+      priority: item.priority ?? 0,
       locationId: item.locationId,
       positionType: item.positionType ?? "CONVEYOR",
       progress: item.progress ?? 0,

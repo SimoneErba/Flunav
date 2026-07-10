@@ -13,6 +13,8 @@ DESCRIBE TABLE default.analytics_time_series;
 
 DESCRIBE TABLE default.analytics_components;
 
+DESCRIBE TABLE default.analytics_path_traversal_ingest;
+
 DESCRIBE TABLE default.item_journeys;
 
 DESCRIBE TABLE default.ComponentMetrics;
@@ -47,19 +49,25 @@ LIMIT 100;
 
 -- analytics_components: busiest locations
 SELECT
+    simulation_id,
     location_id,
-    total_items_passed,
-    last_activity
+    sum(total_items_passed) AS total_items_passed,
+    max(last_activity) AS last_activity
 FROM default.analytics_components
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, location_id
 ORDER BY total_items_passed DESC, last_activity DESC
 LIMIT 50;
 
 -- analytics_components: most recently active locations
 SELECT
+    simulation_id,
     location_id,
-    total_items_passed,
-    last_activity
+    sum(total_items_passed) AS total_items_passed,
+    max(last_activity) AS last_activity
 FROM default.analytics_components
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, location_id
 ORDER BY last_activity DESC, total_items_passed DESC
 LIMIT 50;
 
@@ -91,6 +99,7 @@ LIMIT 100;
 -- analytics_location_transit_events: raw recent transit facts
 SELECT
     event_timestamp,
+    simulation_id,
     item_id,
     from_location_id,
     to_location_id,
@@ -101,44 +110,52 @@ SELECT
     transit_time_ms,
     path
 FROM default.analytics_location_transit_events
+WHERE simulation_id = 'live'
 ORDER BY event_timestamp DESC, item_id
 LIMIT 100;
 
 -- analytics_location_transit_events: recent transits for one destination
 SELECT
     event_timestamp,
+    simulation_id,
     item_id,
     from_location_id,
     to_location_id,
     transit_time_ms,
     path
 FROM default.analytics_location_transit_events
-WHERE to_location_id = 'destination-id'
+WHERE simulation_id = 'live'
+  AND to_location_id = 'destination-id'
 ORDER BY event_timestamp DESC, item_id
 LIMIT 100;
 
 -- analytics_location_transit_counts: counts per destination
 SELECT
+    simulation_id,
     location_id,
     sum(items_transited) AS items_transited,
     max(last_activity) AS last_activity
 FROM default.analytics_location_transit_counts
-GROUP BY location_id
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, location_id
 ORDER BY items_transited DESC, last_activity DESC
 LIMIT 50;
 
 -- analytics_location_transit_counts: latest active destinations
 SELECT
+    simulation_id,
     location_id,
     sum(items_transited) AS items_transited,
     max(last_activity) AS last_activity
 FROM default.analytics_location_transit_counts
-GROUP BY location_id
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, location_id
 ORDER BY last_activity DESC, items_transited DESC
 LIMIT 50;
 
 -- analytics_path_transit_stats withState: finalize AggregateFunction state for readable path metrics
 SELECT
+    simulation_id,
     from_location_id,
     to_location_id,
     countMerge(sample_count_state) AS sample_count,
@@ -149,12 +166,14 @@ SELECT
     max(max_transit_time_ms) AS max_transit_time_ms,
     max(last_activity) AS last_activity
 FROM default.analytics_path_transit_stats
-GROUP BY from_location_id, to_location_id
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, from_location_id, to_location_id
 ORDER BY sample_count DESC, last_activity DESC, from_location_id, to_location_id
 LIMIT 50;
 
 -- analytics_path_transit_stats withState: finalize state for one path pair
 SELECT
+    simulation_id,
     from_location_id,
     to_location_id,
     countMerge(sample_count_state) AS sample_count,
@@ -165,31 +184,36 @@ SELECT
     max(max_transit_time_ms) AS max_transit_time_ms,
     max(last_activity) AS last_activity
 FROM default.analytics_path_transit_stats
-WHERE from_location_id = 'source-id'
+WHERE simulation_id = 'live'
+  AND from_location_id = 'source-id'
   AND to_location_id = 'destination-id'
-GROUP BY from_location_id, to_location_id
+GROUP BY simulation_id, from_location_id, to_location_id
 ORDER BY last_activity DESC
 LIMIT 10;
 
 -- item_journeys withState: finalize AggregateFunction state for readable item paths
 SELECT
+    simulation_id,
     item_id,
     min(first_seen) AS first_seen,
     max(last_seen) AS last_seen,
     groupArrayArrayMerge(path_segments) AS path_segments
 FROM default.item_journeys
-GROUP BY item_id
+WHERE simulation_id = 'live'
+GROUP BY simulation_id, item_id
 ORDER BY last_seen DESC, item_id
 LIMIT 50;
 
 -- item_journeys withState: inspect one item journey
 SELECT
+    simulation_id,
     item_id,
     min(first_seen) AS first_seen,
     max(last_seen) AS last_seen,
     groupArrayArrayMerge(path_segments) AS path_segments
 FROM default.item_journeys
-WHERE item_id = 'item-id'
-GROUP BY item_id
+WHERE simulation_id = 'live'
+  AND item_id = 'item-id'
+GROUP BY simulation_id, item_id
 ORDER BY last_seen DESC
 LIMIT 1;

@@ -26,6 +26,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ItemRenamedEvent.class, name = "ITEM_RENAMED"),
         @JsonSubTypes.Type(value = ItemRoutingDecisionRequestedEvent.class, name = "ITEM_ROUTING_DECISION_REQUESTED"),
         @JsonSubTypes.Type(value = ItemSpeedChangedEvent.class, name = "ITEM_SPEED_CHANGED"),
+        @JsonSubTypes.Type(value = PathTraversedEvent.class, name = "PATH_TRAVERSED"),
 
         // --- LOCATION EVENTS ---
         @JsonSubTypes.Type(value = LocationActivatedEvent.class, name = "LOCATION_ACTIVATED"),

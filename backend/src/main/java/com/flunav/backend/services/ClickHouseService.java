@@ -6,6 +6,7 @@ import com.clickhouse.data.ClickHouseFormat;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.analytics.EntityEventType;
 import com.flunav.backend.models.analytics.LocationTransitMetric;
 import com.flunav.backend.models.analytics.MetricEvent;
@@ -16,6 +17,7 @@ import com.flunav.backend.models.response.ThroughputMetric;
 
 import flunav.events.DomainEvent;
 import flunav.events.EntityEvent;
+import flunav.events.PathTraversedEvent;
 import flunav.events.UnknownEvent;
 import jakarta.annotation.PreDestroy;
 
@@ -39,6 +41,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -82,6 +85,7 @@ public class ClickHouseService {
     @PreDestroy
     public void cleanup() {
         flushEvents();
+        flushPathTraversalMetrics();
         flushLocationTransitMetrics();
         if (client != null) {
             client.close();
@@ -89,6 +93,11 @@ public class ClickHouseService {
     }
 
     public void saveEventAsync(DomainEvent event) {
+        if (event instanceof PathTraversedEvent pathTraversedEvent) {
+            savePathTraversalMetricAsync(pathTraversedEvent);
+            return;
+        }
+
         eventQueue.offer(event);
 
         if (eventQueue.size() >= BATCH_SIZE) {
@@ -152,10 +161,96 @@ public class ClickHouseService {
         }
     }
 
+    private record PathTraversalMetric(
+            Instant timestamp,
+            String simulationId,
+            String itemId,
+            String previousPositionId,
+            String previousPositionType,
+            String newPositionId,
+            String newPositionType,
+            List<String> path) {
+    }
+
+    private final LinkedBlockingDeque<PathTraversalMetric> pathTraversalQueue = new LinkedBlockingDeque<>();
+
+    public void savePathTraversalMetricAsync(PathTraversedEvent event) {
+        pathTraversalQueue.offer(new PathTraversalMetric(
+                event.getTimestamp(),
+                currentSimulationScope(),
+                Objects.toString(event.getEntityId(), ""),
+                Objects.toString(event.getPreviousPositionId(), ""),
+                event.getPreviousPositionType() != null ? event.getPreviousPositionType().name() : "",
+                Objects.toString(event.getNewPositionId(), ""),
+                event.getNewPositionType() != null ? event.getNewPositionType().name() : "",
+                event.getPath() != null ? event.getPath() : List.of()));
+
+        if (pathTraversalQueue.size() >= BATCH_SIZE) {
+            flushPathTraversalMetrics();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushPathTraversalMetrics() {
+        if (pathTraversalQueue.isEmpty()) {
+            return;
+        }
+
+        List<PathTraversalMetric> batch = new ArrayList<>();
+        pathTraversalQueue.drainTo(batch, BATCH_SIZE);
+
+        if (batch.isEmpty()) {
+            return;
+        }
+
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+            for (PathTraversalMetric metric : batch) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+                row.put("simulation_id", metric.simulationId());
+                row.put("item_id", metric.itemId());
+                row.put("previous_position_id", metric.previousPositionId());
+                row.put("previous_position_type", metric.previousPositionType());
+                row.put("new_position_id", metric.newPositionId());
+                row.put("new_position_type", metric.newPositionType());
+                row.put("path", metric.path());
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append("\n");
+            }
+
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_path_traversal_ingest", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+
+            logger.debug("Flushed {} path traversal metrics to ClickHouse", batch.size());
+        } catch (Exception e) {
+            requeuePathTraversalBatch(batch);
+            logger.error("Error flushing path traversal metrics batch to ClickHouse.", e);
+        }
+    }
+
+    private void requeuePathTraversalBatch(List<PathTraversalMetric> batch) {
+        for (int i = batch.size() - 1; i >= 0; i--) {
+            pathTraversalQueue.offerFirst(batch.get(i));
+        }
+    }
+
     private final LinkedBlockingDeque<LocationTransitMetric> locationTransitQueue = new LinkedBlockingDeque<>();
 
     public void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
-        locationTransitQueue.offer(metric);
+        String simulationId = metric.simulationId() != null ? metric.simulationId() : currentSimulationScope();
+        locationTransitQueue.offer(new LocationTransitMetric(
+                metric.timestamp(),
+                simulationId,
+                metric.itemId(),
+                metric.fromLocationId(),
+                metric.toLocationId(),
+                metric.fromPositionId(),
+                metric.fromPositionType(),
+                metric.toPositionId(),
+                metric.toPositionType(),
+                metric.transitTimeMillis(),
+                metric.path()));
 
         if (locationTransitQueue.size() >= BATCH_SIZE) {
             flushLocationTransitMetrics();
@@ -180,6 +275,7 @@ public class ClickHouseService {
             for (LocationTransitMetric metric : batch) {
                 Map<String, Object> row = new HashMap<>();
                 row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+                row.put("simulation_id", metric.simulationId());
                 row.put("item_id", metric.itemId());
                 row.put("from_location_id", metric.fromLocationId());
                 row.put("to_location_id", metric.toLocationId());
@@ -201,6 +297,11 @@ public class ClickHouseService {
             requeueLocationTransitBatch(batch);
             logger.error("Error flushing location transit metrics batch to ClickHouse.", e);
         }
+    }
+
+    private String currentSimulationScope() {
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        return simulationId != null ? simulationId : "live";
     }
 
     private void requeueLocationTransitBatch(List<LocationTransitMetric> batch) {
@@ -287,13 +388,13 @@ public class ClickHouseService {
 
             if (!columns.isEmpty() && !valid) {
                 String archive = "analytics_time_series_legacy_" + Instant.now().toEpochMilli();
-                client.query("RENAME TABLE " + clickhouseDatabase + ".analytics_time_series TO "
-                        + clickhouseDatabase + "." + archive).get();
+                executeClickHouseStatement("RENAME TABLE " + clickhouseDatabase + ".analytics_time_series TO "
+                        + clickhouseDatabase + "." + archive);
                 logger.warn("Archived incompatible analytics table as {}.{}", clickhouseDatabase, archive);
             }
 
             if (!valid) {
-                client.query("""
+                executeClickHouseStatement("""
                         CREATE TABLE IF NOT EXISTS %s.analytics_time_series
                         (
                             bucket_start DateTime64(3),
@@ -305,7 +406,7 @@ public class ClickHouseService {
                         ENGINE = MergeTree()
                         PARTITION BY toYYYYMM(bucket_start)
                         ORDER BY (bucket_start, bucket_seconds)
-                        """.formatted(clickhouseDatabase)).get();
+                        """.formatted(clickhouseDatabase));
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to initialize ClickHouse analytics schema", e);
@@ -314,10 +415,86 @@ public class ClickHouseService {
 
     private void ensureMovementAnalyticsSchema() {
         try {
-            client.query("""
+            dropAnalyticsMaterializedViews();
+            archiveTableIfMissingColumns("analytics_path_traversal_ingest", List.of("simulation_id"));
+            archiveTableIfMissingColumns("item_journeys", List.of("simulation_id"));
+            archiveTableIfMissingColumns("analytics_components", List.of("simulation_id"));
+            archiveTableIfMissingColumns("analytics_location_transit_events", List.of("simulation_id"));
+            archiveTableIfMissingColumns("analytics_location_transit_counts", List.of("simulation_id"));
+            archiveTableIfMissingColumns("analytics_path_transit_stats", List.of("simulation_id"));
+
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS %s.analytics_path_traversal_ingest
+                    (
+                        event_timestamp DateTime64(3),
+                        simulation_id LowCardinality(String),
+                        item_id String,
+                        previous_position_id String,
+                        previous_position_type LowCardinality(String),
+                        new_position_id String,
+                        new_position_type LowCardinality(String),
+                        path Array(String)
+                    )
+                    ENGINE = Null
+                    """.formatted(clickhouseDatabase));
+
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS %s.item_journeys
+                    (
+                        simulation_id LowCardinality(String),
+                        item_id String,
+                        first_seen SimpleAggregateFunction(min, DateTime64(3)),
+                        last_seen SimpleAggregateFunction(max, DateTime64(3)),
+                        path_segments AggregateFunction(groupArrayArray, Array(String))
+                    )
+                    ENGINE = AggregatingMergeTree()
+                    ORDER BY (simulation_id, item_id)
+                    """.formatted(clickhouseDatabase));
+
+            executeClickHouseStatement("""
+                    CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_item_journeys
+                    TO %s.item_journeys
+                    AS
+                    SELECT
+                        simulation_id,
+                        item_id,
+                        min(event_timestamp) AS first_seen,
+                        max(event_timestamp) AS last_seen,
+                        groupArrayArrayState(path) AS path_segments
+                    FROM %s.analytics_path_traversal_ingest
+                    GROUP BY simulation_id, item_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase));
+
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS %s.analytics_components
+                    (
+                        simulation_id LowCardinality(String),
+                        location_id LowCardinality(String),
+                        total_items_passed UInt64,
+                        last_activity SimpleAggregateFunction(max, DateTime64(3))
+                    )
+                    ENGINE = SummingMergeTree()
+                    ORDER BY (simulation_id, location_id)
+                    """.formatted(clickhouseDatabase));
+
+            executeClickHouseStatement("""
+                    CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_analytics_components
+                    TO %s.analytics_components
+                    AS
+                    SELECT
+                        simulation_id,
+                        arrayJoin(path) AS location_id,
+                        count() AS total_items_passed,
+                        max(event_timestamp) AS last_activity
+                    FROM %s.analytics_path_traversal_ingest
+                    GROUP BY simulation_id, location_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase));
+
+            executeClickHouseStatement("""
                     CREATE TABLE IF NOT EXISTS %s.analytics_location_transit_events
                     (
                         event_timestamp DateTime64(3),
+                        simulation_id LowCardinality(String),
                         item_id String,
                         from_location_id LowCardinality(String),
                         to_location_id LowCardinality(String),
@@ -330,35 +507,38 @@ public class ClickHouseService {
                     )
                     ENGINE = MergeTree()
                     PARTITION BY toYYYYMM(event_timestamp)
-                    ORDER BY (from_location_id, to_location_id, event_timestamp, item_id)
-                    """.formatted(clickhouseDatabase)).get();
+                    ORDER BY (simulation_id, from_location_id, to_location_id, event_timestamp, item_id)
+                    """.formatted(clickhouseDatabase));
 
-            client.query("""
+            executeClickHouseStatement("""
                     CREATE TABLE IF NOT EXISTS %s.analytics_location_transit_counts
                     (
+                        simulation_id LowCardinality(String),
                         location_id LowCardinality(String),
                         items_transited UInt64,
                         last_activity SimpleAggregateFunction(max, DateTime64(3))
                     )
                     ENGINE = SummingMergeTree()
-                    ORDER BY location_id
-                    """.formatted(clickhouseDatabase)).get();
+                    ORDER BY (simulation_id, location_id)
+                    """.formatted(clickhouseDatabase));
 
-            client.query("""
+            executeClickHouseStatement("""
                     CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_analytics_location_transit_counts
                     TO %s.analytics_location_transit_counts
                     AS
                     SELECT
+                        simulation_id,
                         to_location_id AS location_id,
                         count() AS items_transited,
                         max(event_timestamp) AS last_activity
                     FROM %s.analytics_location_transit_events
-                    GROUP BY location_id
-                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase)).get();
+                    GROUP BY simulation_id, location_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase));
 
-            client.query("""
+            executeClickHouseStatement("""
                     CREATE TABLE IF NOT EXISTS %s.analytics_path_transit_stats
                     (
+                        simulation_id LowCardinality(String),
                         from_location_id LowCardinality(String),
                         to_location_id LowCardinality(String),
                         sample_count_state AggregateFunction(count),
@@ -370,14 +550,15 @@ public class ClickHouseService {
                         last_activity SimpleAggregateFunction(max, DateTime64(3))
                     )
                     ENGINE = AggregatingMergeTree()
-                    ORDER BY (from_location_id, to_location_id)
-                    """.formatted(clickhouseDatabase)).get();
+                    ORDER BY (simulation_id, from_location_id, to_location_id)
+                    """.formatted(clickhouseDatabase));
 
-            client.query("""
+            executeClickHouseStatement("""
                     CREATE MATERIALIZED VIEW IF NOT EXISTS %s.mv_analytics_path_transit_stats
                     TO %s.analytics_path_transit_stats
                     AS
                     SELECT
+                        simulation_id,
                         from_location_id,
                         to_location_id,
                         countState() AS sample_count_state,
@@ -388,11 +569,62 @@ public class ClickHouseService {
                         max(transit_time_ms) AS max_transit_time_ms,
                         max(event_timestamp) AS last_activity
                     FROM %s.analytics_location_transit_events
-                    GROUP BY from_location_id, to_location_id
-                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase)).get();
+                    GROUP BY simulation_id, from_location_id, to_location_id
+                    """.formatted(clickhouseDatabase, clickhouseDatabase, clickhouseDatabase));
         } catch (Exception e) {
             throw new IllegalStateException("Unable to initialize ClickHouse movement analytics schema", e);
         }
+    }
+
+    private void dropAnalyticsMaterializedViews() throws Exception {
+        executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_item_journeys");
+        executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_analytics_components");
+        executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_analytics_location_transit_counts");
+        executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_analytics_path_transit_stats");
+    }
+
+    private void archiveTableIfMissingColumns(String tableName, List<String> requiredColumns) throws Exception {
+        Map<String, String> columns = tableColumns(tableName);
+        if (columns.isEmpty()) {
+            return;
+        }
+
+        boolean compatible = requiredColumns.stream().allMatch(columns::containsKey);
+        if (compatible) {
+            return;
+        }
+
+        String archive = tableName + "_legacy_" + Instant.now().toEpochMilli();
+        executeClickHouseStatement("RENAME TABLE " + clickhouseDatabase + "." + tableName + " TO "
+                + clickhouseDatabase + "." + archive);
+        logger.warn("Archived incompatible ClickHouse analytics table as {}.{}", clickhouseDatabase, archive);
+    }
+
+    private void executeClickHouseStatement(String sql) throws Exception {
+        try (QueryResponse ignored = client.query(sql).get()) {
+        }
+    }
+
+    private Map<String, String> tableColumns(String tableName) throws Exception {
+        String columnsSql = """
+                SELECT name, type
+                FROM system.columns
+                WHERE database = {database:String}
+                  AND table = {table:String}
+                FORMAT JSONEachRow
+                """;
+        Map<String, String> columns = new HashMap<>();
+        try (QueryResponse response = client.query(columnsSql, Map.of(
+                "database", clickhouseDatabase,
+                "table", tableName)).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            while (rows.hasNext()) {
+                Map<String, Object> row = rows.next();
+                columns.put(String.valueOf(row.get("name")), String.valueOf(row.get("type")));
+            }
+        }
+        return columns;
     }
 
     private String extractDatabase(String clickhouseUrl) {
@@ -817,20 +1049,24 @@ public class ClickHouseService {
     }
 
     public CompletableFuture<List<BadActorMetric>> getTopActiveComponents(int limit) {
-        String sql = String.format("""
+        String simulationId = currentSimulationScope();
+        int boundedLimit = Math.max(1, limit);
+        String sql = """
                     SELECT
                         location_id,
-                        total_items_passed,
-                        formatDateTime(last_activity, '%%Y-%%m-%%dT%%H:%%M:%%S') as last_activity
-                    FROM default.analytics_components
+                        sum(total_items_passed) AS total_items_passed,
+                        max(last_activity) AS last_activity
+                    FROM %s.analytics_components
+                    WHERE simulation_id = {simulationId:String}
+                    GROUP BY location_id
                     ORDER BY total_items_passed DESC
                     LIMIT %d
                     FORMAT JSONEachRow
-                """, limit);
+                """.formatted(clickhouseDatabase, boundedLimit);
 
         return CompletableFuture.supplyAsync(() -> {
             List<BadActorMetric> metrics = new ArrayList<>();
-            try (QueryResponse response = client.query(sql).get()) {
+            try (QueryResponse response = client.query(sql, Map.of("simulationId", simulationId)).get()) {
                 try (InputStream inputStream = response.getInputStream()) {
                     MappingIterator<Map<String, Object>> it = objectMapper
                             .readerFor(Map.class)
@@ -841,7 +1077,7 @@ public class ClickHouseService {
                         metrics.add(new BadActorMetric(
                                 (String) row.get("location_id"),
                                 (String) row.get("location_id"),
-                                ((Number) row.get("total_items_passed")).longValue(),
+                                asLong(row.get("total_items_passed")),
                                 0.0));
                     }
                 }

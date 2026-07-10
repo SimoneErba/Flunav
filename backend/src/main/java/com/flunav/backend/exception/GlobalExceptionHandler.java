@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -37,6 +38,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Object> handleUnreadableRequest(HttpMessageNotReadableException ex) {
         logger.warn("Request body could not be parsed: {}", ex.getMessage());
         return buildErrorResponse(ex, "Request body contains an invalid value.", HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Object> handleResponseStatusException(ResponseStatusException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        HttpStatus resolvedStatus = status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR;
+        String message = ex.getReason() != null ? ex.getReason() : resolvedStatus.getReasonPhrase();
+        logger.warn("Request rejected with {}: {}", resolvedStatus, message);
+        return buildErrorResponse(ex, message, resolvedStatus);
     }
 
     /**

@@ -7,6 +7,7 @@ import flunav.types.PositionType;
 
 public record LocationTransitMetric(
         Instant timestamp,
+        String simulationId,
         String itemId,
         String fromLocationId,
         String toLocationId,

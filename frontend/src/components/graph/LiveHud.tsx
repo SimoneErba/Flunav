@@ -235,24 +235,27 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
   }, [analyticsApi, connected, simulationId, subscribeToThroughputUpdates]);
 
   const items = [
-    { label: "Active", value: counts.active },
-    { label: "Priority", value: counts.priority },
-    { label: "Routed", value: counts.routed },
-    { label: "Waiting", value: counts.waiting, alert: counts.waiting > 0 },
-    { label: "Unrouted", value: counts.unrouted, alert: counts.unrouted > 0 },
-    { label: "Failed", value: counts.failed, alert: counts.failed > 0 },
-    { label: "Completed", value: counts.completed },
-    { label: "In/5s", value: throughput.entered },
-    { label: "Cleared/5s", value: throughput.cleared },
-    { label: "Stopped", value: counts.stopped, alert: counts.stopped > 0 },
-    { label: "Full chutes", value: counts.fullChutes, alert: counts.fullChutes > 0 },
+    { label: "Active", value: counts.active, testId: "live-hud-active" },
+    { label: "Priority", value: counts.priority, testId: "live-hud-priority" },
+    { label: "Routed", value: counts.routed, testId: "live-hud-routed" },
+    { label: "Waiting", value: counts.waiting, alert: counts.waiting > 0, testId: "live-hud-waiting" },
+    { label: "Unrouted", value: counts.unrouted, alert: counts.unrouted > 0, testId: "live-hud-unrouted" },
+    { label: "Failed", value: counts.failed, alert: counts.failed > 0, testId: "live-hud-failed" },
+    { label: "Completed", value: counts.completed, testId: "live-hud-completed" },
+    { label: "In/5s", value: throughput.entered, testId: "live-hud-in-5s" },
+    { label: "Cleared/5s", value: throughput.cleared, testId: "live-hud-cleared-5s" },
+    { label: "Stopped", value: counts.stopped, alert: counts.stopped > 0, testId: "live-hud-stopped" },
+    { label: "Full chutes", value: counts.fullChutes, alert: counts.fullChutes > 0, testId: "live-hud-full-chutes" },
   ];
 
   return (
-    <div className="absolute left-4 top-4 z-[110] max-w-[calc(100%-2rem)] rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-gray-900 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-900/90 dark:text-gray-100">
+    <div
+      data-testid="live-hud"
+      className="absolute left-4 top-4 z-[110] max-w-[calc(100%-2rem)] rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-gray-900 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-900/90 dark:text-gray-100"
+    >
       <div className="flex max-w-xl flex-wrap items-center gap-x-4 gap-y-2">
         {items.map((item) => (
-          <div key={item.label} className="flex min-w-0 items-baseline gap-1.5">
+          <div key={item.label} data-testid={item.testId} className="flex min-w-0 items-baseline gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {item.label}
             </span>

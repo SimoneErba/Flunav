@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS default.analytics_location_transit_events
 (
     `event_timestamp` DateTime64(3),
+    `simulation_id` LowCardinality(String),
     `item_id` String,
     `from_location_id` LowCardinality(String),
     `to_location_id` LowCardinality(String),
@@ -13,29 +14,32 @@ CREATE TABLE IF NOT EXISTS default.analytics_location_transit_events
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(event_timestamp)
-ORDER BY (from_location_id, to_location_id, event_timestamp, item_id);
+ORDER BY (simulation_id, from_location_id, to_location_id, event_timestamp, item_id);
 
 CREATE TABLE IF NOT EXISTS default.analytics_location_transit_counts
 (
+    `simulation_id` LowCardinality(String),
     `location_id` LowCardinality(String),
     `items_transited` UInt64,
     `last_activity` SimpleAggregateFunction(max, DateTime64(3))
 )
 ENGINE = SummingMergeTree()
-ORDER BY location_id;
+ORDER BY (simulation_id, location_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS default.mv_analytics_location_transit_counts
 TO default.analytics_location_transit_counts
 AS
 SELECT
+    simulation_id,
     to_location_id AS location_id,
     count() AS items_transited,
     max(event_timestamp) AS last_activity
 FROM default.analytics_location_transit_events
-GROUP BY location_id;
+GROUP BY simulation_id, location_id;
 
 CREATE TABLE IF NOT EXISTS default.analytics_path_transit_stats
 (
+    `simulation_id` LowCardinality(String),
     `from_location_id` LowCardinality(String),
     `to_location_id` LowCardinality(String),
     `sample_count_state` AggregateFunction(count),
@@ -47,12 +51,13 @@ CREATE TABLE IF NOT EXISTS default.analytics_path_transit_stats
     `last_activity` SimpleAggregateFunction(max, DateTime64(3))
 )
 ENGINE = AggregatingMergeTree()
-ORDER BY (from_location_id, to_location_id);
+ORDER BY (simulation_id, from_location_id, to_location_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS default.mv_analytics_path_transit_stats
 TO default.analytics_path_transit_stats
 AS
 SELECT
+    simulation_id,
     from_location_id,
     to_location_id,
     countState() AS sample_count_state,
@@ -63,4 +68,4 @@ SELECT
     max(transit_time_ms) AS max_transit_time_ms,
     max(event_timestamp) AS last_activity
 FROM default.analytics_location_transit_events
-GROUP BY from_location_id, to_location_id;
+GROUP BY simulation_id, from_location_id, to_location_id;

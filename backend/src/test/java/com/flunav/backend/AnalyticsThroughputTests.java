@@ -3,6 +3,7 @@ package com.flunav.backend;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.domain.Role;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.repositories.LiveItemRepository;
@@ -15,6 +16,7 @@ import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.ThroughputBucketService;
 import com.flunav.backend.services.TimeService;
+import com.flunav.backend.utils.JwtUtils;
 
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.ItemCreatedEvent;
@@ -75,6 +77,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private final LiveLocationRepository liveLocationRepository;
     private final LiveSimulationRepository liveSimulationRepository;
     private final LiveSystemScheduler liveSystemScheduler;
+    private final JwtUtils jwtUtils;
     private final StringRedisTemplate redisTemplate;
     private final AbstractMessageChannel brokerChannel;
     private final int serverPort;
@@ -92,6 +95,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             LiveLocationRepository liveLocationRepository,
             LiveSimulationRepository liveSimulationRepository,
             LiveSystemScheduler liveSystemScheduler,
+            JwtUtils jwtUtils,
             StringRedisTemplate redisTemplate,
             @org.springframework.beans.factory.annotation.Qualifier("brokerChannel")
             AbstractMessageChannel brokerChannel,
@@ -106,6 +110,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         this.liveLocationRepository = liveLocationRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.liveSystemScheduler = liveSystemScheduler;
+        this.jwtUtils = jwtUtils;
         this.redisTemplate = redisTemplate;
         this.brokerChannel = brokerChannel;
         this.serverPort = serverPort;
@@ -261,6 +266,25 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
         JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID);
         assertEquals(bucketStart(eventTimestamp).toString(), metric.path("timestamp").asText());
+        assertFalse(hasThroughputMessage(messages, null, bucketStart(eventTimestamp)),
+                "Simulation throughput must not be broadcast on the live throughput topic");
+    }
+
+    @Test
+    void liveBucketFlushesOnlyToLiveWebSocketTopic() {
+        Instant eventTimestamp = Instant.now().minus(Duration.ofSeconds(10));
+        createLocation("analytics-live-topic-start", LocationType.GENERIC, 100);
+
+        List<Message<?>> messages = captureBrokerMessages(() -> {
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-live-topic-item", "Live Topic", 1.0, true,
+                    "analytics-live-topic-start", PositionType.LOCATION, 0.0, Map.of(), eventTimestamp));
+            throughputBucketService.flushCompletedBuckets();
+        });
+
+        JsonNode metric = throughputMetricFrom(messages, null, bucketStart(eventTimestamp));
+        assertEquals(1, metric.path("itemsEntered").asLong());
+        assertFalse(hasThroughputMessage(messages, SIMULATION_ID, bucketStart(eventTimestamp)),
+                "Live throughput must not be broadcast on simulation throughput topics");
     }
 
     @Test
@@ -317,6 +341,142 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         assertEquals(1, metric.getItemsEntered());
         assertEquals(0, metric.getItemsExited());
         assertEquals(1, metric.getItemsCurrent());
+    }
+
+    @Test
+    void liveHistoryEndpointUsesClickHouseWhenNoSimulationContextIsPresent() throws Exception {
+        Instant timestamp = Instant.parse("2030-02-01T00:00:05Z");
+        clickHouseService.saveThroughputMetric(new ThroughputMetric(
+                bucketStart(timestamp),
+                7,
+                2,
+                5,
+                ThroughputBucketService.BUCKET_SECONDS));
+
+        HttpResponse<String> response = sendThroughputHistoryRequest(
+                timestamp.minusSeconds(5),
+                timestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS,
+                null);
+
+        assertEquals(200, response.statusCode());
+        JsonNode metric = findMetric(objectMapper.readTree(response.body()), bucketStart(timestamp).toString());
+        assertEquals(7, metric.path("itemsEntered").asLong());
+        assertEquals(2, metric.path("itemsExited").asLong());
+        assertEquals(5, metric.path("itemsCurrent").asLong());
+    }
+
+    @Test
+    void simulationHistoryEndpointMergesLiveBeforeRestoreAndSimulationBucketsOnlyAfterRestore() throws Exception {
+        Instant restoreTimestamp = Instant.parse("2030-02-01T00:00:10Z");
+        Instant liveBeforeRestore = Instant.parse("2030-02-01T00:00:05Z");
+        Instant liveAfterRestore = Instant.parse("2030-02-01T00:00:15Z");
+        Instant simulationTimestamp = Instant.parse("2030-02-01T00:00:20Z");
+
+        clickHouseService.saveThroughputMetric(new ThroughputMetric(
+                bucketStart(liveBeforeRestore),
+                3,
+                0,
+                3,
+                ThroughputBucketService.BUCKET_SECONDS));
+        clickHouseService.saveThroughputMetric(new ThroughputMetric(
+                bucketStart(liveAfterRestore),
+                9,
+                0,
+                9,
+                ThroughputBucketService.BUCKET_SECONDS));
+
+        saveSimulationState(restoreTimestamp, simulationTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("analytics-sim-merge-start", LocationType.GENERIC, 100);
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-merge-item", "Sim Merge", 1.0, true,
+                    "analytics-sim-merge-start", PositionType.LOCATION, 0.0, Map.of(), simulationTimestamp));
+        }
+        throughputBucketService.flushBuckets();
+
+        HttpResponse<String> response = sendThroughputHistoryRequest(
+                restoreTimestamp.minusSeconds(10),
+                simulationTimestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS,
+                SIMULATION_ID);
+
+        assertEquals(200, response.statusCode());
+        JsonNode metrics = objectMapper.readTree(response.body());
+
+        JsonNode liveMetric = findMetric(metrics, bucketStart(liveBeforeRestore).toString());
+        assertEquals(3, liveMetric.path("itemsEntered").asLong());
+
+        JsonNode simulationMetric = findMetric(metrics, bucketStart(simulationTimestamp).toString());
+        assertEquals(1, simulationMetric.path("itemsEntered").asLong());
+        assertEquals(1, simulationMetric.path("itemsCurrent").asLong());
+
+        assertFalse(hasMetric(metrics, bucketStart(liveAfterRestore).toString()),
+                "Simulation history must exclude live ClickHouse buckets after the restore timestamp");
+    }
+
+    @Test
+    void cleanupSimulationHistoryRemovesQueuedAndEmittedSimulationBucketsWithoutTouchingLiveHistory() throws Exception {
+        Instant restoreTimestamp = Instant.parse("2030-03-01T00:00:00Z");
+        Instant queuedTimestamp = Instant.parse("2030-03-01T00:00:05Z");
+        Instant emittedTimestamp = Instant.parse("2030-03-01T00:00:10Z");
+        Instant liveTimestamp = Instant.parse("2030-03-01T00:00:15Z");
+
+        clickHouseService.saveThroughputMetric(new ThroughputMetric(
+                bucketStart(liveTimestamp),
+                4,
+                0,
+                4,
+                ThroughputBucketService.BUCKET_SECONDS));
+
+        saveSimulationState(restoreTimestamp, emittedTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS));
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("analytics-sim-cleanup-start", LocationType.GENERIC, 100);
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-cleanup-queued", "Queued", 1.0, true,
+                    "analytics-sim-cleanup-start", PositionType.LOCATION, 0.0, Map.of(), queuedTimestamp));
+        }
+        throughputBucketService.cleanupSimulationHistory(SIMULATION_ID);
+        throughputBucketService.flushBuckets();
+
+        assertTrue(throughputBucketService.getSimulationHistory(
+                SIMULATION_ID,
+                queuedTimestamp.minusSeconds(5),
+                queuedTimestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS)
+                .join()
+                .isEmpty());
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            eventProcessor.processEvent(new ItemCreatedEvent("analytics-sim-cleanup-emitted", "Emitted", 1.0, true,
+                    "analytics-sim-cleanup-start", PositionType.LOCATION, 0.0, Map.of(), emittedTimestamp));
+        }
+        throughputBucketService.flushBuckets();
+        assertFalse(throughputBucketService.getSimulationHistory(
+                SIMULATION_ID,
+                emittedTimestamp.minusSeconds(5),
+                emittedTimestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS)
+                .join()
+                .isEmpty());
+
+        throughputBucketService.cleanupSimulationHistory(SIMULATION_ID);
+        assertTrue(throughputBucketService.getSimulationHistory(
+                SIMULATION_ID,
+                emittedTimestamp.minusSeconds(5),
+                emittedTimestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS)
+                .join()
+                .isEmpty());
+
+        HttpResponse<String> liveResponse = sendThroughputHistoryRequest(
+                liveTimestamp.minusSeconds(5),
+                liveTimestamp.plusSeconds(5),
+                ThroughputBucketService.BUCKET_SECONDS,
+                null);
+        assertEquals(200, liveResponse.statusCode());
+        JsonNode liveMetric = findMetric(objectMapper.readTree(liveResponse.body()), bucketStart(liveTimestamp).toString());
+        assertEquals(4, liveMetric.path("itemsEntered").asLong());
     }
 
     @Test
@@ -377,7 +537,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(
                 HttpRequest.newBuilder(URI.create(baseUrl() + "/api/analytics/throughput/history?hours=1&bucketSeconds=5"))
-                        .header("Authorization", "Bearer " + loginToken())
+                        .header("Authorization", authorizationHeader())
                         .GET()
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -389,6 +549,42 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         assertEquals(1, metric.get("itemsCurrent").asLong());
         assertEquals(5, metric.get("bucketSeconds").asInt());
         assertFalse(metric.hasNonNull("segmentsProcessed"));
+    }
+
+    @Test
+    void throughputHistoryEndpointRejectsInvalidBucketSeconds() throws Exception {
+        assertEquals(400, sendThroughputHistoryRequest(
+                "/api/analytics/throughput/history?hours=1&bucketSeconds=0",
+                null).statusCode());
+        assertEquals(400, sendThroughputHistoryRequest(
+                "/api/analytics/throughput/history?hours=1&bucketSeconds=3601",
+                null).statusCode());
+    }
+
+    @Test
+    void throughputHistoryEndpointRejectsFromAfterTo() throws Exception {
+        assertEquals(400, sendThroughputHistoryRequest(
+                "/api/analytics/throughput/history?from=2030-01-01T00:00:10Z&to=2030-01-01T00:00:00Z&bucketSeconds=5",
+                null).statusCode());
+    }
+
+    @Test
+    void throughputHistoryEndpointClampsNonPositiveHoursToOneHour() throws Exception {
+        Instant timestamp = Instant.now().minus(Duration.ofMinutes(30));
+        clickHouseService.saveThroughputMetric(new ThroughputMetric(
+                bucketStart(timestamp),
+                2,
+                0,
+                2,
+                ThroughputBucketService.BUCKET_SECONDS));
+
+        HttpResponse<String> response = sendThroughputHistoryRequest(
+                "/api/analytics/throughput/history?hours=0&bucketSeconds=5",
+                null);
+
+        assertEquals(200, response.statusCode());
+        JsonNode metric = findMetric(objectMapper.readTree(response.body()), bucketStart(timestamp).toString());
+        assertEquals(2, metric.path("itemsEntered").asLong());
     }
 
     private ThroughputMetric metricForBucket(Instant timestamp) {
@@ -421,9 +617,13 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     private void saveSimulationState(Instant progress) {
+        saveSimulationState(progress.minusSeconds(ThroughputBucketService.BUCKET_SECONDS), progress);
+    }
+
+    private void saveSimulationState(Instant restoreTimestamp, Instant progress) {
         liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
                 SIMULATION_ID,
-                progress.minusSeconds(ThroughputBucketService.BUCKET_SECONDS),
+                restoreTimestamp,
                 com.flunav.backend.models.simulation.SimulationStatus.PLAYING,
                 Instant.now(),
                 progress,
@@ -472,6 +672,17 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
                 .orElseThrow(() -> new AssertionError("Missing throughput message for " + expectedDestination));
     }
 
+    private boolean hasThroughputMessage(List<Message<?>> messages, String simulationId, Instant expectedTimestamp) {
+        String expectedDestination = simulationId == null
+                ? "/topic/analytics/throughput"
+                : "/topic/simulations/" + simulationId + "/analytics/throughput";
+        return messages.stream()
+                .anyMatch(message -> expectedDestination.equals(
+                        message.getHeaders().get("simpDestination", String.class))
+                        && expectedTimestamp.toString().equals(
+                                payloadJson(message.getPayload()).path("payload").path("timestamp").asText()));
+    }
+
     private JsonNode payloadJson(Object payload) {
         try {
             if (payload instanceof byte[] bytes) {
@@ -507,6 +718,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     private void resetState() {
         DatabaseContextHolder.clearSimulation();
+        throughputBucketService.cleanupSimulationHistory(SIMULATION_ID);
 
         try {
             Objects.requireNonNull(redisTemplate.getConnectionFactory())
@@ -524,16 +736,28 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         DatabaseContextHolder.clearSimulation();
     }
 
-    private String loginToken() throws Exception {
-        HttpResponse<String> response = httpClient.send(
-                HttpRequest.newBuilder(URI.create(baseUrl() + "/api/auth/login"))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(
-                                "{\"username\":\"admin\",\"password\":\"Flun4v!\"}"))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode());
-        return objectMapper.readTree(response.body()).get("token").asText();
+    private String authorizationHeader() {
+        return "Bearer " + jwtUtils.generateToken("analytics-throughput-test", Role.ADMIN);
+    }
+
+    private HttpResponse<String> sendThroughputHistoryRequest(
+            Instant from,
+            Instant to,
+            int bucketSeconds,
+            String simulationId) throws Exception {
+        String path = "/api/analytics/throughput/history?from=%s&to=%s&bucketSeconds=%d"
+                .formatted(from, to, bucketSeconds);
+        return sendThroughputHistoryRequest(path, simulationId);
+    }
+
+    private HttpResponse<String> sendThroughputHistoryRequest(String path, String simulationId) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl() + path))
+                .header("Authorization", authorizationHeader())
+                .GET();
+        if (simulationId != null) {
+            builder.header("X-Simulation-ID", simulationId);
+        }
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private JsonNode findMetric(JsonNode metrics, String timestamp) {
@@ -543,6 +767,15 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             }
         }
         throw new IllegalStateException("Metric not found for " + timestamp);
+    }
+
+    private boolean hasMetric(JsonNode metrics, String timestamp) {
+        for (JsonNode metric : metrics) {
+            if (timestamp.equals(metric.path("timestamp").asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String baseUrl() {
