@@ -8,6 +8,7 @@ import com.flunav.backend.repositories.LiveSimulationRepository;
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.DomainEvent;
 import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemExitedEvent;
 import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
@@ -70,7 +71,7 @@ public class ThroughputBucketService {
         }
 
         long entered = event instanceof ItemCreatedEvent ? 1 : 0;
-        long exited = event instanceof ChuteEmptyEvent ? exitedItems(result) : 0;
+        long exited = event instanceof ChuteEmptyEvent || event instanceof ItemExitedEvent ? exitedItems(result) : 0;
 
         if (entered == 0 && exited == 0) {
             return;

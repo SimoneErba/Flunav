@@ -4,6 +4,7 @@ import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.repositories.LiveItemRepository;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+import flunav.events.ItemExitedEvent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,10 +27,15 @@ public class StaleItemCleanupService {
     private static final Duration STARTUP_ITEM_MAX_AGE = Duration.ofHours(24);
     private final LiveItemRepository liveItemRepository;
     private final LocationService locationService;
+    private final EventProcessor eventProcessor;
+    private final TimeService timeService;
 
-    public StaleItemCleanupService(LiveItemRepository liveItemRepository, LocationService locationService) {
+    public StaleItemCleanupService(LiveItemRepository liveItemRepository, LocationService locationService,
+            EventProcessor eventProcessor, TimeService timeService) {
         this.liveItemRepository = liveItemRepository;
         this.locationService = locationService;
+        this.eventProcessor = eventProcessor;
+        this.timeService = timeService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -52,7 +58,8 @@ public class StaleItemCleanupService {
         logger.info("Running stale item cleanup job...");
         int processedCount = 0;
         int removedCount = 0;
-        Instant cutoffTime = Instant.now().minus(Duration.ofMinutes(10));
+        Instant cleanupTimestamp = timeService.physicalNow();
+        Instant cutoffTime = cleanupTimestamp.minus(Duration.ofMinutes(10));
 
         try {
             List<RedisLiveItem> allActiveItems = liveItemRepository.getAllActiveItems();
@@ -81,7 +88,7 @@ public class StaleItemCleanupService {
                         logger.info("Removing stale item {} at CHUTE {} (last update: {})",
                                 itemId, positionId, lastUpdate);
 
-                        liveItemRepository.deleteItem(itemId);
+                        eventProcessor.process(new ItemExitedEvent(itemId, positionId, cleanupTimestamp), true).join();
                         removedCount++;
                     }
                 } catch (Exception e) {

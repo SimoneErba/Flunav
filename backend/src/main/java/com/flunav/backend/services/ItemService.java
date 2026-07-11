@@ -191,7 +191,8 @@ public class ItemService {
                         itemInput.getRoutingStatus(),
                         itemInput.getRoutingStatusUpdatedAt() != null ? itemInput.getRoutingStatusUpdatedAt()
                                 : entryTime,
-                        itemInput.getPath());
+                        itemInput.getPath(),
+                        entryTime);
             });
         } catch (DuplicateItemException e) {
             // We know exactly what this is, so just re-throw it for the processor to

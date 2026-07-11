@@ -229,9 +229,6 @@ public class HistoricalGraphBuilder {
     private void processExternalEvent(DomainEvent event) {
         try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
             eventProcessor.processEventWithoutBroadcast(event);
-        } catch (Exception e) {
-            logger.warn("Error while processing event {}. Skipping to the next one. Error: {}",
-                    event.getEventType(), e.getMessage());
         }
     }
 

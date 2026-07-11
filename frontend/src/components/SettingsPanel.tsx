@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { RuleRow } from "./editors/RuleRow";
 import { v4 as uuidv4 } from 'uuid';
 import { PathAnalytics } from "./analytics/PathAnalytics";
+import { OperationalAnalytics } from "./analytics/OperationalAnalytics";
 import { useAuth } from "../context/auth.context";
 import { AdminCommands } from "./admin/AdminCommands";
 
@@ -416,10 +417,11 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
           </div>
         ) : activeTab === "charts" ? (
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Path Analytics</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Analytics</h3>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
               <PathAnalytics />
             </div>
+            <OperationalAnalytics />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">

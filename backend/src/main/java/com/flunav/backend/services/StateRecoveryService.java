@@ -68,17 +68,13 @@ public class StateRecoveryService {
             }
             historicalGraphBuilder.restoreFromSnapshotData(snapshot.graphData());
 
-            List<DomainEvent> eventsToReplay = clickHouseService.getEventsBetween(snapshot.timestamp(), restorePoint);
+            List<DomainEvent> eventsToReplay = clickHouseService.getEventsForRecoveryBetween(
+                    snapshot.timestamp(), restorePoint);
             logger.info("Replaying {} events from snapshot timestamp {} to {}", eventsToReplay.size(),
                     snapshot.timestamp(), restorePoint);
 
             for (DomainEvent event : eventsToReplay) {
-                try {
-                    eventProcessor.processEventWithoutBroadcast(event);
-                } catch (Exception e) {
-                    logger.warn("Error while replaying event {} during live restore. Skipping it. Error: {}",
-                            event.getEventType(), e.getMessage());
-                }
+                eventProcessor.processEventWithoutBroadcast(event);
             }
 
             logger.info("Live state restore completed successfully.");

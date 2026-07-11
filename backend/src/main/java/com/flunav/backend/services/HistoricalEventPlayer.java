@@ -61,6 +61,7 @@ public class HistoricalEventPlayer {
             SimulationState state = simulationService.getSimulationState(simulationId);
 
             if (state.getStatus() != SimulationStatus.PLAYING) {
+                simulationService.consumePlaybackRescheduleInterruption(simulationId);
                 logger.info("Playback for simulation {} was cancelled before its worker started.", simulationId);
                 return new AsyncResult<>(null);
             }
@@ -311,12 +312,9 @@ public class HistoricalEventPlayer {
      * derived state written during replay is deterministic.
      */
     private void processEvent(String simulationId, DomainEvent event) {
-        try {
-            try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
-                eventProcessor.processEvent(event);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to process event {} for simulation {}", event, simulationId, e);
+        try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+            eventProcessor.processEvent(event);
+            simulationService.updateLastProcessedTimestamp(simulationId, event.getTimestamp());
         }
     }
 }

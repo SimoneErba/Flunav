@@ -28,6 +28,7 @@ public class RedisLiveItem {
     private String positionId; // Redis key: "e"
     private PositionType type; // Redis key: "ty"
     private Instant entryTime; // Redis key: "t"
+    private Instant createdAt; // Redis key: "ct"
     private double accumulatedDistance; // Redis key: "ad"
     private List<String> destinations; // Redis key: "ds"
     private String selectedExitId; // Redis key: "d"
@@ -48,6 +49,8 @@ public class RedisLiveItem {
             data.put("ty", type.name());
         if (entryTime != null)
             data.put("t", String.valueOf(entryTime.toEpochMilli()));
+        if (createdAt != null)
+            data.put("ct", String.valueOf(createdAt.toEpochMilli()));
         data.put("ad", String.valueOf(accumulatedDistance));
 
         if (destinations != null) {
@@ -104,6 +107,14 @@ public class RedisLiveItem {
         if (timeStr != null) {
             try {
                 builder.entryTime(Instant.ofEpochMilli(Long.parseLong(timeStr)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        String createdAtStr = hash.get("ct");
+        if (createdAtStr != null) {
+            try {
+                builder.createdAt(Instant.ofEpochMilli(Long.parseLong(createdAtStr)));
             } catch (NumberFormatException ignored) {
             }
         }

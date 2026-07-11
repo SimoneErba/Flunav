@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,7 +15,6 @@ import org.springframework.lang.NonNull;
 
 @Repository
 public class LiveConveyorRepository {
-    private static final long DEFAULT_TTL_HOURS = 1;
     private static final Logger logger = LoggerFactory.getLogger(LiveConveyorRepository.class);
 
     private final StringRedisTemplate redis;
@@ -34,7 +32,6 @@ public class LiveConveyorRepository {
         String key = getNamespacedKey(conveyorId + ":items");
         // Score = Timestamp. Lower score = Entered earlier = Further ahead on belt.
         redis.opsForZSet().add(key, itemId, timestamp.toEpochMilli());
-        redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
 
     /**

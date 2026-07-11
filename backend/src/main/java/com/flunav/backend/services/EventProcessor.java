@@ -43,6 +43,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import com.flunav.backend.context.DatabaseContextHolder;
 
@@ -77,11 +79,14 @@ public class EventProcessor {
     private final PathAssignmentPublisher pathAssignmentPublisher;
     private final ThroughputBucketService throughputBucketService;
     private final PathCacheRepository pathCacheRepository;
+    private final OperationalAnalyticsService operationalAnalyticsService;
 
     ModelMapper modelMapper = new ModelMapper();
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentMap<String, CompletableFuture<Void>> processingFutures = new ConcurrentHashMap<>();
+    private final ReentrantReadWriteLock liveStateBarrier = new ReentrantReadWriteLock(true);
+    private final ReentrantReadWriteLock[] simulationStateBarriers = createStateBarriers(256);
 
     public EventProcessor(
             ClickHouseService clickHouseService,
@@ -110,6 +115,7 @@ public class EventProcessor {
             PathAssignmentPublisher pathAssignmentPublisher,
             ThroughputBucketService throughputBucketService,
             PathCacheRepository pathCacheRepository,
+            OperationalAnalyticsService operationalAnalyticsService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -137,6 +143,7 @@ public class EventProcessor {
         this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.throughputBucketService = throughputBucketService;
         this.pathCacheRepository = pathCacheRepository;
+        this.operationalAnalyticsService = operationalAnalyticsService;
         this.manageLogic = manageLogic;
     }
 
@@ -147,16 +154,20 @@ public class EventProcessor {
      */
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
         final String entityId = (event instanceof EntityEvent e) ? e.getEntityId() : null;
+        final String simulationId = DatabaseContextHolder.getSimulationId();
+        final String senderId = UserContextHolder.getSenderId();
 
         if (entityId == null) {
-            return executeOn(event, shouldBroadcast, executor);
+            return executeOn(event, shouldBroadcast, executor, simulationId, senderId);
         }
+
+        String processingKey = (simulationId == null ? "live:" : "sim:" + simulationId + ":") + entityId;
 
         CompletableFuture<Map<String, Object>> taskResultFuture = new CompletableFuture<>();
 
-        processingFutures.compute(entityId, (id, previousTaskCompletion) -> {
+        processingFutures.compute(processingKey, (id, previousTaskCompletion) -> {
             Supplier<CompletableFuture<Map<String, Object>>> workSupplier = () -> executeOn(event, shouldBroadcast,
-                    executor);
+                    executor, simulationId, senderId);
 
             if (previousTaskCompletion == null || previousTaskCompletion.isDone()) {
                 workSupplier.get().whenComplete((result, error) -> {
@@ -176,7 +187,7 @@ public class EventProcessor {
                 });
             }
             CompletableFuture<Void> chainedFuture = taskResultFuture.handle((result, error) -> null);
-            chainedFuture.whenComplete((ignored, error) -> processingFutures.remove(entityId, chainedFuture));
+            chainedFuture.whenComplete((ignored, error) -> processingFutures.remove(processingKey, chainedFuture));
             return chainedFuture;
         });
 
@@ -189,21 +200,18 @@ public class EventProcessor {
      * virtual-time state cannot be lost across an executor boundary.
      */
     private CompletableFuture<Map<String, Object>> executeOn(DomainEvent event, boolean shouldBroadcast,
-            Executor executor) {
-        final String currentSimId = DatabaseContextHolder.getSimulationId();
-        final String currentSenderId = UserContextHolder.getSenderId();
-
-        if (currentSimId != null) {
+            Executor executor, String simulationId, String senderId) {
+        if (simulationId != null) {
             try {
                 return CompletableFuture
-                        .completedFuture(executeBusinessLogic(event, shouldBroadcast, currentSimId, currentSenderId));
+                        .completedFuture(executeBusinessLogic(event, shouldBroadcast, simulationId, senderId));
             } catch (Exception e) {
                 return CompletableFuture.failedFuture(e);
             }
         }
 
         return CompletableFuture.supplyAsync(
-                () -> executeBusinessLogic(event, shouldBroadcast, currentSimId, currentSenderId), executor);
+                () -> executeBusinessLogic(event, shouldBroadcast, simulationId, senderId), executor);
     }
 
     /**
@@ -218,6 +226,11 @@ public class EventProcessor {
         String effectiveSenderId = event.getSenderId() != null ? event.getSenderId() : senderId;
         long startedAt = System.nanoTime();
 
+        ReentrantReadWriteLock stateBarrier = simulationId == null
+                ? liveStateBarrier
+                : simulationStateBarriers[Math.floorMod(simulationId.hashCode(), simulationStateBarriers.length)];
+        Lock stateLock = isDestructiveTopologyEvent(event) ? stateBarrier.writeLock() : stateBarrier.readLock();
+        stateLock.lock();
         try (var simulationContext = DatabaseContextHolder.enterSimulationContext(simulationId);
                 var senderContext = UserContextHolder.enterSenderContext(effectiveSenderId);
                 var eventContext = MdcContext.withValues(Map.of(
@@ -228,15 +241,8 @@ public class EventProcessor {
             logProcessingStarted(shouldBroadcast);
 
             try {
-                boolean persistAfterProcessing = event instanceof MapDestinationsEvent
-                        || event instanceof MapDestinationExitsEvent
-                        || event instanceof MapDisplayRulesEvent;
-                if (simulationId == null && !persistAfterProcessing && !(event instanceof PathTraversedEvent)) {
-                    clickHouseService.saveEventAsync(event);
-                }
-
                 Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
-                if (simulationId == null && persistAfterProcessing) {
+                if (simulationId == null && !(event instanceof PathTraversedEvent)) {
                     clickHouseService.saveEventAsync(event);
                 }
                 logProcessingCompleted(shouldBroadcast, elapsedMillis(startedAt));
@@ -245,7 +251,25 @@ public class EventProcessor {
                 logProcessingFailed(shouldBroadcast, elapsedMillis(startedAt), e);
                 throw new CompletionException(e);
             }
+        } finally {
+            stateLock.unlock();
         }
+    }
+
+    private static ReentrantReadWriteLock[] createStateBarriers(int size) {
+        ReentrantReadWriteLock[] barriers = new ReentrantReadWriteLock[size];
+        for (int index = 0; index < barriers.length; index++) {
+            barriers[index] = new ReentrantReadWriteLock(true);
+        }
+        return barriers;
+    }
+
+    /**
+     * Topology deletion takes an exclusive namespace lock so no item reducer can
+     * enter a location or conveyor between the hot-state sweep and graph removal.
+     */
+    private boolean isDestructiveTopologyEvent(DomainEvent event) {
+        return event instanceof LocationDeletedEvent || event instanceof ConnectionDeletedEvent;
     }
 
     /**
@@ -575,7 +599,7 @@ public class EventProcessor {
 
                 case ItemDeletedEvent e -> {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
-                    if (lastState != null) {
+                    if (shouldBroadcast && lastState != null) {
                         if (lastState.getPositionId() != null && lastState.getType() != null) {
                             recordPathTraversal(new PathTraversedEvent(
                                     e.getEntityId(),
@@ -601,6 +625,7 @@ public class EventProcessor {
                     if (item == null) {
                         throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
                     }
+                    List<String> previousPath = item.getPath();
                     RoutingDecisionService.RoutingDecision decision = item.getPositionId() == null
                             ? RoutingDecisionService.RoutingDecision.none()
                             : routingCoordinator.withRoutingLock(() -> {
@@ -628,7 +653,11 @@ public class EventProcessor {
                             e.getTimestamp(),
                             shouldBroadcast);
 
-                    recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
+                    if (shouldBroadcast) {
+                        recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
+                    }
+                    operationalAnalyticsService.recordRecirculation(
+                            item.getId(), previousPath, decision.path(), e.getTimestamp());
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
@@ -650,6 +679,7 @@ public class EventProcessor {
                         yield Map.of("status", "IGNORED_MANAGED_LOGIC_DISABLED");
                     }
 
+                    List<String> previousPath = item.getPath();
                     RoutingDecisionService.RoutingDecision decision = routingCoordinator.withRoutingLock(() -> {
                         RoutingDecisionService.RoutingDecision selected = routingDecisionService.selectRoute(
                                 item, e.getDecisionPointId(), PositionType.LOCATION);
@@ -665,6 +695,8 @@ public class EventProcessor {
                             decision.path(),
                             e.getTimestamp(),
                             shouldBroadcast);
+                    operationalAnalyticsService.recordRecirculation(
+                            item.getId(), previousPath, decision.path(), e.getTimestamp());
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
@@ -682,8 +714,14 @@ public class EventProcessor {
                 }
 
                 case ItemPathChangedEvent e -> {
+                    RedisLiveItem previousState = liveItemRepository.getItemState(e.getEntityId());
                     itemService.updateItemPath(e.getEntityId(), e.getPath());
-                    recordCurrentPathTraversal(e.getEntityId(), e.getPath(), e.getTimestamp());
+                    if (shouldBroadcast) {
+                        recordCurrentPathTraversal(e.getEntityId(), e.getPath(), e.getTimestamp());
+                    }
+                    operationalAnalyticsService.recordRecirculation(
+                            e.getEntityId(), previousState != null ? previousState.getPath() : null,
+                            e.getPath(), e.getTimestamp());
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(
                                 new UpdateModel(e.getEntityId(), Map.of("path", e.getPath())), e.getTimestamp());
@@ -748,6 +786,40 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case ItemExitedEvent e -> {
+                    RedisLiveItem lastState = liveItemRepository.getItemState(e.getEntityId());
+                    if (lastState == null) {
+                        yield Map.of("status", "IGNORED_MISSING", "itemsExited", 0L);
+                    }
+                    String positionId = lastState.getPositionId() != null
+                            ? lastState.getPositionId()
+                            : e.getLocationId();
+                    PositionType positionType = lastState.getType() != null
+                            ? lastState.getType()
+                            : PositionType.LOCATION;
+                    operationalAnalyticsService.recordSuccessfulExit(e, positionId, lastState, e.getEntityId());
+                    if (shouldBroadcast && positionId != null) {
+                        recordPathTraversal(new PathTraversedEvent(
+                                e.getEntityId(),
+                                positionId,
+                                positionType,
+                                positionId,
+                                positionType,
+                                List.of(positionId),
+                                e.getTimestamp()));
+                    }
+                    itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
+                    liveItemRepository.deleteItem(e.getEntityId());
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastItemDeleted(e.getEntityId(), e.getTimestamp());
+                    }
+                    retryWaitingHighPriorityItems(e.getTimestamp(), shouldBroadcast);
+                    if (manageLogic && positionId != null) {
+                        itemMovementProcessor.wakeUpPrecedingConveyors(positionId);
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY", "itemsExited", 1L);
+                }
+
                 case LocationProcessingTimeChangedEvent e -> {
                     var location = locationService.getLocationById(e.getEntityId());
                     Long timeToProcessMs = e.getTimeToProcessMs() != null && e.getTimeToProcessMs() > 0L
@@ -776,6 +848,18 @@ public class EventProcessor {
                 }
 
                 case LocationDeletedEvent e -> {
+                    Set<String> removedPositionIds = new HashSet<>();
+                    removedPositionIds.add(e.getEntityId());
+                    topologyProvider.getAllConveyors().stream()
+                            .filter(conveyor -> e.getEntityId().equals(conveyor.getSourceLocationId())
+                                    || e.getEntityId().equals(conveyor.getTargetLocationId()))
+                            .map(Conveyor::getId)
+                            .forEach(removedPositionIds::add);
+                    removeHotItemsAtPositions(removedPositionIds, e.getTimestamp(), shouldBroadcast);
+                    removedPositionIds.stream()
+                            .filter(positionId -> !e.getEntityId().equals(positionId))
+                            .forEach(liveConveyorRepository::deleteConveyor);
+                    liveLocationRepository.deleteLocation(e.getEntityId());
                     locationService.deleteLocation(e.getEntityId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastLocationDeleted(e.getEntityId(), e.getTimestamp());
@@ -796,6 +880,8 @@ public class EventProcessor {
                             e.getMinDistance(),
                             e.getMainPath(),
                             e.getIsActive());
+                    operationalAnalyticsService.recordSimulationConnectionSignal(
+                            e, e.getConnectionId(), e.getIsActive(), e.getSpeed(), e.getSourceId(), e.getTargetId());
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
                                 connectionRootFields(e),
@@ -818,6 +904,9 @@ public class EventProcessor {
                         double oldSpeed = conveyor.getSpeed();
                         conveyor.setSpeed(e.getSpeed());
                         conveyorService.updateConveyor(conveyor);
+                        operationalAnalyticsService.recordSimulationConnectionSignal(
+                                e, conveyor.getId(), null, e.getSpeed(),
+                                conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
                         if (manageLogic && oldSpeed <= 0 && e.getSpeed() > 0) {
                             itemMovementProcessor.recalculateConveyorAccumulation(e.getEntityId());
                             itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
@@ -835,13 +924,15 @@ public class EventProcessor {
                     long removedItems = 0;
                     for (String item : items) {
                         RedisLiveItem itemState = liveItemRepository.getItemState(item);
+                        operationalAnalyticsService.recordSuccessfulExit(e, e.getEntityId(), itemState, item);
                         String positionId = itemState != null && itemState.getPositionId() != null
                                 ? itemState.getPositionId()
                                 : e.getEntityId();
                         PositionType positionType = itemState != null && itemState.getType() != null
                                 ? itemState.getType()
                                 : PositionType.LOCATION;
-                        recordPathTraversal(new PathTraversedEvent(
+                        if (shouldBroadcast) {
+                            recordPathTraversal(new PathTraversedEvent(
                                 item,
                                 positionId,
                                 positionType,
@@ -849,6 +940,7 @@ public class EventProcessor {
                                 positionType,
                                 List.of(positionId),
                                 e.getTimestamp()));
+                        }
                         liveLocationRepository.removeItemFromLocation(e.getEntityId(), item);
                         liveItemRepository.deleteItem(item);
                         removedItems++;
@@ -904,6 +996,9 @@ public class EventProcessor {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     conveyor.setActive(true);
                     conveyorService.updateConveyor(conveyor);
+                    operationalAnalyticsService.recordSimulationConnectionSignal(
+                            e, conveyor.getId(), true, null,
+                            conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), Map.of("active", true)), e.getTimestamp());
@@ -915,6 +1010,9 @@ public class EventProcessor {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     conveyor.setActive(false);
                     conveyorService.updateConveyor(conveyor);
+                    operationalAnalyticsService.recordSimulationConnectionSignal(
+                            e, conveyor.getId(), false, null,
+                            conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(
                                 new UpdateModel(conveyor.getId(), Map.of("active", false)), e.getTimestamp());
@@ -947,7 +1045,17 @@ public class EventProcessor {
                 }
 
                 case ConnectionDeletedEvent e -> {
+                    Set<String> removedConveyorIds = topologyProvider.getAllConveyors().stream()
+                            .filter(conveyor -> e.getSourceLocationId().equals(conveyor.getSourceLocationId())
+                                    && e.getTargetLocationId().equals(conveyor.getTargetLocationId()))
+                            .map(Conveyor::getId)
+                            .collect(java.util.stream.Collectors.toSet());
+                    String removedConveyorId = removedConveyorIds.stream().sorted().findFirst().orElse(null);
+                    removeHotItemsAtPositions(removedConveyorIds, e.getTimestamp(), shouldBroadcast);
                     conveyorService.deleteConveyor(e.getSourceLocationId(), e.getTargetLocationId());
+                    operationalAnalyticsService.recordSimulationConnectionSignal(
+                            e, removedConveyorId, null, null,
+                            e.getSourceLocationId(), e.getTargetLocationId());
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionDeleted(e.getSourceLocationId(), e.getTargetLocationId(),
                                 e.getTimestamp());
@@ -956,7 +1064,9 @@ public class EventProcessor {
                 }
 
                 case PathTraversedEvent e -> {
-                    recordPathTraversal(e);
+                    if (shouldBroadcast) {
+                        recordPathTraversal(e);
+                    }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -997,12 +1107,48 @@ public class EventProcessor {
     }
 
     /**
+     * Runs a live snapshot operation after all current live reductions finish and
+     * before any new live reduction starts. Simulation reducers use isolated stores
+     * and therefore do not need to block snapshot capture.
+     */
+    public <T> T withLiveSnapshotBarrier(Supplier<T> snapshotWork) {
+        Lock writeLock = liveStateBarrier.writeLock();
+        writeLock.lock();
+        try {
+            return snapshotWork.get();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /**
      * Checkpoints all items on a conveyor before a speed-changing event takes
      * effect. The delegated processor stores distance in Redis so rescheduling uses
      * physical progress instead of stale percentages.
      */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
+    }
+
+    /**
+     * Removes hot positions and movement schedules made invalid by topology
+     * deletion. The surrounding topology event remains the replayable cause, while
+     * durable item metadata is retained for history and later repositioning.
+     */
+    private void removeHotItemsAtPositions(Set<String> positionIds, Instant timestamp, boolean shouldBroadcast) {
+        if (positionIds == null || positionIds.isEmpty()) {
+            return;
+        }
+        for (RedisLiveItem item : liveItemRepository.getAllActiveItems()) {
+            if (item == null || !positionIds.contains(item.getPositionId())) {
+                continue;
+            }
+            itemMovementProcessor.cancelScheduledEvent(item.getId());
+            liveItemRepository.deleteItem(item.getId());
+            if (shouldBroadcast) {
+                webSocketService.broadcastPositionLost(item.getId(), timestamp);
+            }
+        }
     }
 
     /**
@@ -1193,6 +1339,8 @@ public class EventProcessor {
                         itemService.updateItemRouting(
                                 item.getId(), item.getDestinations(), decision.selectedExitId(),
                                 decision.routingStatus(), timestamp, decision.path());
+                        operationalAnalyticsService.recordRecirculation(
+                                item.getId(), waitingState.getPath(), decision.path(), timestamp);
                         pathAssignmentPublisher.publishIfAssigned(
                                 item.getId(),
                                 decision.selectedExitId(),

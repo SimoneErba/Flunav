@@ -25,6 +25,7 @@ public class GraphSnapshotService {
     private final ClickHouseService clickHouseService;
     private final TimeService timeService;
     private final TaskScheduler taskScheduler;
+    private final EventProcessor eventProcessor;
     private final Duration snapshotInterval;
     private final AtomicBoolean schedulingStarted = new AtomicBoolean(false);
 
@@ -33,11 +34,13 @@ public class GraphSnapshotService {
             ClickHouseService clickHouseService,
             TimeService timeService,
             TaskScheduler taskScheduler,
+            EventProcessor eventProcessor,
             @Value("${graph-snapshot.interval:5m}") Duration snapshotInterval) {
         this.graphService = graphService;
         this.clickHouseService = clickHouseService;
         this.timeService = timeService;
         this.taskScheduler = taskScheduler;
+        this.eventProcessor = eventProcessor;
         this.snapshotInterval = snapshotInterval;
     }
 
@@ -68,11 +71,14 @@ public class GraphSnapshotService {
         try {
             logger.info("Starting graph snapshot process...");
 
-            GraphData graphState = graphService.getGraphData();
             String snapshotId = UUID.randomUUID().toString();
-            Instant timestamp = timeService.now();
-
-            clickHouseService.saveSnapshot(snapshotId, timestamp, graphState);
+            eventProcessor.withLiveSnapshotBarrier(() -> {
+                clickHouseService.flushAllEventsOrThrow();
+                Instant timestamp = timeService.now();
+                GraphData graphState = graphService.getGraphData(timestamp, false);
+                clickHouseService.saveSnapshot(snapshotId, timestamp, graphState);
+                return null;
+            });
 
             logger.info("Graph snapshot completed successfully. Snapshot ID: {}", snapshotId);
         } catch (Exception e) {

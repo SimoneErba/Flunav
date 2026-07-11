@@ -149,7 +149,11 @@ public class OrientDBService {
                 session.commit();
                 logger.debug("Transaction committed successfully.");
             } catch (DuplicateItemException e) {
-                // Known business case — no rollback needed, nothing was written
+                if (!session.isClosed() && session.getTransaction().isActive()) {
+                    session.activateOnCurrentThread();
+                    session.rollback();
+                }
+                throw e;
             } catch (Exception e) {
                 logger.error("Error during transactional callback. Initiating rollback.", e);
                 if (!session.isClosed() && session.getTransaction().isActive()) {
@@ -212,6 +216,11 @@ public class OrientDBService {
      */
     public void createInMemoryDatabase(String dbName) {
         try {
+            ODatabasePool existingPool = databasePools.remove(dbName);
+            if (existingPool != null) {
+                existingPool.close();
+                logger.info("Closed existing pool before rebuilding simulation database: {}", dbName);
+            }
             if (orientDB.exists(dbName)) {
                 orientDB.drop(dbName);
             }

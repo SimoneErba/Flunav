@@ -44,6 +44,7 @@ public class ItemMovementProcessor {
     private final TimeService timeService;
     private final PathAssignmentPublisher pathAssignmentPublisher;
     private final WebSocketService webSocketService;
+    private final OperationalAnalyticsService operationalAnalyticsService;
     private final boolean manageLogic;
 
     public ItemMovementProcessor(
@@ -61,6 +62,7 @@ public class ItemMovementProcessor {
             TimeService timeService,
             PathAssignmentPublisher pathAssignmentPublisher,
             WebSocketService webSocketService,
+            OperationalAnalyticsService operationalAnalyticsService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.amqpTemplate = amqpTemplate;
         this.itemEventsRoutingKey = itemEventsRoutingKey;
@@ -76,6 +78,7 @@ public class ItemMovementProcessor {
         this.timeService = timeService;
         this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.webSocketService = webSocketService;
+        this.operationalAnalyticsService = operationalAnalyticsService;
         this.manageLogic = manageLogic;
     }
 
@@ -436,6 +439,8 @@ public class ItemMovementProcessor {
                 || oldRoutingStatus != decision.routingStatus()
                 || !java.util.Objects.equals(oldPath, decision.path());
         if (changed) {
+            operationalAnalyticsService.recordRecirculation(
+                    item.getId(), oldPath, decision.path(), timestamp);
             pathAssignmentPublisher.publishIfAssigned(
                     item.getId(),
                     decision.selectedExitId(),

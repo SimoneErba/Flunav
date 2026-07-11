@@ -14,6 +14,7 @@ import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.LocationService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.StaleItemCleanupService;
 import com.flunav.backend.services.ThroughputBucketService;
 import com.flunav.backend.services.TimeService;
 import com.flunav.backend.utils.JwtUtils;
@@ -53,12 +54,12 @@ import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "springwolf.enabled=false",
         "app.demo-mode=false",
-        "stale-item-cleanup.enabled=false",
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false"
 })
@@ -77,6 +78,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private final LiveLocationRepository liveLocationRepository;
     private final LiveSimulationRepository liveSimulationRepository;
     private final LiveSystemScheduler liveSystemScheduler;
+    private final StaleItemCleanupService staleItemCleanupService;
     private final JwtUtils jwtUtils;
     private final StringRedisTemplate redisTemplate;
     private final AbstractMessageChannel brokerChannel;
@@ -95,6 +97,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             LiveLocationRepository liveLocationRepository,
             LiveSimulationRepository liveSimulationRepository,
             LiveSystemScheduler liveSystemScheduler,
+            StaleItemCleanupService staleItemCleanupService,
             JwtUtils jwtUtils,
             StringRedisTemplate redisTemplate,
             @org.springframework.beans.factory.annotation.Qualifier("brokerChannel")
@@ -110,6 +113,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         this.liveLocationRepository = liveLocationRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.liveSystemScheduler = liveSystemScheduler;
+        this.staleItemCleanupService = staleItemCleanupService;
         this.jwtUtils = jwtUtils;
         this.redisTemplate = redisTemplate;
         this.brokerChannel = brokerChannel;
@@ -181,6 +185,29 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         assertEquals(0, metric.getItemsEntered());
         assertEquals(3, metric.getItemsExited());
         assertEquals(0, metric.getItemsCurrent());
+    }
+
+    @Test
+    void staleChuteCleanupRemovesAllHotStateAndIncrementsExitedMetric() {
+        Instant cleanupReference = timeService.physicalNow();
+        Instant staleEntry = cleanupReference.minusSeconds(11 * 60L);
+        createLocation("analytics-stale-chute", LocationType.CHUTE, 10);
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "analytics-stale-item", "Stale Item", 1.0, true,
+                "analytics-stale-chute", PositionType.LOCATION, 0.0, Map.of(), staleEntry));
+        assertEquals(1, liveLocationRepository.getItemCount("analytics-stale-chute"));
+
+        staleItemCleanupService.cleanupStaleItemsAtExits();
+        throughputBucketService.flushBuckets();
+
+        assertNull(liveItemRepository.getItemState("analytics-stale-item"));
+        assertEquals(0, liveLocationRepository.getItemCount("analytics-stale-chute"));
+        ThroughputMetric exitMetric = clickHouseService.getThroughputHistory(1).join().stream()
+                .filter(metric -> metric.getItemsExited() == 1)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing stale-cleanup exit metric"));
+        assertEquals(0, exitMetric.getItemsEntered());
+        assertEquals(0, exitMetric.getItemsCurrent());
     }
 
     @Test

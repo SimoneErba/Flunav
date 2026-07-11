@@ -13,7 +13,6 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
@@ -57,6 +56,18 @@ public class LiveItemRepository {
     public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime,
             double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
             RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path) {
+        saveItemState(itemId, positionId, type, entryTime, accumulatedDistance, name, destinations, selectedExitId,
+                routingStatus, routingStatusUpdatedAt, path, null);
+    }
+
+    /**
+     * Stores creation time separately from the current position checkpoint.
+     * Simulation-only journeys need this immutable start time because their create
+     * event intentionally never enters the live ClickHouse event log.
+     */
+    public void saveItemState(String itemId, String positionId, PositionType type, Instant entryTime,
+            double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
+            RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path, Instant createdAt) {
 
         // Create the object
         RedisLiveItem item = RedisLiveItem.builder()
@@ -64,6 +75,7 @@ public class LiveItemRepository {
                 .positionId(positionId)
                 .type(type)
                 .entryTime(entryTime)
+                .createdAt(createdAt)
                 .accumulatedDistance(accumulatedDistance)
                 .name(name)
                 .destinations(destinations)
@@ -104,7 +116,6 @@ public class LiveItemRepository {
         String activeSetKey = getNamespacedKey("active_items");
 
         redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
-        redis.expire(itemKey, Duration.ofHours(1));
         redis.opsForSet().add(activeSetKey, itemId);
     }
 

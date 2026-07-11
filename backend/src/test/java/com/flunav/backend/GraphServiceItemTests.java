@@ -16,6 +16,7 @@ import com.flunav.backend.services.ItemMovementProcessor;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.OperationalAnalyticsService;
 import com.flunav.backend.services.PathfindingService;
 import com.flunav.backend.services.PathAssignmentPublisher;
 import com.flunav.backend.services.RoutingDecisionService;
@@ -29,6 +30,7 @@ import flunav.events.DestinationExitMappingRecord;
 import flunav.events.ChuteEmptyEvent;
 import flunav.events.ConnectionActivatedEvent;
 import flunav.events.ConnectionDeactivatedEvent;
+import flunav.events.ConnectionDeletedEvent;
 import flunav.events.ConnectionLengthChangedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
@@ -37,6 +39,7 @@ import flunav.events.ItemPriorityUpdatedEvent;
 import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
+import flunav.events.PathTraversedEvent;
 import flunav.messages.ItemPathAssignmentMessage;
 import flunav.types.DataType;
 import flunav.types.LocationType;
@@ -56,6 +59,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -100,6 +109,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final StringRedisTemplate redisTemplate;
     private final AmqpTemplate amqpTemplate;
     private final AmqpAdmin amqpAdmin;
+    private final OperationalAnalyticsService operationalAnalyticsService;
 
     GraphServiceItemTests(
             GraphService graphService,
@@ -125,7 +135,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             OrientDBService orientDBService,
             StringRedisTemplate redisTemplate,
             AmqpTemplate amqpTemplate,
-            AmqpAdmin amqpAdmin) {
+            AmqpAdmin amqpAdmin,
+            OperationalAnalyticsService operationalAnalyticsService) {
         this.graphService = graphService;
         this.itemService = itemService;
         this.liveConveyorRepository = liveConveyorRepository;
@@ -150,6 +161,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.redisTemplate = redisTemplate;
         this.amqpTemplate = amqpTemplate;
         this.amqpAdmin = amqpAdmin;
+        this.operationalAnalyticsService = operationalAnalyticsService;
     }
 
     @BeforeEach
@@ -188,6 +200,114 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNull(liveItemRepository.getItemState("live-stale", null));
         assertNotNull(liveItemRepository.getItemState("live-fresh", null));
         assertNotNull(liveItemRepository.getItemState("sim-stale", SIMULATION_ID));
+    }
+
+    @Test
+    void hotStateKeysDoNotExpireIndependently() {
+        Instant now = Instant.now();
+        liveItemRepository.saveItemState("ttl-item", "ttl-location", PositionType.LOCATION, now,
+                0.0, "TTL Item", null, null, null);
+        liveLocationRepository.addItemToLocation("ttl-location", "ttl-item");
+        liveConveyorRepository.addItemToConveyor("ttl-conveyor", "ttl-item", now);
+
+        assertEquals(-1L, redisTemplate.getExpire("item:ttl-item", TimeUnit.SECONDS));
+        assertEquals(-1L, redisTemplate.getExpire("active_items", TimeUnit.SECONDS));
+        assertEquals(-1L, redisTemplate.getExpire("loc:ttl-location:items", TimeUnit.SECONDS));
+        assertEquals(-1L, redisTemplate.getExpire("conv:ttl-conveyor:items", TimeUnit.SECONDS));
+    }
+
+    @Test
+    void simulationEventWithSameEntityDoesNotWaitForBlockedLiveEvent() throws Exception {
+        CountDownLatch barrierAcquired = new CountDownLatch(1);
+        CountDownLatch releaseBarrier = new CountDownLatch(1);
+        ExecutorService barrierExecutor = Executors.newSingleThreadExecutor();
+        CompletableFuture<Map<String, Object>> liveFuture = null;
+        try {
+            var barrierFuture = barrierExecutor.submit(() -> eventProcessor.withLiveSnapshotBarrier(() -> {
+                barrierAcquired.countDown();
+                try {
+                    if (!releaseBarrier.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out waiting to release snapshot barrier");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Snapshot barrier interrupted", e);
+                }
+                return null;
+            }));
+            assertTrue(barrierAcquired.await(2, TimeUnit.SECONDS));
+
+            Instant now = Instant.now();
+            PathTraversedEvent liveEvent = new PathTraversedEvent(
+                    "shared-entity", "live-a", PositionType.LOCATION,
+                    "live-b", PositionType.LOCATION, List.of("live-a", "live-b"), now);
+            liveFuture = eventProcessor.process(liveEvent, false);
+            assertFalse(liveFuture.isDone());
+
+            try (var ignored = DatabaseContextHolder.enterSimulationContext("context-ordering-sim")) {
+                PathTraversedEvent simulationEvent = new PathTraversedEvent(
+                        "shared-entity", "sim-a", PositionType.LOCATION,
+                        "sim-b", PositionType.LOCATION, List.of("sim-a", "sim-b"), now);
+                assertEquals("PROCESSED_SUCCESSFULLY",
+                        eventProcessor.process(simulationEvent, false).get(2, TimeUnit.SECONDS).get("status"));
+            }
+
+            releaseBarrier.countDown();
+            assertEquals("PROCESSED_SUCCESSFULLY", liveFuture.get(2, TimeUnit.SECONDS).get("status"));
+            barrierFuture.get(2, TimeUnit.SECONDS);
+        } finally {
+            releaseBarrier.countDown();
+            if (liveFuture != null) {
+                liveFuture.cancel(true);
+            }
+            barrierExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    void duplicateItemCreateDoesNotApplyIncomingHotStateSideEffects() {
+        Instant now = Instant.now();
+        createLocation("duplicate-chute-a", "First Chute", LocationType.CHUTE, 10);
+        createLocation("duplicate-chute-b", "Second Chute", LocationType.CHUTE, 10);
+
+        Map<String, Object> first = eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "duplicate-item", "First", 1.0, true, "duplicate-chute-a",
+                PositionType.LOCATION, 0.0, Map.of(), now));
+        Map<String, Object> duplicate = eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "duplicate-item", "Second", 1.0, true, "duplicate-chute-b",
+                PositionType.LOCATION, 0.0, Map.of(), now.plusSeconds(1)));
+
+        assertEquals("CREATED", first.get("status"));
+        assertEquals("IGNORED_DUPLICATE", duplicate.get("status"));
+        assertEquals("duplicate-chute-a", liveItemRepository.getItemState("duplicate-item").getPositionId());
+        assertEquals(Set.of("duplicate-item"), liveLocationRepository.getItemsAtLocation("duplicate-chute-a"));
+        assertTrue(liveLocationRepository.getItemsAtLocation("duplicate-chute-b").isEmpty());
+        assertEquals("First", itemService.getItemById("duplicate-item").getName());
+    }
+
+    @Test
+    void deletingConnectionCancelsSchedulesAndRemovesOrphanedHotState() {
+        Instant now = Instant.now();
+        createLocation("delete-connection-start", "Start");
+        createLocation("delete-connection-end", "End");
+        conveyorService.createConveyor(
+                "delete-connection-conveyor", "delete-connection-start", "delete-connection-end",
+                "Delete Me", 10.0, 1.0, 0.0, false, true);
+        liveItemRepository.saveItemState(
+                "delete-connection-item", "delete-connection-conveyor", PositionType.CONVEYOR,
+                now, 0.0, "Hot Item", null, null, null);
+        liveConveyorRepository.addItemToConveyor(
+                "delete-connection-conveyor", "delete-connection-item", now);
+        liveSystemScheduler.scheduleInternalEvent(new ItemPositionChangedEvent(
+                "delete-connection-item", "delete-connection-end", 100.0, now.plusSeconds(60)));
+
+        eventProcessor.process(new ConnectionDeletedEvent(
+                "delete-connection-start", "delete-connection-end"), false).join();
+
+        assertNull(liveItemRepository.getItemState("delete-connection-item"));
+        assertTrue(liveConveyorRepository.getItemsOrderedByDistance("delete-connection-conveyor").isEmpty());
+        assertNull(liveSystemScheduler.getScheduledEvent("delete-connection-item"));
+        assertNull(topologyProvider.getConveyorById("delete-connection-conveyor"));
     }
 
     @Test
@@ -1104,6 +1224,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 timeService,
                 pathAssignmentPublisher,
                 webSocketService,
+                operationalAnalyticsService,
                 false);
         disabledProcessor.processLocationEntry("disabled-item", "disabled-decision", now);
 

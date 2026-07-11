@@ -27,4 +27,16 @@ public class RoutingCoordinator {
             lock.unlock();
         }
     }
+
+    /**
+     * Releases the per-simulation routing lock after isolated state is destroyed.
+     * Removal is safe only when no caller currently owns or waits for the lock.
+     */
+    public void cleanupSimulation(String simulationId) {
+        if (simulationId == null) {
+            return;
+        }
+        String key = "sim:" + simulationId;
+        locks.computeIfPresent(key, (ignored, lock) -> lock.isLocked() || lock.hasQueuedThreads() ? lock : null);
+    }
 }

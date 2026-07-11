@@ -7,8 +7,10 @@ import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.test.ClickHouseTestContainerFactory;
+import flunav.events.ItemCreatedEvent;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
+import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -30,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClickHouseSnapshotTests {
 
-    private static final ClickHouseContainer CLICKHOUSE = ClickHouseTestContainerFactory.createSnapshotContainer();
+    private static final ClickHouseContainer CLICKHOUSE = ClickHouseTestContainerFactory.create();
 
     private static ClickHouseService clickHouseService;
 
@@ -154,6 +156,29 @@ class ClickHouseSnapshotTests {
             assertEquals("String", resultSet.getString(4));
             assertTrue(resultSet.getString(5).contains("Nullable(String)"));
         }
+    }
+
+    @Test
+    void forwardPlaybackExcludesLateHistoricalRowsWhileRecoveryIncludesThem() throws Exception {
+        try (Connection connection = DriverManager.getConnection(
+                CLICKHOUSE.getJdbcUrl(), CLICKHOUSE.getUsername(), CLICKHOUSE.getPassword());
+                Statement statement = connection.createStatement()) {
+            statement.execute("TRUNCATE TABLE Events");
+        }
+
+        Instant recoveryStart = Instant.parse("2026-06-13T11:00:00Z");
+        ItemCreatedEvent lateHistoricalEvent = new ItemCreatedEvent(
+                "late-recovery-item", "Late", 1.0, true, "late-location",
+                PositionType.LOCATION, 0.0, Map.of(), recoveryStart.minusSeconds(5));
+        clickHouseService.saveEventAsync(lateHistoricalEvent);
+        clickHouseService.flushAllEventsOrThrow();
+
+        assertTrue(clickHouseService.getEventsBetween(
+                recoveryStart, recoveryStart.plusSeconds(10)).isEmpty());
+        assertEquals(List.of(lateHistoricalEvent.getEntityId()), clickHouseService.getEventsForRecoveryBetween(
+                recoveryStart, recoveryStart.plusSeconds(10)).stream()
+                .map(event -> ((flunav.events.EntityEvent) event).getEntityId())
+                .toList());
     }
 
 }

@@ -217,6 +217,61 @@ export type ConveyorResponseTypeEnum = typeof ConveyorResponseTypeEnum[keyof typ
 /**
  *
  * @export
+ * @interface ConveyorStopMetric
+ */
+export interface ConveyorStopMetric {
+    /**
+     *
+     * @type {string}
+     * @memberof ConveyorStopMetric
+     */
+    'conveyorId'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorStopMetric
+     */
+    'overlappingStopCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorStopMetric
+     */
+    'totalStoppedMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorStopMetric
+     */
+    'averageStoppedMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorStopMetric
+     */
+    'maximumStoppedMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorStopMetric
+     */
+    'availabilityPercentage'?: number;
+    /**
+     *
+     * @type {boolean}
+     * @memberof ConveyorStopMetric
+     */
+    'currentlyStopped'?: boolean;
+    /**
+     *
+     * @type {string}
+     * @memberof ConveyorStopMetric
+     */
+    'stopStartedAt'?: string;
+}
+/**
+ *
+ * @export
  * @interface CoordinatesUpdateRequest
  */
 export interface CoordinatesUpdateRequest {
@@ -1064,6 +1119,79 @@ export type ItemResponseRoutingStatusEnum = typeof ItemResponseRoutingStatusEnum
 /**
  *
  * @export
+ * @interface JourneySummary
+ */
+export interface JourneySummary {
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'completedItemCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'averageTraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'minimumTraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'maximumTraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'p50TraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'p90TraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'p95TraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'p99TraversalMillis'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'recirculationEventCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'completedJourneysWithRecirculation'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof JourneySummary
+     */
+    'completedJourneysWithRecirculationPercentage'?: number;
+}
+/**
+ *
+ * @export
  * @interface LengthUpdateRequest
  */
 export interface LengthUpdateRequest {
@@ -1128,6 +1256,12 @@ export interface Location {
      * @memberof Location
      */
     'capacity'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof Location
+     */
+    'timeToProcessMs'?: number;
     /**
      *
      * @type {number}
@@ -1296,16 +1430,16 @@ export interface LocationResponse {
     'capacity'?: number;
     /**
      *
-     * @type {{ [key: string]: object; }}
-     * @memberof LocationResponse
-     */
-    'properties'?: { [key: string]: object; };
-    /**
-     *
      * @type {number}
      * @memberof LocationResponse
      */
     'timeToProcessMs'?: number;
+    /**
+     *
+     * @type {{ [key: string]: object; }}
+     * @memberof LocationResponse
+     */
+    'properties'?: { [key: string]: object; };
     /**
      *
      * @type {string}
@@ -1383,6 +1517,19 @@ export interface PlaybackRequest {
      * @memberof PlaybackRequest
      */
     'speedFactor'?: number;
+}
+/**
+ *
+ * @export
+ * @interface ProcessingTimeUpdateRequest
+ */
+export interface ProcessingTimeUpdateRequest {
+    /**
+     *
+     * @type {number}
+     * @memberof ProcessingTimeUpdateRequest
+     */
+    'timeToProcessMs'?: number;
 }
 /**
  *
@@ -1542,6 +1689,7 @@ export const TypeUpdateRequestTypeEnum = {
     DecisionPoint: 'DECISION_POINT',
     Chute: 'CHUTE',
     Accumulation: 'ACCUMULATION',
+    TimedNode: 'TIMED_NODE',
     Road: 'ROAD',
     Generic: 'GENERIC'
 } as const;
@@ -1585,6 +1733,49 @@ export const AnalyticsControllerApiAxiosParamCreator = function (configuration?:
     return {
         /**
          *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConveyorStops: async (from?: string, to?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/analytics/conveyor-stops`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (from !== undefined) {
+                localVarQueryParameter['from'] = (from as any instanceof Date) ?
+                    (from as any).toISOString() :
+                    from;
+            }
+
+            if (to !== undefined) {
+                localVarQueryParameter['to'] = (to as any instanceof Date) ?
+                    (to as any).toISOString() :
+                    to;
+            }
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
          * @param {GetEntityEventsEntityTypeEnum} entityType
          * @param {string} entityId
          * @param {number} [limit]
@@ -1618,6 +1809,49 @@ export const AnalyticsControllerApiAxiosParamCreator = function (configuration?:
 
             if (limit !== undefined) {
                 localVarQueryParameter['limit'] = limit;
+            }
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getJourneySummary: async (from?: string, to?: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/analytics/journeys/summary`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (from !== undefined) {
+                localVarQueryParameter['from'] = (from as any instanceof Date) ?
+                    (from as any).toISOString() :
+                    from;
+            }
+
+            if (to !== undefined) {
+                localVarQueryParameter['to'] = (to as any instanceof Date) ?
+                    (to as any).toISOString() :
+                    to;
             }
 
 
@@ -1696,6 +1930,19 @@ export const AnalyticsControllerApiFp = function(configuration?: Configuration) 
     return {
         /**
          *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getConveyorStops(from?: string, to?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<ConveyorStopMetric>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getConveyorStops(from, to, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['AnalyticsControllerApi.getConveyorStops']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
          * @param {GetEntityEventsEntityTypeEnum} entityType
          * @param {string} entityId
          * @param {number} [limit]
@@ -1706,6 +1953,19 @@ export const AnalyticsControllerApiFp = function(configuration?: Configuration) 
             const localVarAxiosArgs = await localVarAxiosParamCreator.getEntityEvents(entityType, entityId, limit, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['AnalyticsControllerApi.getEntityEvents']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getJourneySummary(from?: string, to?: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<JourneySummary>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getJourneySummary(from, to, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['AnalyticsControllerApi.getJourneySummary']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -1735,6 +1995,16 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
     return {
         /**
          *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConveyorStops(from?: string, to?: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<ConveyorStopMetric>> {
+            return localVarFp.getConveyorStops(from, to, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
          * @param {GetEntityEventsEntityTypeEnum} entityType
          * @param {string} entityId
          * @param {number} [limit]
@@ -1743,6 +2013,16 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
          */
         getEntityEvents(entityType: GetEntityEventsEntityTypeEnum, entityId: string, limit?: number, options?: RawAxiosRequestConfig): AxiosPromise<Array<EntityEventRecord>> {
             return localVarFp.getEntityEvents(entityType, entityId, limit, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} [from]
+         * @param {string} [to]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getJourneySummary(from?: string, to?: string, options?: RawAxiosRequestConfig): AxiosPromise<JourneySummary> {
+            return localVarFp.getJourneySummary(from, to, options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -1768,6 +2048,18 @@ export const AnalyticsControllerApiFactory = function (configuration?: Configura
 export class AnalyticsControllerApi extends BaseAPI {
     /**
      *
+     * @param {string} [from]
+     * @param {string} [to]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AnalyticsControllerApi
+     */
+    public getConveyorStops(from?: string, to?: string, options?: RawAxiosRequestConfig) {
+        return AnalyticsControllerApiFp(this.configuration).getConveyorStops(from, to, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
      * @param {GetEntityEventsEntityTypeEnum} entityType
      * @param {string} entityId
      * @param {number} [limit]
@@ -1777,6 +2069,18 @@ export class AnalyticsControllerApi extends BaseAPI {
      */
     public getEntityEvents(entityType: GetEntityEventsEntityTypeEnum, entityId: string, limit?: number, options?: RawAxiosRequestConfig) {
         return AnalyticsControllerApiFp(this.configuration).getEntityEvents(entityType, entityId, limit, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} [from]
+     * @param {string} [to]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof AnalyticsControllerApi
+     */
+    public getJourneySummary(from?: string, to?: string, options?: RawAxiosRequestConfig) {
+        return AnalyticsControllerApiFp(this.configuration).getJourneySummary(from, to, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -4244,6 +4548,45 @@ export const LocationControllerApiAxiosParamCreator = function (configuration?: 
         /**
          *
          * @param {string} id
+         * @param {ProcessingTimeUpdateRequest} processingTimeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationProcessingTime: async (id: string, processingTimeUpdateRequest: ProcessingTimeUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateLocationProcessingTime', 'id', id)
+            // verify required parameter 'processingTimeUpdateRequest' is not null or undefined
+            assertParamExists('updateLocationProcessingTime', 'processingTimeUpdateRequest', processingTimeUpdateRequest)
+            const localVarPath = `/api/locations/{id}/time-to-process`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(processingTimeUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
          * @param {PropertyUpdateRequest} propertyUpdateRequest
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -4521,6 +4864,19 @@ export const LocationControllerApiFp = function(configuration?: Configuration) {
         /**
          *
          * @param {string} id
+         * @param {ProcessingTimeUpdateRequest} processingTimeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateLocationProcessingTime(id: string, processingTimeUpdateRequest: ProcessingTimeUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateLocationProcessingTime(id, processingTimeUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['LocationControllerApi.updateLocationProcessingTime']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
          * @param {PropertyUpdateRequest} propertyUpdateRequest
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -4663,6 +5019,16 @@ export const LocationControllerApiFactory = function (configuration?: Configurat
          */
         updateLocationLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateLocationLength(id, lengthUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {ProcessingTimeUpdateRequest} processingTimeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateLocationProcessingTime(id: string, processingTimeUpdateRequest: ProcessingTimeUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateLocationProcessingTime(id, processingTimeUpdateRequest, options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -4814,6 +5180,18 @@ export class LocationControllerApi extends BaseAPI {
      */
     public updateLocationLength(id: string, lengthUpdateRequest: LengthUpdateRequest, options?: RawAxiosRequestConfig) {
         return LocationControllerApiFp(this.configuration).updateLocationLength(id, lengthUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {ProcessingTimeUpdateRequest} processingTimeUpdateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof LocationControllerApi
+     */
+    public updateLocationProcessingTime(id: string, processingTimeUpdateRequest: ProcessingTimeUpdateRequest, options?: RawAxiosRequestConfig) {
+        return LocationControllerApiFp(this.configuration).updateLocationProcessingTime(id, processingTimeUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

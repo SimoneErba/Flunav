@@ -8,15 +8,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.analytics.EntityEventType;
+import com.flunav.backend.models.analytics.ConnectionStateSignal;
+import com.flunav.backend.models.analytics.ExitCandidate;
 import com.flunav.backend.models.analytics.LocationTransitMetric;
 import com.flunav.backend.models.analytics.MetricEvent;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.EntityEventRecord;
+import com.flunav.backend.models.response.JourneySummary;
 import com.flunav.backend.models.response.ThroughputMetric;
 
 import flunav.events.DomainEvent;
 import flunav.events.EntityEvent;
+import flunav.events.ConnectionActivatedEvent;
+import flunav.events.ConnectionCreatedEvent;
+import flunav.events.ConnectionDeactivatedEvent;
+import flunav.events.ConnectionDeletedEvent;
+import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.PathTraversedEvent;
 import flunav.events.UnknownEvent;
 import jakarta.annotation.PreDestroy;
@@ -38,11 +46,14 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -57,7 +68,8 @@ public class ClickHouseService {
     private final String clickhouseDatabase;
     private static final DateTimeFormatter CLICKHOUSE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
             .withZone(ZoneOffset.UTC);
-    private final LinkedBlockingDeque<DomainEvent> eventQueue = new LinkedBlockingDeque<>();
+    private static final int MAX_QUEUE_SIZE = 100_000;
+    private final LinkedBlockingDeque<DomainEvent> eventQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
     private static final int BATCH_SIZE = 1000;
 
     public ClickHouseService(
@@ -75,6 +87,7 @@ public class ClickHouseService {
                     .build();
             ensureAnalyticsSchema();
             ensureMovementAnalyticsSchema();
+            ensureOperationalAnalyticsSchema();
             logger.info("ClickHouse Client V2 initialized successfully.");
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
@@ -84,21 +97,19 @@ public class ClickHouseService {
 
     @PreDestroy
     public void cleanup() {
-        flushEvents();
-        flushPathTraversalMetrics();
-        flushLocationTransitMetrics();
+        drainAllQueuesOnShutdown();
         if (client != null) {
             client.close();
         }
     }
 
-    public void saveEventAsync(DomainEvent event) {
+    public synchronized void saveEventAsync(DomainEvent event) {
         if (event instanceof PathTraversedEvent pathTraversedEvent) {
             savePathTraversalMetricAsync(pathTraversedEvent);
             return;
         }
 
-        eventQueue.offer(event);
+        enqueueOrThrow(eventQueue, event, "event");
 
         if (eventQueue.size() >= BATCH_SIZE) {
             flushEvents();
@@ -120,33 +131,7 @@ public class ClickHouseService {
             return;
 
         try {
-            StringBuilder jsonBatch = new StringBuilder();
-
-            for (DomainEvent event : batch) {
-                Map<String, Object> clickHouseRow = new HashMap<>();
-                Instant processedTimestamp = Instant.now();
-
-                clickHouseRow.put("event_type", event.getEventType());
-                clickHouseRow.put("event_id", event.getEventId());
-                clickHouseRow.put("data", event);
-                clickHouseRow.put("timestamp_received", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
-                clickHouseRow.put("timestamp_processed", CLICKHOUSE_FORMATTER.format(processedTimestamp));
-
-                if (event instanceof EntityEvent) {
-                    clickHouseRow.put("entity_id", ((EntityEvent) event).getEntityId());
-                } else {
-                    clickHouseRow.put("entity_id", null);
-                }
-
-                // Append JSON line
-                jsonBatch.append(objectMapper.writeValueAsString(clickHouseRow)).append("\n");
-            }
-
-            // Perform a SINGLE insert for the whole batch
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-
+            insertEventBatch(batch);
             logger.debug("Flushed {} events to ClickHouse", batch.size());
 
         } catch (Exception e) {
@@ -161,6 +146,131 @@ public class ClickHouseService {
         }
     }
 
+    private void insertEventBatch(List<DomainEvent> batch) throws Exception {
+        if (batch == null || batch.isEmpty()) {
+            return;
+        }
+        Set<String> persistedEventIds = findPersistedEventIds(batch);
+        List<DomainEvent> newEvents = batch.stream()
+                .filter(event -> !persistedEventIds.contains(event.getEventId()))
+                .toList();
+        if (newEvents.isEmpty()) {
+            return;
+        }
+        StringBuilder jsonBatch = new StringBuilder();
+        Instant processedTimestamp = Instant.now();
+        for (DomainEvent event : newEvents) {
+            Map<String, Object> clickHouseRow = new HashMap<>();
+            clickHouseRow.put("event_type", event.getEventType());
+            clickHouseRow.put("event_id", event.getEventId());
+            clickHouseRow.put("data", event);
+            clickHouseRow.put("timestamp_received", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
+            clickHouseRow.put("timestamp_processed", CLICKHOUSE_FORMATTER.format(processedTimestamp));
+            clickHouseRow.put("entity_id", event instanceof EntityEvent entityEvent
+                    ? entityEvent.getEntityId()
+                    : null);
+            jsonBatch.append(objectMapper.writeValueAsString(clickHouseRow)).append('\n');
+        }
+        try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+            client.insert("Events", inputStream, ClickHouseFormat.JSONEachRow).get();
+        }
+    }
+
+    /**
+     * Checks event ids before each insert so a retry after an ambiguous client
+     * timeout cannot append a second physical row for a batch already committed by
+     * ClickHouse.
+     */
+    private Set<String> findPersistedEventIds(List<DomainEvent> batch) throws Exception {
+        String eventIds = batch.stream()
+                .map(DomainEvent::getEventId)
+                .map(UUID::fromString)
+                .map(UUID::toString)
+                .map(id -> "'" + id + "'")
+                .collect(java.util.stream.Collectors.joining(","));
+        String query = "SELECT toString(event_id) AS event_id FROM Events WHERE event_id IN ("
+                + eventIds + ") FORMAT JSONEachRow";
+        Set<String> existing = new HashSet<>();
+        try (QueryResponse response = client.query(query).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            while (rows.hasNext()) {
+                existing.add(Objects.toString(rows.next().get("event_id"), ""));
+            }
+        }
+        return existing;
+    }
+
+    /**
+     * Drains every pending event batch or fails the caller before a graph snapshot
+     * is accepted. This provides a ClickHouse high-water mark while live reducers
+     * are held behind EventProcessor's snapshot barrier.
+     */
+    public synchronized void flushAllEventsOrThrow() {
+        while (!eventQueue.isEmpty()) {
+            List<DomainEvent> batch = new ArrayList<>();
+            eventQueue.drainTo(batch, BATCH_SIZE);
+            try {
+                insertEventBatch(batch);
+            } catch (Exception e) {
+                requeueBatch(batch);
+                throw new IllegalStateException("Unable to drain events before snapshot", e);
+            }
+        }
+    }
+
+    private void drainAllQueuesOnShutdown() {
+        try {
+            flushAllEventsOrThrow();
+        } catch (Exception e) {
+            logger.error("Unable to drain all event batches during shutdown", e);
+        }
+        drainPathTraversalMetricsOnShutdown();
+        drainLocationTransitMetricsOnShutdown();
+        drainQueueOnShutdown("exit candidate", exitCandidateQueue, this::flushExitCandidates);
+        drainQueueOnShutdown("recirculation", recirculationQueue, this::flushRecirculationFacts);
+        drainQueueOnShutdown("simulation connection", simulationConnectionQueue,
+                this::flushSimulationConnectionSignals);
+        drainQueueOnShutdown("component metric", metricQueue, this::flushMetrics);
+    }
+
+    private void drainPathTraversalMetricsOnShutdown() {
+        while (!pathTraversalQueue.isEmpty()) {
+            int sizeBefore = pathTraversalQueue.size();
+            flushPathTraversalMetrics();
+            if (pathTraversalQueue.size() >= sizeBefore) {
+                break;
+            }
+        }
+    }
+
+    private void drainLocationTransitMetricsOnShutdown() {
+        while (!locationTransitQueue.isEmpty()) {
+            int sizeBefore = locationTransitQueue.size();
+            flushLocationTransitMetrics();
+            if (locationTransitQueue.size() >= sizeBefore) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * Repeatedly flushes one bounded analytics queue during shutdown. A flush that
+     * makes no progress indicates an outage, so shutdown stops retrying instead of
+     * spinning forever while preserving the remaining in-memory batch for logs.
+     */
+    private void drainQueueOnShutdown(String queueName, BlockingQueue<?> queue, Runnable flushAction) {
+        while (!queue.isEmpty()) {
+            int sizeBefore = queue.size();
+            flushAction.run();
+            if (queue.size() >= sizeBefore) {
+                logger.error("Unable to drain {} ClickHouse queue during shutdown; {} entries remain",
+                        queueName, queue.size());
+                break;
+            }
+        }
+    }
+
     private record PathTraversalMetric(
             Instant timestamp,
             String simulationId,
@@ -172,10 +282,10 @@ public class ClickHouseService {
             List<String> path) {
     }
 
-    private final LinkedBlockingDeque<PathTraversalMetric> pathTraversalQueue = new LinkedBlockingDeque<>();
+    private final LinkedBlockingDeque<PathTraversalMetric> pathTraversalQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
 
-    public void savePathTraversalMetricAsync(PathTraversedEvent event) {
-        pathTraversalQueue.offer(new PathTraversalMetric(
+    public synchronized void savePathTraversalMetricAsync(PathTraversedEvent event) {
+        enqueueOrThrow(pathTraversalQueue, new PathTraversalMetric(
                 event.getTimestamp(),
                 currentSimulationScope(),
                 Objects.toString(event.getEntityId(), ""),
@@ -183,7 +293,7 @@ public class ClickHouseService {
                 event.getPreviousPositionType() != null ? event.getPreviousPositionType().name() : "",
                 Objects.toString(event.getNewPositionId(), ""),
                 event.getNewPositionType() != null ? event.getNewPositionType().name() : "",
-                event.getPath() != null ? event.getPath() : List.of()));
+                event.getPath() != null ? event.getPath() : List.of()), "path traversal");
 
         if (pathTraversalQueue.size() >= BATCH_SIZE) {
             flushPathTraversalMetrics();
@@ -235,11 +345,11 @@ public class ClickHouseService {
         }
     }
 
-    private final LinkedBlockingDeque<LocationTransitMetric> locationTransitQueue = new LinkedBlockingDeque<>();
+    private final LinkedBlockingDeque<LocationTransitMetric> locationTransitQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
 
-    public void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
+    public synchronized void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
         String simulationId = metric.simulationId() != null ? metric.simulationId() : currentSimulationScope();
-        locationTransitQueue.offer(new LocationTransitMetric(
+        enqueueOrThrow(locationTransitQueue, new LocationTransitMetric(
                 metric.timestamp(),
                 simulationId,
                 metric.itemId(),
@@ -250,7 +360,7 @@ public class ClickHouseService {
                 metric.toPositionId(),
                 metric.toPositionType(),
                 metric.transitTimeMillis(),
-                metric.path()));
+                metric.path()), "location transit");
 
         if (locationTransitQueue.size() >= BATCH_SIZE) {
             flushLocationTransitMetrics();
@@ -307,6 +417,262 @@ public class ClickHouseService {
     private void requeueLocationTransitBatch(List<LocationTransitMetric> batch) {
         for (int i = batch.size() - 1; i >= 0; i--) {
             locationTransitQueue.offerFirst(batch.get(i));
+        }
+    }
+
+    private final LinkedBlockingDeque<ExitCandidate> exitCandidateQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
+
+    public synchronized void saveExitCandidateAsync(ExitCandidate candidate) {
+        enqueueOrThrow(exitCandidateQueue, candidate, "exit candidate");
+        if (exitCandidateQueue.size() >= BATCH_SIZE) {
+            flushExitCandidates();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushExitCandidates() {
+        List<ExitCandidate> batch = new ArrayList<>();
+        exitCandidateQueue.drainTo(batch, BATCH_SIZE);
+        if (batch.isEmpty()) {
+            return;
+        }
+
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+            for (ExitCandidate candidate : batch) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("candidate_id", candidate.candidateId());
+                row.put("exit_event_id", candidate.exitEventId());
+                row.put("item_id", candidate.itemId());
+                row.put("chute_id", candidate.chuteId());
+                row.put("exit_timestamp", CLICKHOUSE_FORMATTER.format(candidate.exitTimestamp()));
+                row.put("simulation_id", candidate.simulationId());
+                row.put("simulation_created_at", candidate.simulationCreatedAt() == null
+                        ? null
+                        : CLICKHOUSE_FORMATTER.format(candidate.simulationCreatedAt()));
+                row.put("live_history_cutoff", candidate.liveHistoryCutoff() == null
+                        ? null
+                        : CLICKHOUSE_FORMATTER.format(candidate.liveHistoryCutoff()));
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
+            }
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_exit_candidates", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+        } catch (Exception e) {
+            for (int index = batch.size() - 1; index >= 0; index--) {
+                exitCandidateQueue.offerFirst(batch.get(index));
+            }
+            logger.error("Failed to flush completed-journey exit candidates", e);
+        }
+    }
+
+    /**
+     * Resolves queued exits independently of chute reduction. Candidates without a
+     * visible creation event remain in ClickHouse and are retried after the live
+     * event batch has had time to flush.
+     */
+    @Scheduled(fixedDelay = 1000)
+    public void projectCompletedJourneys() {
+        List<ExitCandidate> candidates;
+        try {
+            flushExitCandidates();
+            candidates = getUnresolvedExitCandidates(500);
+        } catch (Exception e) {
+            logger.warn("Completed-journey projection will retry after ClickHouse becomes available: {}",
+                    e.getMessage());
+            return;
+        }
+        for (ExitCandidate candidate : candidates) {
+            try {
+                Instant createdAt = candidate.simulationCreatedAt() != null
+                        ? candidate.simulationCreatedAt()
+                        : findLatestItemCreation(
+                                candidate.itemId(),
+                                candidate.liveHistoryCutoff() != null
+                                        ? candidate.liveHistoryCutoff()
+                                        : candidate.exitTimestamp())
+                                .orElse(null);
+                if (createdAt == null) {
+                    continue;
+                }
+                long traversalMillis = java.time.Duration.between(createdAt, candidate.exitTimestamp()).toMillis();
+                if (traversalMillis < 0) {
+                    logger.warn("Skipping exit candidate {} because creation follows exit", candidate.candidateId());
+                    continue;
+                }
+                insertCompletedJourney(candidate, createdAt, traversalMillis);
+            } catch (Exception e) {
+                logger.warn("Completed-journey projection will retry candidate {}: {}",
+                        candidate.candidateId(), e.getMessage());
+            }
+        }
+    }
+
+    private List<ExitCandidate> getUnresolvedExitCandidates(int limit) {
+        String query = """
+                SELECT candidate_id, exit_event_id, item_id, chute_id, exit_timestamp,
+                       simulation_id, simulation_created_at, live_history_cutoff
+                FROM analytics_exit_candidates AS candidates FINAL
+                LEFT ANTI JOIN analytics_completed_journeys AS journeys FINAL
+                  ON candidates.simulation_id = journeys.simulation_id
+                 AND candidates.candidate_id = journeys.journey_id
+                ORDER BY exit_timestamp
+                LIMIT {limit:UInt32}
+                FORMAT JSONEachRow
+                SETTINGS date_time_output_format = 'iso'
+                """;
+        List<ExitCandidate> candidates = new ArrayList<>();
+        try (QueryResponse response = client.query(query, Map.of("limit", Math.max(1, limit))).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            while (rows.hasNext()) {
+                Map<String, Object> row = rows.next();
+                candidates.add(new ExitCandidate(
+                        Objects.toString(row.get("candidate_id"), ""),
+                        Objects.toString(row.get("exit_event_id"), ""),
+                        Objects.toString(row.get("item_id"), ""),
+                        Objects.toString(row.get("chute_id"), ""),
+                        parseClickHouseInstant(row.get("exit_timestamp")),
+                        Objects.toString(row.get("simulation_id"), "live"),
+                        parseNullableInstant(row.get("simulation_created_at")),
+                        parseNullableInstant(row.get("live_history_cutoff"))));
+            }
+            return candidates;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load unresolved exit candidates", e);
+        }
+    }
+
+    private Optional<Instant> findLatestItemCreation(String itemId, Instant cutoff) {
+        String query = """
+                SELECT maxOrNull(timestamp_received) AS created_timestamp
+                FROM Events
+                WHERE event_type = 'ITEM_CREATED'
+                  AND entity_id = {item_id:String}
+                  AND timestamp_received <= {cutoff:DateTime64(3)}
+                FORMAT JSONEachRow
+                SETTINGS date_time_output_format = 'iso'
+                """;
+        try (QueryResponse response = client.query(query, Map.of(
+                "item_id", itemId,
+                "cutoff", CLICKHOUSE_FORMATTER.format(cutoff))).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            if (!rows.hasNext()) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(parseNullableInstant(rows.next().get("created_timestamp")));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to resolve item creation", e);
+        }
+    }
+
+    private void insertCompletedJourney(ExitCandidate candidate, Instant createdAt, long traversalMillis)
+            throws Exception {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("journey_id", candidate.candidateId());
+        row.put("item_id", candidate.itemId());
+        row.put("chute_id", candidate.chuteId());
+        row.put("created_timestamp", CLICKHOUSE_FORMATTER.format(createdAt));
+        row.put("exit_timestamp", CLICKHOUSE_FORMATTER.format(candidate.exitTimestamp()));
+        row.put("traversal_time_ms", traversalMillis);
+        row.put("simulation_id", candidate.simulationId());
+        try (var inputStream = new ByteArrayInputStream(
+                objectMapper.writeValueAsBytes(row))) {
+            client.insert("analytics_completed_journeys", inputStream, ClickHouseFormat.JSONEachRow).get();
+        }
+    }
+
+    private record RecirculationFact(
+            String id,
+            Instant timestamp,
+            String simulationId,
+            String itemId,
+            List<String> previousPath,
+            List<String> newPath) {
+    }
+
+    private final LinkedBlockingDeque<RecirculationFact> recirculationQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
+
+    public synchronized void saveRecirculationAsync(String id, Instant timestamp, String simulationId, String itemId,
+            List<String> previousPath, List<String> newPath) {
+        enqueueOrThrow(recirculationQueue, new RecirculationFact(
+                id, timestamp, simulationId, itemId, List.copyOf(previousPath), List.copyOf(newPath)),
+                "recirculation");
+        if (recirculationQueue.size() >= BATCH_SIZE) {
+            flushRecirculationFacts();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushRecirculationFacts() {
+        List<RecirculationFact> batch = new ArrayList<>();
+        recirculationQueue.drainTo(batch, BATCH_SIZE);
+        if (batch.isEmpty()) {
+            return;
+        }
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+            for (RecirculationFact fact : batch) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("recirculation_id", fact.id());
+                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(fact.timestamp()));
+                row.put("simulation_id", fact.simulationId());
+                row.put("item_id", fact.itemId());
+                row.put("previous_path", fact.previousPath());
+                row.put("new_path", fact.newPath());
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
+            }
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_recirculation_facts", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+        } catch (Exception e) {
+            for (int index = batch.size() - 1; index >= 0; index--) {
+                recirculationQueue.offerFirst(batch.get(index));
+            }
+            logger.error("Failed to flush recirculation facts", e);
+        }
+    }
+
+    private final LinkedBlockingDeque<ConnectionStateSignal> simulationConnectionQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
+
+    public synchronized void saveSimulationConnectionSignalAsync(ConnectionStateSignal signal) {
+        enqueueOrThrow(simulationConnectionQueue, signal, "simulation connection");
+        if (simulationConnectionQueue.size() >= BATCH_SIZE) {
+            flushSimulationConnectionSignals();
+        }
+    }
+
+    @Scheduled(fixedRate = 1000)
+    public synchronized void flushSimulationConnectionSignals() {
+        List<ConnectionStateSignal> batch = new ArrayList<>();
+        simulationConnectionQueue.drainTo(batch, BATCH_SIZE);
+        if (batch.isEmpty()) {
+            return;
+        }
+        try {
+            StringBuilder jsonBatch = new StringBuilder();
+            for (ConnectionStateSignal signal : batch) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("event_id", signal.eventId());
+                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(signal.timestamp()));
+                row.put("simulation_id", signal.simulationId());
+                row.put("conveyor_id", signal.conveyorId());
+                row.put("event_type", signal.eventType());
+                row.put("active", signal.active());
+                row.put("speed", signal.speed());
+                row.put("source_id", Objects.toString(signal.sourceId(), ""));
+                row.put("target_id", Objects.toString(signal.targetId(), ""));
+                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
+            }
+            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert("analytics_simulation_connection_events", inputStream, ClickHouseFormat.JSONEachRow).get();
+            }
+        } catch (Exception e) {
+            for (int index = batch.size() - 1; index >= 0; index--) {
+                simulationConnectionQueue.offerFirst(batch.get(index));
+            }
+            logger.error("Failed to flush simulation conveyor-state facts", e);
         }
     }
 
@@ -576,6 +942,75 @@ public class ClickHouseService {
         }
     }
 
+    /**
+     * Creates retry-safe operational fact tables when an older deployment starts
+     * against a ClickHouse database that predates the analytics migration.
+     */
+    private void ensureOperationalAnalyticsSchema() {
+        try {
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_exit_candidates
+                    (
+                        candidate_id String,
+                        exit_event_id String,
+                        item_id String,
+                        chute_id String,
+                        exit_timestamp DateTime64(3, 'UTC'),
+                        simulation_id LowCardinality(String),
+                        simulation_created_at Nullable(DateTime64(3, 'UTC')),
+                        live_history_cutoff Nullable(DateTime64(3, 'UTC')),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, candidate_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_completed_journeys
+                    (
+                        journey_id String,
+                        item_id String,
+                        chute_id String,
+                        created_timestamp DateTime64(3, 'UTC'),
+                        exit_timestamp DateTime64(3, 'UTC'),
+                        traversal_time_ms UInt64,
+                        simulation_id LowCardinality(String),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, journey_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_recirculation_facts
+                    (
+                        recirculation_id String,
+                        event_timestamp DateTime64(3, 'UTC'),
+                        simulation_id LowCardinality(String),
+                        item_id String,
+                        previous_path Array(String),
+                        new_path Array(String),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, recirculation_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_simulation_connection_events
+                    (
+                        event_id String,
+                        event_timestamp DateTime64(3, 'UTC'),
+                        simulation_id LowCardinality(String),
+                        conveyor_id String,
+                        event_type LowCardinality(String),
+                        active Nullable(UInt8),
+                        speed Nullable(Float64),
+                        source_id String,
+                        target_id String,
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, event_id)
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to ensure operational analytics schema", e);
+        }
+    }
+
     private void dropAnalyticsMaterializedViews() throws Exception {
         executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_item_journeys");
         executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_analytics_components");
@@ -710,10 +1145,24 @@ public class ClickHouseService {
      * @return A List of DomainEvent objects, ordered by timestamp.
      */
     public List<DomainEvent> getEventsBetween(Instant startTime, Instant endTime) {
+        return getEventsBetween(startTime, endTime, false);
+    }
+
+    /**
+     * Reads snapshot deltas and includes rows whose domain timestamp predates the
+     * snapshot but whose ClickHouse processing timestamp proves they arrived after
+     * it. Ordinary forward playback must use getEventsBetween to avoid replaying
+     * the already-built baseline.
+     */
+    public List<DomainEvent> getEventsForRecoveryBetween(Instant startTime, Instant endTime) {
+        return getEventsBetween(startTime, endTime, true);
+    }
+
+    private List<DomainEvent> getEventsBetween(Instant startTime, Instant endTime, boolean includeLateEvents) {
         EventPageCursor cursor = null;
         List<DomainEvent> events = new ArrayList<>();
         do {
-            EventPage page = getEventsBetweenPage(startTime, endTime, cursor, 1000);
+            EventPage page = getEventsBetweenPage(startTime, endTime, cursor, 1000, includeLateEvents);
             events.addAll(page.events());
             cursor = page.hasMore(1000) ? page.nextCursor() : null;
         } while (cursor != null);
@@ -726,6 +1175,11 @@ public class ClickHouseService {
      * large restore windows.
      */
     public EventPage getEventsBetweenPage(Instant startTime, Instant endTime, EventPageCursor cursor, int pageSize) {
+        return getEventsBetweenPage(startTime, endTime, cursor, pageSize, true);
+    }
+
+    private EventPage getEventsBetweenPage(Instant startTime, Instant endTime, EventPageCursor cursor, int pageSize,
+            boolean includeLateEvents) {
         String formattedStartTimestamp = CLICKHOUSE_FORMATTER.format(startTime);
         String formattedEndTimestamp = CLICKHOUSE_FORMATTER.format(endTime);
         int boundedPageSize = Math.max(1, pageSize);
@@ -751,11 +1205,14 @@ public class ClickHouseService {
             queryParams.put("cursor_event_id", cursor.eventId());
         }
 
+        String lowerBoundFilter = includeLateEvents
+                ? "AND (timestamp_received > {ts_start:DateTime64(3)} OR timestamp_processed > {ts_start:DateTime64(3)})"
+                : "AND timestamp_received > {ts_start:DateTime64(3)}";
         String query = """
                 SELECT timestamp_received, timestamp_processed, event_id, data
                 FROM Events
-                WHERE timestamp_received > {ts_start:DateTime64(3)}
-                  AND timestamp_received <= {ts_end:DateTime64(3)}
+                WHERE timestamp_received <= {ts_end:DateTime64(3)}
+                  %s
                 %s
                 ORDER BY timestamp_received ASC, timestamp_processed ASC, event_id ASC
                 LIMIT {limit:UInt32}
@@ -763,7 +1220,7 @@ public class ClickHouseService {
                 SETTINGS
                     date_time_output_format = 'iso',
                     output_format_json_quote_64bit_integers = 0
-                """.formatted(cursorFilter);
+                """.formatted(lowerBoundFilter, cursorFilter);
 
         List<DomainEvent> events = new ArrayList<>();
         EventPageCursor nextCursor = null;
@@ -953,6 +1410,213 @@ public class ClickHouseService {
         }
     }
 
+    /**
+     * Aggregates completed journeys by exit time and attaches recirculation facts
+     * that occurred between each journey's selected creation and successful exit.
+     */
+    public CompletableFuture<JourneySummary> getJourneySummary(
+            Instant from,
+            Instant to,
+            String simulationId,
+            Instant restoreTimestamp) {
+        boolean simulation = simulationId != null;
+        String scopeFilter = simulation
+                ? "((simulation_id = 'live' AND exit_timestamp <= {restore:DateTime64(3)}) "
+                        + "OR (simulation_id = {simulation_id:String} AND exit_timestamp > {restore:DateTime64(3)}))"
+                : "simulation_id = 'live'";
+        String recirculationScopeFilter = simulation
+                ? "((j.simulation_id = 'live' AND r.simulation_id = 'live') "
+                        + "OR (j.simulation_id = {simulation_id:String} AND "
+                        + "((r.simulation_id = 'live' AND r.event_timestamp <= {restore:DateTime64(3)}) "
+                        + "OR (r.simulation_id = {simulation_id:String} "
+                        + "AND r.event_timestamp > {restore:DateTime64(3)}))))"
+                : "r.simulation_id = 'live'";
+        String sql = """
+                WITH selected_journeys AS
+                (
+                    SELECT journey_id, item_id, created_timestamp, exit_timestamp, traversal_time_ms, simulation_id
+                    FROM analytics_completed_journeys FINAL
+                    WHERE exit_timestamp >= {from:DateTime64(3)}
+                      AND exit_timestamp <= {to:DateTime64(3)}
+                      AND %s
+                ),
+                selected_recirculations AS
+                (
+                    SELECT r.recirculation_id, j.journey_id
+                    FROM analytics_recirculation_facts AS r FINAL
+                    INNER JOIN selected_journeys AS j
+                      ON r.item_id = j.item_id
+                     AND r.event_timestamp >= j.created_timestamp
+                     AND r.event_timestamp <= j.exit_timestamp
+                     AND %s
+                )
+                SELECT
+                    count() AS completed_count,
+                    if(count() = 0, 0, avg(traversal_time_ms)) AS average_ms,
+                    if(count() = 0, 0, min(traversal_time_ms)) AS minimum_ms,
+                    if(count() = 0, 0, max(traversal_time_ms)) AS maximum_ms,
+                    if(count() = 0, 0, quantileExact(0.50)(traversal_time_ms)) AS p50_ms,
+                    if(count() = 0, 0, quantileExact(0.90)(traversal_time_ms)) AS p90_ms,
+                    if(count() = 0, 0, quantileExact(0.95)(traversal_time_ms)) AS p95_ms,
+                    if(count() = 0, 0, quantileExact(0.99)(traversal_time_ms)) AS p99_ms,
+                    (SELECT count() FROM selected_recirculations) AS recirculation_count,
+                    (SELECT uniqExact(journey_id) FROM selected_recirculations) AS journeys_with_recirculation
+                FROM selected_journeys
+                FORMAT JSONEachRow
+                SETTINGS output_format_json_quote_64bit_integers = 0
+                """.formatted(scopeFilter, recirculationScopeFilter);
+
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("from", CLICKHOUSE_FORMATTER.format(from));
+        parameters.put("to", CLICKHOUSE_FORMATTER.format(to));
+        if (simulation) {
+            parameters.put("simulation_id", simulationId);
+            parameters.put("restore", CLICKHOUSE_FORMATTER.format(restoreTimestamp));
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try (QueryResponse response = client.query(sql, parameters).get();
+                    InputStream inputStream = response.getInputStream()) {
+                MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+                if (!rows.hasNext()) {
+                    return JourneySummary.empty();
+                }
+                Map<String, Object> row = rows.next();
+                long completed = asLong(row.get("completed_count"));
+                long recirculatedJourneys = asLong(row.get("journeys_with_recirculation"));
+                return new JourneySummary(
+                        completed,
+                        asDouble(row.get("average_ms")),
+                        asLong(row.get("minimum_ms")),
+                        asLong(row.get("maximum_ms")),
+                        asLong(row.get("p50_ms")),
+                        asLong(row.get("p90_ms")),
+                        asLong(row.get("p95_ms")),
+                        asLong(row.get("p99_ms")),
+                        asLong(row.get("recirculation_count")),
+                        recirculatedJourneys,
+                        completed == 0 ? 0.0 : recirculatedJourneys * 100.0 / completed);
+            } catch (Exception e) {
+                throw new CompletionException("Failed to fetch journey analytics", e);
+            }
+        });
+    }
+
+    /**
+     * Reads immutable live conveyor state events through the requested query end.
+     * Processing from creation rather than only from the window start lets the stop
+     * state machine clip intervals without losing an already-open stop.
+     */
+    public List<ConnectionStateSignal> getLiveConnectionSignals(Instant to) {
+        String sql = """
+                SELECT data
+                FROM Events
+                WHERE event_type IN (
+                    'CONNECTION_CREATED', 'CONNECTION_ACTIVATED', 'CONNECTION_DEACTIVATED',
+                    'CONNECTION_SPEED_CHANGED', 'CONNECTION_DELETED')
+                  AND timestamp_received <= {to:DateTime64(3)}
+                ORDER BY timestamp_received, timestamp_processed, event_id
+                FORMAT JSONEachRow
+                """;
+        List<ConnectionStateSignal> signals = new ArrayList<>();
+        try (QueryResponse response = client.query(sql, Map.of("to", CLICKHOUSE_FORMATTER.format(to))).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            while (rows.hasNext()) {
+                DomainEvent event = objectMapper.convertValue(rows.next().get("data"), DomainEvent.class);
+                ConnectionStateSignal signal = toConnectionStateSignal(event, "live");
+                if (signal != null) {
+                    signals.add(signal);
+                }
+            }
+            return signals;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load live conveyor state events", e);
+        }
+    }
+
+    public List<ConnectionStateSignal> getSimulationConnectionSignals(String simulationId, Instant to) {
+        flushSimulationConnectionSignals();
+        String sql = """
+                SELECT event_id, event_timestamp, simulation_id, conveyor_id, event_type,
+                       active, speed, source_id, target_id
+                FROM analytics_simulation_connection_events FINAL
+                WHERE simulation_id = {simulation_id:String}
+                  AND event_timestamp <= {to:DateTime64(3)}
+                ORDER BY event_timestamp, event_id
+                FORMAT JSONEachRow
+                SETTINGS date_time_output_format = 'iso'
+                """;
+        List<ConnectionStateSignal> signals = new ArrayList<>();
+        try (QueryResponse response = client.query(sql, Map.of(
+                "simulation_id", simulationId,
+                "to", CLICKHOUSE_FORMATTER.format(to))).get();
+                InputStream inputStream = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(inputStream);
+            while (rows.hasNext()) {
+                Map<String, Object> row = rows.next();
+                signals.add(new ConnectionStateSignal(
+                        Objects.toString(row.get("event_id"), ""),
+                        parseClickHouseInstant(row.get("event_timestamp")),
+                        Objects.toString(row.get("simulation_id"), simulationId),
+                        Objects.toString(row.get("conveyor_id"), ""),
+                        Objects.toString(row.get("event_type"), ""),
+                        asNullableBoolean(row.get("active")),
+                        asNullableDouble(row.get("speed")),
+                        Objects.toString(row.get("source_id"), ""),
+                        Objects.toString(row.get("target_id"), "")));
+            }
+            return signals;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load simulation conveyor state events", e);
+        }
+    }
+
+    private ConnectionStateSignal toConnectionStateSignal(DomainEvent event, String simulationId) {
+        return switch (event) {
+            case ConnectionCreatedEvent created -> new ConnectionStateSignal(
+                    created.getEventId(), created.getTimestamp(), simulationId, created.getConnectionId(),
+                    created.getEventType(), created.getIsActive(), created.getSpeed(),
+                    created.getSourceId(), created.getTargetId());
+            case ConnectionActivatedEvent activated -> new ConnectionStateSignal(
+                    activated.getEventId(), activated.getTimestamp(), simulationId, activated.getEntityId(),
+                    activated.getEventType(), true, null, "", "");
+            case ConnectionDeactivatedEvent deactivated -> new ConnectionStateSignal(
+                    deactivated.getEventId(), deactivated.getTimestamp(), simulationId, deactivated.getEntityId(),
+                    deactivated.getEventType(), false, null, "", "");
+            case ConnectionSpeedChangedEvent speedChanged -> new ConnectionStateSignal(
+                    speedChanged.getEventId(), speedChanged.getTimestamp(), simulationId, speedChanged.getEntityId(),
+                    speedChanged.getEventType(), null, speedChanged.getSpeed(), "", "");
+            case ConnectionDeletedEvent deleted -> new ConnectionStateSignal(
+                    deleted.getEventId(), deleted.getTimestamp(), simulationId, "", deleted.getEventType(),
+                    null, null, deleted.getSourceLocationId(), deleted.getTargetLocationId());
+            default -> null;
+        };
+    }
+
+    /**
+     * Removes queued and persisted facts for a destroyed simulation. Synchronous
+     * mutations ensure an immediately reused id cannot observe the old analytics.
+     */
+    public void deleteOperationalAnalyticsForSimulation(String simulationId) {
+        exitCandidateQueue.removeIf(candidate -> simulationId.equals(candidate.simulationId()));
+        recirculationQueue.removeIf(fact -> simulationId.equals(fact.simulationId()));
+        simulationConnectionQueue.removeIf(signal -> simulationId.equals(signal.simulationId()));
+        for (String table : List.of(
+                "analytics_exit_candidates",
+                "analytics_completed_journeys",
+                "analytics_recirculation_facts",
+                "analytics_simulation_connection_events")) {
+            String sql = "ALTER TABLE " + table
+                    + " DELETE WHERE simulation_id = {simulation_id:String} SETTINGS mutations_sync = 1";
+            try (QueryResponse ignored = client.query(sql, Map.of("simulation_id", simulationId)).get()) {
+                // Mutation completion is enforced by mutations_sync.
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to delete simulation analytics from " + table, e);
+            }
+        }
+    }
+
     public CompletableFuture<List<EntityEventRecord>> getEntityEvents(
             EntityEventType entityType,
             String entityId,
@@ -1030,6 +1694,13 @@ public class ClickHouseService {
         throw new IllegalArgumentException("Unsupported ClickHouse timestamp value: " + value);
     }
 
+    private Instant parseNullableInstant(Object value) {
+        if (value == null || "null".equalsIgnoreCase(String.valueOf(value))) {
+            return null;
+        }
+        return parseClickHouseInstant(value);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> asPayload(Object value) {
         if (value instanceof Map<?, ?> map) {
@@ -1046,6 +1717,30 @@ public class ClickHouseService {
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private double asDouble(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return Double.parseDouble(String.valueOf(value));
+    }
+
+    private Double asNullableDouble(Object value) {
+        return value == null ? null : asDouble(value);
+    }
+
+    private Boolean asNullableBoolean(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     public CompletableFuture<List<BadActorMetric>> getTopActiveComponents(int limit) {
@@ -1089,10 +1784,10 @@ public class ClickHouseService {
         });
     }
 
-    private final BlockingQueue<MetricEvent> metricQueue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<MetricEvent> metricQueue = new LinkedBlockingQueue<>(MAX_QUEUE_SIZE);
 
-    public void saveMetricAsync(MetricEvent metric) {
-        metricQueue.offer(metric);
+    public synchronized void saveMetricAsync(MetricEvent metric) {
+        enqueueOrThrow(metricQueue, metric, "component metric");
         // If queue gets too big, force flush immediately
         if (metricQueue.size() >= BATCH_SIZE) {
             flushMetrics();
@@ -1119,7 +1814,14 @@ public class ClickHouseService {
             return row;
         }).toList();
 
-        saveMetricSnapshots(rows); // Reuse existing bulk insert method
+        try {
+            saveMetricSnapshots(rows); // Reuse existing bulk insert method
+        } catch (RuntimeException e) {
+            for (MetricEvent metric : batch) {
+                metricQueue.offer(metric);
+            }
+            logger.error("Requeued {} component metrics after a ClickHouse flush failure", batch.size(), e);
+        }
     }
 
     /**
@@ -1173,6 +1875,12 @@ public class ClickHouseService {
         } catch (Exception e) {
             logger.error("Failed to execute SQL: {}", sql, e);
             throw new RuntimeException("Raw SQL execution failed", e);
+        }
+    }
+
+    private <T> void enqueueOrThrow(BlockingQueue<T> queue, T value, String queueName) {
+        if (!queue.offer(value)) {
+            throw new IllegalStateException("ClickHouse " + queueName + " queue reached capacity " + MAX_QUEUE_SIZE);
         }
     }
 }

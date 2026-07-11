@@ -2,10 +2,13 @@ package com.flunav.backend.config;
 
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.core.AcknowledgeMode;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,6 +17,9 @@ public class RabbitMQConfig {
 
     @Value("${rabbitmq.queue.item-events}")
     private String itemEventsQueue;
+
+    @Value("${rabbitmq.queue.item-events-dlq}")
+    private String itemEventsDeadLetterQueue;
 
     @Value("${rabbitmq.queue.commands}")
     private String commandsQueue;
@@ -29,7 +35,15 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue itemEventsQueue() {
-        return new Queue(itemEventsQueue, true);
+        return QueueBuilder.durable(itemEventsQueue)
+                .deadLetterExchange("")
+                .deadLetterRoutingKey(itemEventsDeadLetterQueue)
+                .build();
+    }
+
+    @Bean
+    public Queue itemEventsDeadLetterQueue() {
+        return QueueBuilder.durable(itemEventsDeadLetterQueue).build();
     }
 
     @Bean
@@ -63,6 +77,22 @@ public class RabbitMQConfig {
     @Bean
     public MessageConverter jsonMessageConverter() {
         return new Jackson2JsonMessageConverter();
+    }
+
+    /**
+     * Keeps Rabbit deliveries unacknowledged until the listener confirms that the
+     * complete domain reduction succeeded. Rejected messages are dead-lettered by
+     * the source queue rather than requeued into a poison-message loop.
+     */
+    @Bean(name = "manualAckRabbitListenerContainerFactory")
+    public SimpleRabbitListenerContainerFactory manualAckRabbitListenerContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            ConnectionFactory connectionFactory) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        configurer.configure(factory, connectionFactory);
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        factory.setDefaultRequeueRejected(false);
+        return factory;
     }
 
     @Bean

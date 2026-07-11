@@ -49,6 +49,8 @@ public class SimulationService {
     private final PathCacheRepository pathCacheRepository;
     private final TopologyProvider topologyProvider;
     private final ItemMovementProcessor itemMovementProcessor;
+    private final ClickHouseService clickHouseService;
+    private final RoutingCoordinator routingCoordinator;
     private final int maxActiveSimulations;
     private final int maxBuildingSimulations;
     private final long maxActiveItemsPerSimulation;
@@ -66,6 +68,7 @@ public class SimulationService {
     private final Map<String, PlaybackCancellationReason> playbackCancellationReasons = new ConcurrentHashMap<>();
     private final Semaphore buildPermits;
     private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
+    private final Object[] lifecycleLocks = new Object[256];
 
     public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
             WebSocketService webSocketService,
@@ -76,6 +79,8 @@ public class SimulationService {
             PathCacheRepository pathCacheRepository,
             @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
             @Lazy ItemMovementProcessor itemMovementProcessor,
+            ClickHouseService clickHouseService,
+            RoutingCoordinator routingCoordinator,
             @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
             @Value("${simulation.capacity.max-building:1}") int maxBuildingSimulations,
             @Value("${simulation.capacity.max-active-items:10000}") long maxActiveItemsPerSimulation,
@@ -90,11 +95,16 @@ public class SimulationService {
         this.pathCacheRepository = pathCacheRepository;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
+        this.clickHouseService = clickHouseService;
+        this.routingCoordinator = routingCoordinator;
         this.maxActiveSimulations = maxActiveSimulations;
         this.maxBuildingSimulations = maxBuildingSimulations;
         this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
         this.minFreeMemoryBytes = minFreeMemoryBytes;
         this.buildPermits = new Semaphore(maxBuildingSimulations > 0 ? maxBuildingSimulations : Integer.MAX_VALUE);
+        for (int index = 0; index < lifecycleLocks.length; index++) {
+            lifecycleLocks[index] = new Object();
+        }
     }
 
     public SimulationState createSimulation(Instant timestamp) {
@@ -135,15 +145,17 @@ public class SimulationService {
      * rebuilds do not restart from the original restore point.
      */
     public void startPlayback(String simulationId, double speedFactor) {
-        validateSpeedFactor(speedFactor);
-        SimulationState state = getSimulationState(simulationId);
-        if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
-                && state.getStatus() != SimulationStatus.PAUSED) {
-            throw new IllegalStateException("Simulation not ready for playback. Current status: " + state.getStatus());
+        synchronized (lifecycleLock(simulationId)) {
+            validateSpeedFactor(speedFactor);
+            SimulationState state = getSimulationState(simulationId);
+            if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
+                    && state.getStatus() != SimulationStatus.PAUSED) {
+                throw new IllegalStateException("Simulation not ready for playback. Current status: " + state.getStatus());
+            }
+            Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
+                    : state.getTimestamp();
+            startPlaybackWorker(simulationId, state, simulationStartTime, speedFactor);
         }
-        Instant simulationStartTime = state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp()
-                : state.getTimestamp();
-        startPlaybackWorker(simulationId, state, simulationStartTime, speedFactor);
     }
 
     private void startPlaybackWorker(String simulationId, SimulationState state, Instant simulationStartTime,
@@ -158,34 +170,40 @@ public class SimulationService {
     }
 
     public void cancelPlayback(String simulationId) {
-        Future<?> playbackFuture = activePlaybacks.get(simulationId);
-        if (playbackFuture == null || playbackFuture.isDone()) {
-            return;
-        }
+        synchronized (lifecycleLock(simulationId)) {
+            Future<?> playbackFuture = activePlaybacks.get(simulationId);
+            if (playbackFuture == null || playbackFuture.isDone()) {
+                activePlaybacks.remove(simulationId, playbackFuture);
+                playbackCancellationReasons.remove(simulationId);
+                return;
+            }
 
-        SimulationState state = simulationCache.get(simulationId);
-        if (state != null) {
-            state.setStatus(SimulationStatus.STOPPED);
-            persistState(state);
+            SimulationState state = simulationCache.get(simulationId);
+            if (state != null) {
+                state.setStatus(SimulationStatus.STOPPED);
+                persistState(state);
+            }
+            cancelActivePlayback(simulationId, PlaybackCancellationReason.STOP);
         }
-        cancelActivePlayback(simulationId, PlaybackCancellationReason.STOP);
     }
 
     public void pauseSimulation(String simulationId) {
-        SimulationState state = simulationCache.get(simulationId);
-        Future<?> playbackTask = activePlaybacks.get(simulationId);
-        if (state == null || playbackTask == null) {
-            throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
+        synchronized (lifecycleLock(simulationId)) {
+            SimulationState state = simulationCache.get(simulationId);
+            Future<?> playbackTask = activePlaybacks.get(simulationId);
+            if (state == null || playbackTask == null) {
+                throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
+            }
+            if (state.getStatus() != SimulationStatus.PLAYING) {
+                throw new IllegalStateException(
+                        "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
+            }
+            state.setStatus(SimulationStatus.PAUSED);
+            persistState(state);
+            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
+                    state.getLastProcessedTimestamp());
+            cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
         }
-        if (state.getStatus() != SimulationStatus.PLAYING) {
-            throw new IllegalStateException(
-                    "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
-        }
-        state.setStatus(SimulationStatus.PAUSED);
-        persistState(state);
-        webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
-                state.getLastProcessedTimestamp());
-        cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
     }
 
     /**
@@ -194,23 +212,25 @@ public class SimulationService {
      * virtual instant, and scheduling is rebuilt with the new wall-clock delay.
      */
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
-        validateSpeedFactor(newSpeedFactor);
-        SimulationState state = getSimulationState(simulationId);
-        state.setSpeedFactor(newSpeedFactor);
-        persistState(state);
-        webSocketService.broadcastSpeedUpdate(simulationId, newSpeedFactor, getSimulationClock(state));
+        synchronized (lifecycleLock(simulationId)) {
+            validateSpeedFactor(newSpeedFactor);
+            SimulationState state = getSimulationState(simulationId);
+            state.setSpeedFactor(newSpeedFactor);
+            persistState(state);
+            webSocketService.broadcastSpeedUpdate(simulationId, newSpeedFactor, getSimulationClock(state));
 
-        if (state.getStatus() != SimulationStatus.PLAYING) {
-            return;
+            if (state.getStatus() != SimulationStatus.PLAYING) {
+                return;
+            }
+
+            Instant restartTimestamp = getSimulationClock(state);
+            cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
+            state.setStatus(SimulationStatus.PLAYING);
+            state.setLastProcessedTimestamp(restartTimestamp);
+            persistState(state);
+            recalculateMovementSchedules(simulationId, restartTimestamp);
+            startPlaybackWorker(simulationId, state, restartTimestamp, newSpeedFactor);
         }
-
-        Instant restartTimestamp = getSimulationClock(state);
-        cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
-        state.setStatus(SimulationStatus.PLAYING);
-        state.setLastProcessedTimestamp(restartTimestamp);
-        persistState(state);
-        recalculateMovementSchedules(simulationId, restartTimestamp);
-        startPlaybackWorker(simulationId, state, restartTimestamp, newSpeedFactor);
     }
 
     public boolean consumePlaybackRescheduleInterruption(String simulationId) {
@@ -243,6 +263,12 @@ public class SimulationService {
         }
         liveSimulationRepository.deleteState(simulationId);
         throughputBucketService.cleanupSimulationHistory(simulationId);
+        try {
+            clickHouseService.deleteOperationalAnalyticsForSimulation(simulationId);
+        } catch (Exception e) {
+            logger.warn("Failed to cleanup ClickHouse analytics for simulation {}: {}", simulationId, e.getMessage());
+        }
+        routingCoordinator.cleanupSimulation(simulationId);
 
         if (state != null) {
             logger.info("Successfully destroyed simulation: {}", simulationId);
@@ -653,6 +679,10 @@ public class SimulationService {
             playbackCancellationReasons.put(simulationId, reason);
             playbackFuture.cancel(true);
         }
+    }
+
+    private Object lifecycleLock(String simulationId) {
+        return lifecycleLocks[Math.floorMod(simulationId.hashCode(), lifecycleLocks.length)];
     }
 
     private enum PlaybackCancellationReason {

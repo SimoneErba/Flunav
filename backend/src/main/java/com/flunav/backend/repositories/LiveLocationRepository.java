@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,7 +15,6 @@ import java.util.Set;
 @Repository
 public class LiveLocationRepository {
     private static final Logger logger = LoggerFactory.getLogger(LiveLocationRepository.class);
-    private static final long DEFAULT_TTL_HOURS = 1;
 
     private final StringRedisTemplate redis;
 
@@ -37,7 +35,6 @@ public class LiveLocationRepository {
         double score = Instant.now().toEpochMilli();
 
         redis.opsForZSet().add(key, itemId, score);
-        redis.expire(key, Duration.ofHours(DEFAULT_TTL_HOURS));
     }
 
     /**

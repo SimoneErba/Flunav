@@ -15,10 +15,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.flunav.backend.models.analytics.EntityEventType;
 import com.flunav.backend.models.response.EntityEventRecord;
+import com.flunav.backend.models.response.ConveyorStopMetric;
+import com.flunav.backend.models.response.JourneySummary;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.services.ClickHouseService;
 import com.flunav.backend.services.ThroughputBucketService;
+import com.flunav.backend.services.OperationalAnalyticsService;
 
 @RestController
 @RequestMapping("/api/analytics")
@@ -26,12 +29,49 @@ public class AnalyticsController {
 
     private final ClickHouseService clickHouseService;
     private final ThroughputBucketService throughputBucketService;
+    private final OperationalAnalyticsService operationalAnalyticsService;
 
     public AnalyticsController(
             ClickHouseService clickHouseService,
-            ThroughputBucketService throughputBucketService) {
+            ThroughputBucketService throughputBucketService,
+            OperationalAnalyticsService operationalAnalyticsService) {
         this.clickHouseService = clickHouseService;
         this.throughputBucketService = throughputBucketService;
+        this.operationalAnalyticsService = operationalAnalyticsService;
+    }
+
+    @GetMapping("/journeys/summary")
+    public CompletableFuture<ResponseEntity<JourneySummary>> getJourneySummary(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to) {
+        TimeWindow window = operationalWindow(from, to);
+        return operationalAnalyticsService.getJourneySummary(window.from(), window.to())
+                .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/conveyor-stops")
+    public CompletableFuture<ResponseEntity<List<ConveyorStopMetric>>> getConveyorStops(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to) {
+        TimeWindow window = operationalWindow(from, to);
+        return operationalAnalyticsService.getConveyorStops(window.from(), window.to())
+                .thenApply(ResponseEntity::ok);
+    }
+
+    /**
+     * Defaults analytics windows to the latest 24 hours in the active live or
+     * simulation clock so paused historical views do not drift with wall time.
+     */
+    private TimeWindow operationalWindow(Instant from, Instant to) {
+        Instant effectiveTo = to != null ? to : operationalAnalyticsService.contextNow();
+        Instant effectiveFrom = from != null ? from : effectiveTo.minusSeconds(24 * 3600L);
+        if (effectiveFrom.isAfter(effectiveTo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must be before to");
+        }
+        return new TimeWindow(effectiveFrom, effectiveTo);
+    }
+
+    private record TimeWindow(Instant from, Instant to) {
     }
 
     @GetMapping("/throughput/history")
