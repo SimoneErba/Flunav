@@ -53,7 +53,10 @@ public class ItemEventListener {
      * Consumes dead-lettered events for operational logging. The DLQ is intentionally
      * a logging sink for now; durable retry or operator replay can be added later.
      */
-    @RabbitListener(id = "itemEventDeadLetterLogger", queues = "${rabbitmq.queue.item-events-dlq}")
+    @RabbitListener(
+            id = "itemEventDeadLetterLogger",
+            queues = "${rabbitmq.queue.item-events-dlq}",
+            autoStartup = "${rabbitmq.dlq-logger.enabled:false}")
     public void logDeadLetter(Message message) {
         String jsonBody = new String(message.getBody(), StandardCharsets.UTF_8);
         logger.error("RabbitMQ item event moved to DLQ. Message body: {}", jsonBody);

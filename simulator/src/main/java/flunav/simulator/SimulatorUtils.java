@@ -62,7 +62,8 @@ public final class SimulatorUtils {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost(RABBIT_HOST);
         factory.setUsername("admin");
-        factory.setPassword("admin");
+        factory.setPassword("Flun4v!");
+
         rabbitConnection = factory.newConnection();
         rabbitChannel = rabbitConnection.createChannel();
 
@@ -79,10 +80,10 @@ public final class SimulatorUtils {
             }
         }));
 
-        rabbitChannel.exchangeDeclare(RABBIT_EXCHANGE, "x-consistent-hash", true);
-        rabbitChannel.queueDeclare(RABBIT_QUEUE, true, false, false, null);
-        rabbitChannel.queueBind(RABBIT_QUEUE, RABBIT_EXCHANGE, "1");
-        logger.info("RabbitMQ setup complete.");
+        // Verify that the backend already created the exchange.
+        rabbitChannel.exchangeDeclarePassive(RABBIT_EXCHANGE);
+
+        logger.info("RabbitMQ connection established.");
     }
 
     public static void sendEvent(DomainEvent event, String httpMethod) throws Exception {
@@ -119,7 +120,8 @@ public final class SimulatorUtils {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 300) {
-            logger.warning(() -> "Failed to send request to " + endpoint + ": " + response.statusCode() + " " + response.body());
+            logger.warning(() -> "Failed to send request to " + endpoint + ": " + response.statusCode() + " "
+                    + response.body());
         } else if (!quietEventLogs) {
             logger.info(() -> "Successfully sent request to " + endpoint + ": " + response.statusCode());
         }

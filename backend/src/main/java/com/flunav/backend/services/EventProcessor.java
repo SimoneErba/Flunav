@@ -599,7 +599,7 @@ public class EventProcessor {
 
                 case ItemDeletedEvent e -> {
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
-                    if (shouldBroadcast && lastState != null) {
+                    if (lastState != null) {
                         if (lastState.getPositionId() != null && lastState.getType() != null) {
                             recordPathTraversal(new PathTraversedEvent(
                                     e.getEntityId(),
@@ -653,9 +653,7 @@ public class EventProcessor {
                             e.getTimestamp(),
                             shouldBroadcast);
 
-                    if (shouldBroadcast) {
-                        recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
-                    }
+                    recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
                     operationalAnalyticsService.recordRecirculation(
                             item.getId(), previousPath, decision.path(), e.getTimestamp());
 
@@ -716,9 +714,7 @@ public class EventProcessor {
                 case ItemPathChangedEvent e -> {
                     RedisLiveItem previousState = liveItemRepository.getItemState(e.getEntityId());
                     itemService.updateItemPath(e.getEntityId(), e.getPath());
-                    if (shouldBroadcast) {
-                        recordCurrentPathTraversal(e.getEntityId(), e.getPath(), e.getTimestamp());
-                    }
+                    recordCurrentPathTraversal(e.getEntityId(), e.getPath(), e.getTimestamp());
                     operationalAnalyticsService.recordRecirculation(
                             e.getEntityId(), previousState != null ? previousState.getPath() : null,
                             e.getPath(), e.getTimestamp());
@@ -798,7 +794,7 @@ public class EventProcessor {
                             ? lastState.getType()
                             : PositionType.LOCATION;
                     operationalAnalyticsService.recordSuccessfulExit(e, positionId, lastState, e.getEntityId());
-                    if (shouldBroadcast && positionId != null) {
+                    if (positionId != null) {
                         recordPathTraversal(new PathTraversedEvent(
                                 e.getEntityId(),
                                 positionId,
@@ -931,8 +927,7 @@ public class EventProcessor {
                         PositionType positionType = itemState != null && itemState.getType() != null
                                 ? itemState.getType()
                                 : PositionType.LOCATION;
-                        if (shouldBroadcast) {
-                            recordPathTraversal(new PathTraversedEvent(
+                        recordPathTraversal(new PathTraversedEvent(
                                 item,
                                 positionId,
                                 positionType,
@@ -940,7 +935,6 @@ public class EventProcessor {
                                 positionType,
                                 List.of(positionId),
                                 e.getTimestamp()));
-                        }
                         liveLocationRepository.removeItemFromLocation(e.getEntityId(), item);
                         liveItemRepository.deleteItem(item);
                         removedItems++;
@@ -1064,9 +1058,7 @@ public class EventProcessor {
                 }
 
                 case PathTraversedEvent e -> {
-                    if (shouldBroadcast) {
-                        recordPathTraversal(e);
-                    }
+                    recordPathTraversal(e);
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
