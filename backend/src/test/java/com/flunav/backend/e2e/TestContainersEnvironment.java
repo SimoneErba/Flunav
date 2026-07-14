@@ -68,8 +68,10 @@ public final class TestContainersEnvironment {
                         "remote:%s:%d",
                         ORIENTDB_CONTAINER.getHost(),
                         ORIENTDB_CONTAINER.getMappedPort(2424)));
-        properties.put("orientdb.username", "root");
-        properties.put("orientdb.password", "root");
+        properties.put("orientdb.server.username", "root");
+        properties.put("orientdb.server.password", "root");
+        properties.put("orientdb.db.username", "flunav_admin");
+        properties.put("orientdb.db.password", "Flun4v!");
         properties.put("orientdb.db.name", "test-live");
 
         properties.put("spring.rabbitmq.host", RABBITMQ_CONTAINER.getHost());

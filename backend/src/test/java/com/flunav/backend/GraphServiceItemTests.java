@@ -307,7 +307,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNull(liveItemRepository.getItemState("delete-connection-item"));
         assertTrue(liveConveyorRepository.getItemsOrderedByDistance("delete-connection-conveyor").isEmpty());
         assertNull(liveSystemScheduler.getScheduledEvent("delete-connection-item"));
-        assertNull(topologyProvider.getConveyorById("delete-connection-conveyor"));
+        assertThrows(RuntimeException.class,
+                () -> topologyProvider.getConveyorById("delete-connection-conveyor"));
     }
 
     @Test

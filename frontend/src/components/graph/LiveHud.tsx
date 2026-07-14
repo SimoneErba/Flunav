@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemResponseRoutingStatusEnum } from "../../api-client/api";
 import type { ItemResponse, ThroughputMetric } from "../../api-client/api";
@@ -97,7 +97,7 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
    * The HUD polls local state because graph animation changes visual occupancy
    * more often than backend metric events arrive.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const updateCounts = () => {
       const graph = sigma.getGraph();
       const uniqueItems = new Map<string, ItemResponse>();

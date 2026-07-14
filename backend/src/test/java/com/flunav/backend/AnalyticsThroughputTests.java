@@ -239,7 +239,8 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     @Test
     void simulationBucketsAreNotPersistedToClickHouse() {
-        Instant timestamp = Instant.now();
+        Instant timestamp = Instant.now().plus(Duration.ofHours(1));
+        Instant simulatedBucketStart = bucketStart(timestamp);
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
 
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
@@ -249,7 +250,10 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         }
         throughputBucketService.flushBuckets();
 
-        List<ThroughputMetric> metrics = clickHouseService.getThroughputHistory(1).join();
+        List<ThroughputMetric> metrics = clickHouseService.getThroughputHistory(
+                simulatedBucketStart,
+                simulatedBucketStart.plusSeconds(ThroughputBucketService.BUCKET_SECONDS),
+                ThroughputBucketService.BUCKET_SECONDS).join();
         assertTrue(metrics.isEmpty(), "Simulation throughput must not be written to live ClickHouse history");
     }
 
@@ -312,6 +316,52 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         assertEquals(1, metric.path("itemsEntered").asLong());
         assertFalse(hasThroughputMessage(messages, SIMULATION_ID, bucketStart(eventTimestamp)),
                 "Live throughput must not be broadcast on simulation throughput topics");
+    }
+
+    @Test
+    void simulationHttpItemCreationUsesSimulationTimeAndPublishesOnlyToSimulationTopic() throws Exception {
+        Instant restoreTimestamp = Instant.parse("2030-04-01T00:00:00Z");
+        saveSimulationState(restoreTimestamp, restoreTimestamp);
+        orientDBService.createInMemoryDatabase(SIMULATION_ID);
+
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            createLocation("analytics-sim-http-start", LocationType.GENERIC, 100);
+        }
+
+        List<Message<?>> messages = captureBrokerMessages(() -> {
+            try {
+                HttpResponse<String> response = httpClient.send(
+                        HttpRequest.newBuilder(URI.create(baseUrl() + "/api/items"))
+                                .header("Authorization", authorizationHeader())
+                                .header("Content-Type", "application/json")
+                                .header("X-Simulation-ID", SIMULATION_ID)
+                                .POST(HttpRequest.BodyPublishers.ofString("""
+                                        {
+                                          "id": "analytics-sim-http-item",
+                                          "name": "Simulation HTTP Item",
+                                          "speed": 1.0,
+                                          "priority": 0.0,
+                                          "active": true,
+                                          "locationId": "analytics-sim-http-start",
+                                          "positionType": "LOCATION",
+                                          "progress": 0.0,
+                                          "destinations": [],
+                                          "properties": {}
+                                        }
+                                        """))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertTrue(response.statusCode() >= 200 && response.statusCode() < 300);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        JsonNode metric = throughputMetricFrom(messages, SIMULATION_ID, bucketStart(restoreTimestamp));
+        assertEquals(1, metric.path("itemsEntered").asLong());
+        assertEquals(1, metric.path("itemsCurrent").asLong());
+        assertFalse(hasThroughputMessage(messages, null, bucketStart(restoreTimestamp)),
+                "Simulation HTTP item creation must not publish throughput on the live topic");
     }
 
     @Test
@@ -634,6 +684,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     private void truncateAnalyticsTables() throws Exception {
+        throughputBucketService.resetInMemoryState();
         throughputBucketService.flushBuckets();
         clickHouseService.flushEvents();
         try (Connection connection = clickHouseConnection();
@@ -745,6 +796,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     private void resetState() {
         DatabaseContextHolder.clearSimulation();
+        throughputBucketService.resetInMemoryState();
         throughputBucketService.cleanupSimulationHistory(SIMULATION_ID);
 
         try {

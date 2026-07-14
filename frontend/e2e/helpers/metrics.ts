@@ -59,6 +59,18 @@ const parseHudValue = (text: string | null): number => {
 
 export const getHudValues = async (page: Page): Promise<Record<string, number>> => {
   await expect(page.getByTestId("live-hud")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const graphActiveCount = await page.evaluate(() => {
+        if (!window.__graphTestApi) return null;
+        return window.__graphTestApi.getSnapshot().activeItems.length;
+      });
+      if (graphActiveCount === null) return true;
+
+      const hudActiveText = await page.getByTestId(hudTestIds.active).locator("span").last().textContent();
+      return parseHudValue(hudActiveText) === graphActiveCount;
+    })
+    .toBe(true);
 
   const values: Record<string, number> = {};
   for (const metric of Object.keys(hudTestIds) as HudMetric[]) {

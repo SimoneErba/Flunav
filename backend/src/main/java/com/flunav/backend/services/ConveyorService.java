@@ -151,24 +151,40 @@ public class ConveyorService {
     }
 
     /**
-     * Deletes a conveyor between two nodes.
+     * Deletes every conveyor edge between two nodes and then clears the matching
+     * hot Redis state by conveyor id.
      */
     public void deleteConveyor(String sourceId, String targetId) {
         try (ODatabaseSession db = orientDBService.getSession()) {
+            List<OEdge> conveyorsToDelete = new ArrayList<>();
+            List<String> conveyorIds = new ArrayList<>();
+
             OVertex source = OrientDBUtils.loadAndValidateVertexByCustomId(db, sourceId);
             OVertex target = OrientDBUtils.loadAndValidateVertexByCustomId(db, targetId);
 
             for (OEdge edge : source.getEdges(ODirection.OUT, "Conveyor")) {
-                if (edge.getTo().equals(target)) {
-                    String conveyorId = edge.getProperty("customId");
-                    edge.delete();
-                    if (conveyorId != null) {
-                        liveConveyorRepository.deleteConveyor(conveyorId);
-                    }
-                    return;
+                if (!edge.getTo().equals(target)) {
+                    continue;
+                }
+                conveyorsToDelete.add(edge);
+                Object conveyorId = edge.getProperty("customId");
+                if (conveyorId != null) {
+                    conveyorIds.add(String.valueOf(conveyorId));
                 }
             }
-            logger.warn("No conveyor found to delete between {} and {}", sourceId, targetId);
+
+            if (conveyorIds.isEmpty()) {
+                logger.warn("No conveyor found to delete between {} and {}", sourceId, targetId);
+                return;
+            }
+
+            for (OEdge edge : conveyorsToDelete) {
+                edge.delete();
+            }
+
+            for (String conveyorId : conveyorIds) {
+                liveConveyorRepository.deleteConveyor(conveyorId);
+            }
         } catch (Exception e) {
             throw new RuntimeException("Error deleting conveyor", e);
         }

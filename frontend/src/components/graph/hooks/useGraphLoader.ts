@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useLoadGraph, useSigma } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { GraphData, ConveyorResponse, ItemResponse, DisplayRuleColorResult } from "../../../api-client/api";
@@ -19,7 +19,7 @@ export const useGraphLoader = (
      * This path is intentionally full-reload because topology, item hot state, and
      * chute occupancy must start from one consistent backend timestamp.
      */
-    useEffect(() => {
+    useLayoutEffect(() => {
         const graph = new MultiDirectedGraph();
 
         // 1. Locations — add `itemsInChute: []` to all nodes upfront

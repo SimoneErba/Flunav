@@ -84,6 +84,14 @@ public class ThroughputBucketService {
         accumulator.itemsEntered += entered;
         accumulator.itemsExited += exited;
         accumulator.itemsCurrent = countCurrentItems(simulationId);
+        if (simulationId != null) {
+            emitMetric(simulationId, new ThroughputMetric(
+                    bucketStart,
+                    accumulator.itemsEntered,
+                    accumulator.itemsExited,
+                    accumulator.itemsCurrent,
+                    BUCKET_SECONDS));
+        }
     }
 
     public synchronized void flushBuckets() {
@@ -142,6 +150,9 @@ public class ThroughputBucketService {
      * if it were current and refreshes the active-item snapshot after cleanup.
      */
     private void emitIdleLiveBucket(Instant physicalNow) {
+        if (lastLiveBucketStart == null) {
+            return;
+        }
         Instant latestCompletedBucket = bucketStart(physicalNow).minusSeconds(BUCKET_SECONDS);
         if (latestCompletedBucket.equals(lastLiveBucketStart)
                 || buckets.containsKey(new BucketKey(null, latestCompletedBucket))) {
@@ -242,6 +253,18 @@ public class ThroughputBucketService {
         buckets.keySet().removeIf(key -> simulationId.equals(key.simulationId()));
         lastSimulationBucketStarts.remove(simulationId);
         simulationHistory.remove(simulationId);
+    }
+
+    /**
+     * Clears bucket state held only in memory.
+     * Tests and maintenance resets use this when Redis or ClickHouse are truncated
+     * outside the service so later scheduled flushes cannot republish stale state.
+     */
+    public synchronized void resetInMemoryState() {
+        buckets.clear();
+        lastSimulationBucketStarts.clear();
+        simulationHistory.clear();
+        lastLiveBucketStart = null;
     }
 
     private List<ThroughputMetric> mergeHistory(

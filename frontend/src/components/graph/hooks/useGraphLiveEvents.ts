@@ -409,8 +409,19 @@ export const useGraphLiveEvents = (
                 const capacity = graph.getNodeAttribute(chuteId, "capacity");
                 const baseName = graph.getNodeAttribute(chuteId, "label")?.split(" (")[0];
 
+                // Chute emptying removes any item still logically parked on the chute,
+                // including items represented as graph nodes instead of node occupancy.
+                activeItemsRef.current.forEach((item, itemId) => {
+                    if (item.locationId !== chuteId || item.currentEdgeId) return;
+                    activeItemsRef.current.delete(itemId);
+                    if (graph.hasNode(itemId)) {
+                        graph.dropNode(itemId);
+                    }
+                });
+
                 graph.setNodeAttribute(chuteId, "itemsInChute", []);
                 graph.setNodeAttribute(chuteId, "label", capacity ? `${baseName} (0/${capacity})` : `${baseName} (0)`);
+                refreshHighPriorityCount();
 
                 // Visual flash
                 const originalColor = graph.getNodeAttribute(chuteId, "customColor") || "#69b3a2";

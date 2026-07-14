@@ -52,8 +52,10 @@ public abstract class BaseIntegrationTest {
 
                 registry.add("orientdb.url", () -> String.format("remote:%s:%d", ORIENTDB_CONTAINER.getHost(),
                                 ORIENTDB_CONTAINER.getMappedPort(2424)));
-                registry.add("orientdb.username", () -> "root");
-                registry.add("orientdb.password", () -> "root");
+                registry.add("orientdb.server.username", () -> "root");
+                registry.add("orientdb.server.password", () -> "root");
+                registry.add("orientdb.db.username", () -> "flunav_admin");
+                registry.add("orientdb.db.password", () -> "Flun4v!");
                 registry.add("orientdb.db.name", () -> "test-live");
 
                 registry.add("spring.rabbitmq.host", RABBITMQ_CONTAINER::getHost);

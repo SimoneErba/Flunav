@@ -329,8 +329,7 @@ class AnalyticsMovementMetricsTests extends BaseIntegrationTest {
                 0.0,
                 Map.of(),
                 now));
-        assertThrows(RuntimeException.class,
-                () -> eventProcessor.processEventWithoutBroadcast(new ItemDeletedEvent("path-delete-item")));
+        eventProcessor.processEventWithoutBroadcast(new ItemDeletedEvent("path-delete-item"));
         clickHouseService.flushEvents();
         clickHouseService.flushPathTraversalMetrics();
 

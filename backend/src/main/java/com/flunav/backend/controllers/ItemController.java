@@ -13,6 +13,7 @@ import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.PathUpdateRequest;
 import com.flunav.backend.services.ItemService;
+import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.utils.ControllerHelper;
 
 import flunav.events.DomainEvent;
@@ -24,6 +25,7 @@ import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.events.ItemRenamedEvent;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -37,12 +39,18 @@ public class ItemController {
     private final ItemService itemService;
     private final ControllerHelper eventProcessorHelper;
     private final com.flunav.backend.services.TimeService timeService;
+    private final SimulationService simulationService;
 
     @Autowired
-    public ItemController(ItemService itemService, ControllerHelper eventProcessorHelper, com.flunav.backend.services.TimeService timeService) {
+    public ItemController(
+            ItemService itemService,
+            ControllerHelper eventProcessorHelper,
+            com.flunav.backend.services.TimeService timeService,
+            SimulationService simulationService) {
         this.itemService = itemService;
         this.eventProcessorHelper = eventProcessorHelper;
         this.timeService = timeService;
+        this.simulationService = simulationService;
     }
 
     @GetMapping
@@ -79,13 +87,28 @@ public class ItemController {
                 item.getProgress(),
                 item.getDestinations(),
                 item.getProperties(),
-                item.getTimestamp() != null ? item.getTimestamp() : timeService.now());
+                resolveItemTimestamp(item));
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(updatedItemProperties -> {
 
                     java.net.URI location = java.net.URI.create("/api/items/" + event.getEntityId());
                     return ResponseEntity.created(location).body(updatedItemProperties);
                 });
+    }
+
+    /**
+     * Uses the active simulation clock for implicit timestamps so manual edits stay
+     * inside the replay timeline instead of jumping to wall-clock time.
+     */
+    private Instant resolveItemTimestamp(ItemInput item) {
+        if (item.getTimestamp() != null) {
+            return item.getTimestamp();
+        }
+        var currentSimulation = simulationService.getCurrentSimulation();
+        if (currentSimulation != null) {
+            return simulationService.getSimulationClock(currentSimulation);
+        }
+        return timeService.physicalNow();
     }
 
     @BlockInDemo

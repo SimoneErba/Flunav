@@ -44,10 +44,14 @@ public class OrientDBService {
     private String dbUrl;
     @Value("${orientdb.db.name}")
     private String mainDbName;
-    @Value("${orientdb.username}")
-    private String username;
-    @Value("${orientdb.password}")
-    private String password;
+    @Value("${orientdb.server.username:${orientdb.username}}")
+    private String serverUsername;
+    @Value("${orientdb.server.password:${orientdb.password}}")
+    private String serverPassword;
+    @Value("${orientdb.db.username:${orientdb.username}}")
+    private String dbUsername;
+    @Value("${orientdb.db.password:${orientdb.password}}")
+    private String dbPassword;
 
     private final Set<String> activeSimulations = ConcurrentHashMap.newKeySet();
 
@@ -55,13 +59,13 @@ public class OrientDBService {
 
     @PostConstruct
     public void init() {
-        orientDB = new OrientDB(dbUrl, username, password, OrientDBConfig.defaultConfig());
+        orientDB = new OrientDB(dbUrl, serverUsername, serverPassword, OrientDBConfig.defaultConfig());
 
         if (!orientDB.exists(mainDbName)) {
-            orientDB.create(mainDbName, ODatabaseType.PLOCAL);
+            createDatabase(mainDbName, ODatabaseType.PLOCAL);
         }
         // CHANGED: Create and store the main pool in the map
-        databasePools.put(mainDbName, new ODatabasePool(orientDB, mainDbName, username, password));
+        databasePools.put(mainDbName, new ODatabasePool(orientDB, mainDbName, dbUsername, dbPassword));
         ensureSchemaExists(mainDbName);
 
         logger.info("OrientDB connection pool for main DB '{}' initialized.", mainDbName);
@@ -130,7 +134,9 @@ public class OrientDBService {
         if (pool == null) {
             throw new IllegalStateException("No database pool found for '" + targetDb + "'.");
         }
-        return pool.acquire();
+        var session = pool.acquire();
+        session.activateOnCurrentThread();
+        return session;
     }
 
     // withTransaction and withSession remain unchanged as they rely on getSession()
@@ -224,10 +230,10 @@ public class OrientDBService {
             if (orientDB.exists(dbName)) {
                 orientDB.drop(dbName);
             }
-            orientDB.create(dbName, ODatabaseType.MEMORY);
+            createDatabase(dbName, ODatabaseType.MEMORY);
 
             // NEW: Create and store a new pool for the simulation database
-            ODatabasePool newPool = new ODatabasePool(orientDB, dbName, username, password);
+            ODatabasePool newPool = new ODatabasePool(orientDB, dbName, dbUsername, dbPassword);
             databasePools.put(dbName, newPool);
 
             activeSimulations.add(dbName);
@@ -351,8 +357,8 @@ public class OrientDBService {
         logger.info("Truncating OrientDB test database: {}", dbName);
 
         if (!orientDB.exists(dbName)) {
-            orientDB.create(dbName, ODatabaseType.PLOCAL);
-            databasePools.put(dbName, new ODatabasePool(orientDB, dbName, username, password));
+            createDatabase(dbName, ODatabaseType.PLOCAL);
+            databasePools.put(dbName, new ODatabasePool(orientDB, dbName, dbUsername, dbPassword));
             ensureSchemaExists(dbName);
             logger.info("Test database '{}' was initialized and is ready for the next test.", dbName);
             return;
@@ -360,7 +366,7 @@ public class OrientDBService {
 
         databasePools.computeIfAbsent(
                 dbName,
-                name -> new ODatabasePool(orientDB, name, username, password));
+                name -> new ODatabasePool(orientDB, name, dbUsername, dbPassword));
 
         try (ODatabaseSession session = getSession(dbName)) {
             for (String className : TEST_DATA_CLASSES) {
@@ -371,5 +377,18 @@ public class OrientDBService {
         }
 
         logger.info("Test database '{}' has been truncated and is ready for the next test.", dbName);
+    }
+
+    /**
+     * Creates a database with an explicit admin user matching the configured pool
+     * credentials so remote test and simulation sessions do not depend on OrientDB's
+     * default-user conventions.
+     */
+    private void createDatabase(String dbName, ODatabaseType type) {
+        String escapedPassword = dbPassword.replace("'", "\\'");
+        orientDB.execute(
+                "CREATE DATABASE `" + dbName + "` " + type.name()
+                        + " USERS (" + dbUsername + " IDENTIFIED BY '" + escapedPassword + "' ROLE [admin])")
+                .close();
     }
 }
