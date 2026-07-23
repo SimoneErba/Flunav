@@ -2,8 +2,9 @@ import type { APIRequestContext } from "@playwright/test";
 import { expect } from "@playwright/test";
 import type { AuthSession } from "./auth";
 
-const authHeaders = (session: AuthSession) => ({
+const authHeaders = (session: AuthSession, simulationId?: string) => ({
   Authorization: `Bearer ${session.token}`,
+  ...(simulationId ? { "X-Simulation-ID": simulationId } : {}),
 });
 
 export type LocationSeed = {
@@ -66,9 +67,10 @@ export const createLocation = async (
   baseUrl: string,
   session: AuthSession,
   location: LocationSeed,
+  simulationId?: string,
 ) => {
   const response = await request.post(`${baseUrl}/api/locations`, {
-    headers: authHeaders(session),
+    headers: authHeaders(session, simulationId),
     data: {
       id: location.id,
       name: location.name,
@@ -88,9 +90,10 @@ export const createConveyor = async (
   baseUrl: string,
   session: AuthSession,
   conveyor: ConveyorSeed,
+  simulationId?: string,
 ) => {
   const response = await request.post(`${baseUrl}/api/conveyors`, {
-    headers: authHeaders(session),
+    headers: authHeaders(session, simulationId),
     data: {
       connectionId: conveyor.id,
       sourceId: conveyor.sourceId,
@@ -113,9 +116,10 @@ export const createItem = async (
   baseUrl: string,
   session: AuthSession,
   item: ItemSeed,
+  simulationId?: string,
 ) => {
   const response = await request.post(`${baseUrl}/api/items`, {
-    headers: authHeaders(session),
+    headers: authHeaders(session, simulationId),
     data: {
       id: item.id,
       name: item.name,

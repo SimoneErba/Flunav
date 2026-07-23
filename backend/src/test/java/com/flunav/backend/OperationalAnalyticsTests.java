@@ -216,6 +216,45 @@ class OperationalAnalyticsTests extends BaseIntegrationTest {
     }
 
     @Test
+    void clickHouseJourneySummaryExcludesLivePostRestoreCompletionsFromSimulationContext() {
+        String simulationId = "operational-clickhouse-simulation";
+        Instant created = Instant.parse("2049-01-01T00:00:00Z");
+        Instant restore = created.plusSeconds(20);
+        Instant beforeRestoreExit = restore.minusSeconds(5);
+        Instant afterRestoreLiveExit = restore.plusSeconds(10);
+        Instant simulationExit = restore.plusSeconds(15);
+        saveSimulation(simulationId, restore, simulationExit);
+
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "live-before-restore-item", "Live before restore", 1.0, true,
+                "start", PositionType.LOCATION, 0.0, Map.of(), created));
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "live-after-restore-item", "Live after restore", 1.0, true,
+                "start", PositionType.LOCATION, 0.0, Map.of(), created.plusSeconds(1)));
+        clickHouseService.flushEvents();
+
+        clickHouseService.saveExitCandidateAsync(new ExitCandidate(
+                "live-before-restore-exit", "live-before-restore-event", "live-before-restore-item", "chute",
+                beforeRestoreExit, "live", null, beforeRestoreExit));
+        clickHouseService.saveExitCandidateAsync(new ExitCandidate(
+                "live-after-restore-exit", "live-after-restore-event", "live-after-restore-item", "chute",
+                afterRestoreLiveExit, "live", null, afterRestoreLiveExit));
+        clickHouseService.saveExitCandidateAsync(new ExitCandidate(
+                "simulation-only-exit", "simulation-only-event", "simulation-only-item", "chute",
+                simulationExit, simulationId, restore.plusSeconds(2), restore));
+        clickHouseService.flushExitCandidates();
+        clickHouseService.projectCompletedJourneys();
+
+        var summary = clickHouseService.getJourneySummary(
+                created,
+                simulationExit.plusSeconds(1),
+                simulationId,
+                restore).join();
+        assertEquals(2, summary.completedItemCount());
+        assertEquals(0, summary.recirculationEventCount());
+    }
+
+    @Test
     void simulationCleanupDeletesEveryOperationalAnalyticsTable() {
         String simulationId = "operational-cleanup-simulation";
         Instant timestamp = Instant.parse("2045-01-01T00:00:00Z");

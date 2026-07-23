@@ -14,6 +14,11 @@ import {
   waitForThroughputSocketMetric,
 } from "./helpers/metrics";
 import {
+  simulationAuthHeaders,
+  startSimulationFromUi,
+  waitForSimulationReady,
+} from "./helpers/simulation";
+import {
   getRecordedSocketEvents,
   startStompRecorder,
   stopStompRecorder,
@@ -163,14 +168,14 @@ test("simulation throughput websocket stays isolated from live throughput topic"
   const restoreTimestamp = new Date(Date.now() - 1_000).toISOString();
 
   const createSimulationResponse = await request.post(`${backendUrl}/api/simulations`, {
-    headers: authHeaders(),
+    headers: simulationAuthHeaders(session),
     data: { timestamp: restoreTimestamp },
   });
   expect(createSimulationResponse.status()).toBe(202);
   const simulationId = ((await createSimulationResponse.json()) as { id: string }).id;
 
   try {
-    await waitForSimulationReady(request, simulationId);
+    await waitForSimulationReady(request, backendUrl, session, simulationId);
 
     const liveTopic = "/topic/analytics/throughput";
     const simulationTopic = `/topic/simulations/${simulationId}/analytics/throughput`;
@@ -178,17 +183,18 @@ test("simulation throughput websocket stays isolated from live throughput topic"
     await startStompRecorder(page, backendUrl, [liveTopic, simulationTopic]);
 
     const locationId = `${id}-location`;
-    await createSimulationLocation(request, simulationId, {
+    await createLocation(request, backendUrl, session, {
       id: locationId,
       name: "Simulation Throughput Source",
       latitude: 0,
       longitude: 0,
-    });
-    await createSimulationItem(request, simulationId, {
+    }, simulationId);
+    await createItem(request, backendUrl, session, {
       id: `${id}-item`,
       name: "Simulation Throughput Item",
       locationId,
-    });
+      positionType: "LOCATION",
+    }, simulationId);
 
     await waitForThroughputSocketMetric(
       page,
@@ -202,7 +208,9 @@ test("simulation throughput websocket stays isolated from live throughput topic"
     });
     expect(liveEnteredEvents, "simulation throughput must not be broadcast on the live topic").toEqual([]);
   } finally {
-    await request.delete(`${backendUrl}/api/simulations/${simulationId}`, { headers: authHeaders() });
+    await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+      headers: simulationAuthHeaders(session),
+    });
   }
 });
 
@@ -217,62 +225,146 @@ test("analytics panel renders the live throughput header", async ({ page }) => {
   await expect(page.getByText("System Throughput")).toBeVisible();
 });
 
-const authHeaders = (simulationId?: string) => ({
-  Authorization: `Bearer ${session.token}`,
-  ...(simulationId ? { "X-Simulation-ID": simulationId } : {}),
+test("simulation HUD ignores live item creation after restore and only reflects simulation scope", async ({
+  page,
+  request,
+}) => {
+  const id = uniqueE2eId("simulation-hud-isolation");
+  const simulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const before = await getHudValues(page);
+  const simulationLocationId = `${id}-simulation-location`;
+  const simulationItemId = `${id}-simulation-item`;
+  const liveLocationId = `${id}-live-location`;
+  const liveItemId = `${id}-live-item`;
+
+  try {
+    await createLocation(request, backendUrl, session, {
+      id: simulationLocationId,
+      name: "Simulation HUD Source",
+      latitude: 0,
+      longitude: 0,
+    }, simulationId);
+    await createItem(request, backendUrl, session, {
+      id: simulationItemId,
+      name: "Simulation HUD Item",
+      locationId: simulationLocationId,
+      positionType: "LOCATION",
+      priority: 1,
+    }, simulationId);
+
+    await createLocation(request, backendUrl, session, {
+      id: liveLocationId,
+      name: "Live HUD Source",
+      latitude: 100,
+      longitude: 0,
+    });
+    await createItem(request, backendUrl, session, {
+      id: liveItemId,
+      name: "Live HUD Item",
+      locationId: liveLocationId,
+      positionType: "LOCATION",
+    });
+
+    await waitForNode(page, simulationLocationId);
+    await waitForItem(page, simulationItemId);
+    await waitForHudValue(page, "active", before.Active + 1);
+    await waitForHudValue(page, "priority", before.Priority + 1);
+    await expect
+      .poll(async () => page.evaluate((itemId) => window.__graphTestApi!.getItem(itemId).graphNode !== null, liveItemId))
+      .toBe(false);
+  } finally {
+    await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+      headers: simulationAuthHeaders(session),
+    });
+  }
 });
 
-const waitForSimulationReady = async (
-  request: Parameters<typeof createSimulationLocation>[0],
-  simulationId: string,
-) => {
-  await expect
-    .poll(async () => {
-      const response = await request.get(`${backendUrl}/api/simulations/${simulationId}`, {
-        headers: authHeaders(),
-      });
-      if (!response.ok()) {
-        return `HTTP_${response.status()}`;
-      }
-      return ((await response.json()) as { status?: string }).status;
-    }, { timeout: 60_000 })
-    .toBe("READY");
-};
+test("simulation analytics panel switches to simulation mode while stop analytics stay isolated", async ({
+  page,
+  request,
+}) => {
+  const id = uniqueE2eId("simulation-analytics-stop");
+  const simulationSourceId = `${id}-simulation-source`;
+  const simulationTargetId = `${id}-simulation-target`;
+  const simulationConveyorId = `${id}-simulation-conveyor`;
+  const liveSourceId = `${id}-live-source`;
+  const liveTargetId = `${id}-live-target`;
+  const liveConveyorId = `${id}-live-conveyor`;
+  const simulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const from = new Date(Date.now() - 60_000).toISOString();
+  const to = new Date(Date.now() + 60_000).toISOString();
 
-const createSimulationLocation = async (
-  request: Parameters<typeof createItem>[0],
-  simulationId: string,
-  location: { id: string; name: string; latitude: number; longitude: number },
-) => {
-  const response = await request.post(`${backendUrl}/api/locations`, {
-    headers: authHeaders(simulationId),
-    data: {
-      ...location,
-      type: "GENERIC",
-      active: true,
-      capacity: 10,
-      properties: {},
-    },
-  });
-  expect(response.ok()).toBeTruthy();
-};
+  try {
+    await createLocation(request, backendUrl, session, {
+      id: simulationSourceId,
+      name: "Simulation Stop Source",
+      latitude: 0,
+      longitude: 0,
+    }, simulationId);
+    await createLocation(request, backendUrl, session, {
+      id: simulationTargetId,
+      name: "Simulation Stop Target",
+      latitude: 100,
+      longitude: 0,
+    }, simulationId);
+    await createConveyor(request, backendUrl, session, {
+      id: simulationConveyorId,
+      sourceId: simulationSourceId,
+      targetId: simulationTargetId,
+      speed: 0,
+      active: false,
+    }, simulationId);
 
-const createSimulationItem = async (
-  request: Parameters<typeof createItem>[0],
-  simulationId: string,
-  item: { id: string; name: string; locationId: string },
-) => {
-  const response = await request.post(`${backendUrl}/api/items`, {
-    headers: authHeaders(simulationId),
-    data: {
-      ...item,
-      active: true,
-      priority: 0,
-      positionType: "LOCATION",
-      progress: 0,
-      properties: {},
-      timestamp: new Date().toISOString(),
-    },
-  });
-  expect(response.ok()).toBeTruthy();
-};
+    await createLocation(request, backendUrl, session, {
+      id: liveSourceId,
+      name: "Live Stop Source",
+      latitude: 0,
+      longitude: 100,
+    });
+    await createLocation(request, backendUrl, session, {
+      id: liveTargetId,
+      name: "Live Stop Target",
+      latitude: 100,
+      longitude: 100,
+    });
+    await createConveyor(request, backendUrl, session, {
+      id: liveConveyorId,
+      sourceId: liveSourceId,
+      targetId: liveTargetId,
+      speed: 0,
+      active: false,
+    });
+
+    await expect
+      .poll(async () => {
+        const response = await request.get(`${backendUrl}/api/analytics/conveyor-stops?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, {
+          headers: simulationAuthHeaders(session, simulationId),
+        });
+        if (!response.ok()) {
+          return "HTTP_ERROR";
+        }
+        const metrics = (await response.json()) as Array<{ conveyorId?: string }>;
+        const conveyorIds = metrics.map((metric) => metric.conveyorId);
+        return JSON.stringify({
+          hasSimulationStop: conveyorIds.includes(simulationConveyorId),
+          hasLiveStop: conveyorIds.includes(liveConveyorId),
+        });
+      })
+      .toBe(JSON.stringify({
+        hasSimulationStop: true,
+        hasLiveStop: false,
+      }));
+
+    await page.getByRole("button", { name: "Live interactions" }).click();
+    await page.getByRole("button", { name: "Charts" }).click();
+
+    await expect(page.getByText("Simulation · 5 min totals, refreshed every 5 sec")).toBeVisible();
+    await expect(page.getByText("Simulation timeline · latest 24 hours · refreshes every 5 seconds")).toBeVisible();
+    await expect(page.getByText("Journey & availability")).toBeVisible();
+    await expect(page.getByText("Conveyor stops")).toBeVisible();
+  } finally {
+    await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+      headers: simulationAuthHeaders(session),
+    });
+  }
+});
