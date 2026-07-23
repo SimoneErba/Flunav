@@ -17,6 +17,8 @@ import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.JourneySummary;
 import com.flunav.backend.models.response.ThroughputMetric;
+import com.flunav.backend.models.response.AlarmHistoryRecord;
+import flunav.types.AlarmSeverity;
 
 import flunav.events.DomainEvent;
 import flunav.events.EntityEvent;
@@ -26,6 +28,8 @@ import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ConnectionDeletedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.PathTraversedEvent;
+import flunav.events.AlarmRaisedEvent;
+import flunav.events.AlarmClearedEvent;
 import flunav.events.UnknownEvent;
 import jakarta.annotation.PreDestroy;
 
@@ -88,6 +92,7 @@ public class ClickHouseService {
             ensureAnalyticsSchema();
             ensureMovementAnalyticsSchema();
             ensureOperationalAnalyticsSchema();
+            ensureAlarmAnalyticsSchema();
             logger.info("ClickHouse Client V2 initialized successfully.");
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
@@ -1011,6 +1016,115 @@ public class ClickHouseService {
         }
     }
 
+    private void ensureAlarmAnalyticsSchema() {
+        try {
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_alarm_events
+                    (
+                        event_id String,
+                        alarm_id String,
+                        conveyor_id String,
+                        event_type LowCardinality(String),
+                        severity LowCardinality(String),
+                        typology String,
+                        stops_conveyor UInt8,
+                        event_timestamp DateTime64(3, 'UTC'),
+                        simulation_id LowCardinality(String),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, event_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_alarm_affected_items
+                    (
+                        event_id String,
+                        alarm_id String,
+                        conveyor_id String,
+                        item_id String,
+                        captured_at DateTime64(3, 'UTC'),
+                        simulation_id LowCardinality(String),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (simulation_id, alarm_id, item_id)
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to ensure alarm analytics schema", e);
+        }
+    }
+
+    /**
+     * Writes the immutable alarm fact after its state reducer succeeds. Simulation
+     * facts carry their namespace and are removed with the simulation.
+     */
+    public synchronized void saveAlarmFact(DomainEvent event, String simulationId, List<String> affectedItemIds) {
+        if (!(event instanceof AlarmRaisedEvent) && !(event instanceof AlarmClearedEvent)) {
+            return;
+        }
+        String alarmId;
+        String conveyorId;
+        String severity;
+        String typology;
+        boolean stopsConveyor;
+        if (event instanceof AlarmRaisedEvent raised) {
+            alarmId = raised.getAlarmId();
+            conveyorId = raised.getConveyorId();
+            severity = raised.getSeverity().name();
+            typology = raised.getTypology();
+            stopsConveyor = raised.isStopsConveyor();
+        } else {
+            AlarmClearedEvent cleared = (AlarmClearedEvent) event;
+            alarmId = cleared.getAlarmId();
+            conveyorId = cleared.getConveyorId();
+            severity = cleared.getSeverity().name();
+            typology = cleared.getTypology();
+            stopsConveyor = cleared.isStopsConveyor();
+        }
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("event_id", event.getEventId());
+        row.put("alarm_id", alarmId);
+        row.put("conveyor_id", conveyorId);
+        row.put("event_type", event.getEventType());
+        row.put("severity", severity);
+        row.put("typology", typology);
+        row.put("stops_conveyor", stopsConveyor ? 1 : 0);
+        row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
+        row.put("simulation_id", simulationId != null ? simulationId : "");
+        insertJsonRows("analytics_alarm_events", List.of(row));
+
+        if (event instanceof AlarmRaisedEvent && stopsConveyor && affectedItemIds != null
+                && !affectedItemIds.isEmpty()) {
+            List<Map<String, Object>> itemRows = affectedItemIds.stream().distinct().map(itemId -> {
+                Map<String, Object> itemRow = new LinkedHashMap<>();
+                itemRow.put("event_id", event.getEventId());
+                itemRow.put("alarm_id", alarmId);
+                itemRow.put("conveyor_id", conveyorId);
+                itemRow.put("item_id", itemId);
+                itemRow.put("captured_at", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
+                itemRow.put("simulation_id", simulationId != null ? simulationId : "");
+                return itemRow;
+            }).toList();
+            insertJsonRows("analytics_alarm_affected_items", itemRows);
+        }
+    }
+
+    private void insertJsonRows(String table, List<Map<String, Object>> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        try {
+            StringBuilder body = new StringBuilder();
+            for (Map<String, Object> row : rows) {
+                body.append(objectMapper.writeValueAsString(row)).append('\n');
+            }
+            try (InputStream input = new ByteArrayInputStream(body.toString().getBytes(StandardCharsets.UTF_8))) {
+                client.insert(table, input, ClickHouseFormat.JSONEachRow).get();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to write " + table, e);
+        }
+    }
+
     private void dropAnalyticsMaterializedViews() throws Exception {
         executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_item_journeys");
         executeClickHouseStatement("DROP TABLE IF EXISTS " + clickhouseDatabase + ".mv_analytics_components");
@@ -1606,7 +1720,9 @@ public class ClickHouseService {
                 "analytics_exit_candidates",
                 "analytics_completed_journeys",
                 "analytics_recirculation_facts",
-                "analytics_simulation_connection_events")) {
+                "analytics_simulation_connection_events",
+                "analytics_alarm_events",
+                "analytics_alarm_affected_items")) {
             String sql = "ALTER TABLE " + table
                     + " DELETE WHERE simulation_id = {simulation_id:String} SETTINGS mutations_sync = 1";
             try (QueryResponse ignored = client.query(sql, Map.of("simulation_id", simulationId)).get()) {
@@ -1680,6 +1796,80 @@ public class ClickHouseService {
                 throw new RuntimeException("Failed to fetch entity events", e);
             }
         });
+    }
+
+    public CompletableFuture<List<AlarmHistoryRecord>> getAlarmHistory(
+            String alarmId, String simulationId, Instant from, Instant to) {
+        String sql = """
+                SELECT event_id, alarm_id, conveyor_id, event_type, severity, typology,
+                       stops_conveyor, event_timestamp, simulation_id
+                FROM analytics_alarm_events FINAL
+                WHERE simulation_id = {simulationId:String}
+                  AND ({alarmId:String} = '' OR alarm_id = {alarmId:String})
+                  AND event_timestamp >= {from:DateTime64(3)}
+                  AND event_timestamp <= {to:DateTime64(3)}
+                ORDER BY event_timestamp, event_id
+                FORMAT JSONEachRow
+                SETTINGS date_time_output_format = 'iso', output_format_json_quote_64bit_integers = 0
+                """;
+        return CompletableFuture.supplyAsync(() -> {
+            List<AlarmHistoryRecord> alarms = new ArrayList<>();
+            try (QueryResponse response = client.query(sql, Map.of(
+                    "simulationId", simulationId != null ? simulationId : "",
+                    "alarmId", alarmId != null ? alarmId : "",
+                    "from", CLICKHOUSE_FORMATTER.format(from),
+                    "to", CLICKHOUSE_FORMATTER.format(to))).get();
+                    InputStream input = response.getInputStream()) {
+                var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
+                MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(mapType).readValues(input);
+                while (rows.hasNext()) {
+                    Map<String, Object> row = rows.next();
+                    alarms.add(new AlarmHistoryRecord(
+                            String.valueOf(row.get("event_id")),
+                            String.valueOf(row.get("alarm_id")),
+                            String.valueOf(row.get("conveyor_id")),
+                            String.valueOf(row.get("event_type")),
+                            AlarmSeverity.valueOf(String.valueOf(row.get("severity"))),
+                            String.valueOf(row.get("typology")),
+                            asBoolean(row.get("stops_conveyor")),
+                            parseClickHouseInstant(row.get("event_timestamp")),
+                            String.valueOf(row.get("simulation_id"))));
+                }
+                return alarms;
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to read alarm history", e);
+            }
+        });
+    }
+
+    public CompletableFuture<List<String>> getAlarmAffectedItems(String alarmId, String simulationId) {
+        String sql = """
+                SELECT DISTINCT item_id
+                FROM analytics_alarm_affected_items FINAL
+                WHERE simulation_id = {simulationId:String} AND alarm_id = {alarmId:String}
+                ORDER BY item_id
+                FORMAT JSONEachRow
+                """;
+        return CompletableFuture.supplyAsync(() -> {
+            List<String> itemIds = new ArrayList<>();
+            try (QueryResponse response = client.query(sql, Map.of(
+                    "simulationId", simulationId != null ? simulationId : "",
+                    "alarmId", alarmId)).get();
+                    InputStream input = response.getInputStream()) {
+                var mapType = objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class);
+                MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(mapType).readValues(input);
+                while (rows.hasNext()) {
+                    itemIds.add(String.valueOf(rows.next().get("item_id")));
+                }
+                return itemIds;
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to read alarm affected items", e);
+            }
+        });
+    }
+
+    private boolean asBoolean(Object value) {
+        return value instanceof Boolean bool ? bool : Integer.parseInt(String.valueOf(value)) != 0;
     }
 
     private Instant parseClickHouseInstant(Object value) {

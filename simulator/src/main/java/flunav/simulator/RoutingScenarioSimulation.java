@@ -1,14 +1,15 @@
 package flunav.simulator;
 
 import flunav.events.ChuteEmptyEvent;
-import flunav.events.ConnectionActivatedEvent;
-import flunav.events.ConnectionDeactivatedEvent;
+import flunav.events.AlarmClearedEvent;
+import flunav.events.AlarmRaisedEvent;
 import flunav.events.ConnectionPropertiesUpdatedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
 import flunav.events.ItemPathChangedEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.types.PositionType;
+import flunav.types.AlarmSeverity;
 
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +23,7 @@ abstract class RoutingScenarioSimulation implements Simulation {
     private static final int CHUTE_CLEAR_INTERVAL_SECONDS = 15;
 
     private final ScenarioTopology topology;
-    private final Random propertyRandom = new Random();
+    private final Random propertyRandom;
     private long tick;
     private long itemSequence;
     private int failureIndex;
@@ -32,6 +33,7 @@ abstract class RoutingScenarioSimulation implements Simulation {
 
     protected RoutingScenarioSimulation(ScenarioTopology topology) {
         this.topology = topology;
+        this.propertyRandom = new Random(topology.name().hashCode());
         topology.validate();
     }
 
@@ -129,8 +131,16 @@ abstract class RoutingScenarioSimulation implements Simulation {
     }
 
     private void startFailure(ScenarioTopology.FailureSpec failure) throws Exception {
-        SimulatorUtils.logger.warning("Disabling bypassable conveyor " + failure.conveyorId());
-        SimulatorUtils.sendEvent(new ConnectionDeactivatedEvent(failure.conveyorId()), "PUT");
+        SimulatorUtils.logger.warning("Raising deterministic alarms on bypassable conveyor " + failure.conveyorId());
+        SimulatorUtils.sendEvent(new AlarmRaisedEvent(
+                alarmId(failure, "warning"), failure.conveyorId(), AlarmSeverity.WARNING,
+                "BELT_DEGRADATION", false), "POST");
+        SimulatorUtils.sendEvent(new AlarmRaisedEvent(
+                alarmId(failure, "stopping"), failure.conveyorId(), AlarmSeverity.CRITICAL,
+                failure.errorCode(), true), "POST");
+        SimulatorUtils.sendEvent(new AlarmRaisedEvent(
+                alarmId(failure, "overlap"), failure.conveyorId(), AlarmSeverity.CRITICAL,
+                "SAFETY_INTERLOCK", true), "POST");
         SimulatorUtils.sendEvent(new ConnectionPropertiesUpdatedEvent(
                 failure.conveyorId(),
                 Map.of(
@@ -150,14 +160,26 @@ abstract class RoutingScenarioSimulation implements Simulation {
     }
 
     private void repairFailure(ScenarioTopology.FailureSpec failure) throws Exception {
-        SimulatorUtils.logger.info("Reactivating conveyor " + failure.conveyorId());
-        SimulatorUtils.sendEvent(new ConnectionActivatedEvent(failure.conveyorId()), "PUT");
+        SimulatorUtils.logger.info("Clearing deterministic alarms on conveyor " + failure.conveyorId());
+        SimulatorUtils.sendEvent(new AlarmClearedEvent(
+                alarmId(failure, "stopping"), failure.conveyorId(), AlarmSeverity.CRITICAL,
+                failure.errorCode(), true), "POST");
+        SimulatorUtils.sendEvent(new AlarmClearedEvent(
+                alarmId(failure, "overlap"), failure.conveyorId(), AlarmSeverity.CRITICAL,
+                "SAFETY_INTERLOCK", true), "POST");
+        SimulatorUtils.sendEvent(new AlarmClearedEvent(
+                alarmId(failure, "warning"), failure.conveyorId(), AlarmSeverity.WARNING,
+                "BELT_DEGRADATION", false), "POST");
         SimulatorUtils.sendEvent(new ConnectionPropertiesUpdatedEvent(
                 failure.conveyorId(),
                 Map.of(
                         "status", "HEALTHY",
                         "errorCode", "",
                         "repairedAtTick", tick)), "PUT");
+    }
+
+    private String alarmId(ScenarioTopology.FailureSpec failure, String phase) {
+        return topology.name() + "-" + failure.conveyorId() + "-" + failureIndex + "-" + phase;
     }
 
     private void clearChuteIfDue() throws Exception {

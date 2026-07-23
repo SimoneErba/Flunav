@@ -1,0 +1,20 @@
+{
+  "name": "flumen-assistant",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node gateway/server.mjs",
+    "dev": "trigger dev --api-url ${TRIGGER_API_URL}",
+    "deploy": "trigger deploy --api-url ${TRIGGER_API_URL}",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "4.5.7"
+  },
+  "devDependencies": {
+    "@trigger.dev/build": "4.5.7",
+    "trigger.dev": "4.5.7",
+    "typescript": "5.9.2"
+  }
+}

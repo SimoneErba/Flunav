@@ -10,14 +10,18 @@ import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import flunav.types.ConveyorType;
+import flunav.types.ActiveAlarm;
+import flunav.types.AlarmSeverity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.UUID;
+import java.time.Instant;
 
 @Service
 public class ConveyorService {
@@ -105,6 +109,8 @@ public class ConveyorService {
             edge.setProperty("speed", speed != null ? speed : 1.0);
             edge.setProperty("minDistance", minDistance);
             edge.setProperty("active", isActive != null ? isActive : true);
+            edge.setProperty("operatorEnabled", isActive != null ? isActive : true);
+            edge.setProperty("activeAlarms", List.of());
             edge.setProperty("mainPath", mainPath != null ? mainPath : false);
 
             // Static default
@@ -134,6 +140,8 @@ public class ConveyorService {
                         edge.setProperty("speed", conveyor.getSpeed());
                         edge.setProperty("length", conveyor.getLength());
                         edge.setProperty("active", conveyor.isActive());
+                        edge.setProperty("operatorEnabled", conveyor.isOperatorEnabled());
+                        edge.setProperty("activeAlarms", serializeAlarms(conveyor.getActiveAlarms()));
                         edge.setProperty("mainPath", conveyor.isMainPath());
                         edge.setProperty("properties", conveyor.getProperties());
                         if (conveyor.getCapacity() != null) {
@@ -213,6 +221,16 @@ public class ConveyorService {
         String typeStr = edge.getProperty("type");
         ConveyorType type = (typeStr != null) ? ConveyorType.valueOf(typeStr) : ConveyorType.BELT;
 
+        boolean active = edge.getProperty("active") != null ? edge.getProperty("active") : true;
+        Boolean storedOperatorEnabled = edge.getProperty("operatorEnabled");
+        Object storedAlarms = edge.getProperty("activeAlarms");
+        if (storedOperatorEnabled == null || storedAlarms == null) {
+            // Lazy, idempotent migration for conveyor edges created before alarms
+            // and operator intent became first-class persisted state.
+            edge.setProperty("operatorEnabled", storedOperatorEnabled != null ? storedOperatorEnabled : active);
+            edge.setProperty("activeAlarms", storedAlarms != null ? storedAlarms : List.of());
+            edge.save();
+        }
         return new Conveyor(
                 edge.getProperty("customId"),
                 sourceId,
@@ -221,9 +239,53 @@ public class ConveyorService {
                 edge.getProperty("speed"),
                 edge.getProperty("minDistance"),
                 type,
-                edge.getProperty("active") != null ? edge.getProperty("active") : true,
+                active,
+                storedOperatorEnabled != null ? storedOperatorEnabled : active,
+                deserializeAlarms(storedAlarms),
                 edge.getProperty("capacity"),
                 edge.getProperty("mainPath") != null ? edge.getProperty("mainPath") : false,
                 edge.getProperty("properties"));
+    }
+
+    private List<Map<String, Object>> serializeAlarms(List<ActiveAlarm> alarms) {
+        if (alarms == null) {
+            return List.of();
+        }
+        return alarms.stream().map(alarm -> Map.<String, Object>of(
+                "alarmId", alarm.getAlarmId(),
+                "conveyorId", alarm.getConveyorId(),
+                "severity", alarm.getSeverity().name(),
+                "typology", alarm.getTypology(),
+                "stopsConveyor", alarm.isStopsConveyor(),
+                "raisedAt", alarm.getRaisedAt().toString())).toList();
+    }
+
+    private List<ActiveAlarm> deserializeAlarms(Object stored) {
+        if (!(stored instanceof Iterable<?> values)) {
+            return new ArrayList<>();
+        }
+        List<ActiveAlarm> alarms = new ArrayList<>();
+        for (Object value : values) {
+            if (!(value instanceof Map<?, ?> alarm)) {
+                continue;
+            }
+            try {
+                alarms.add(new ActiveAlarm(
+                        String.valueOf(alarm.get("alarmId")),
+                        String.valueOf(alarm.get("conveyorId")),
+                        AlarmSeverity.valueOf(String.valueOf(alarm.get("severity"))),
+                        String.valueOf(alarm.get("typology")),
+                        Boolean.parseBoolean(String.valueOf(alarm.get("stopsConveyor"))),
+                        Instant.parse(String.valueOf(alarm.get("raisedAt")))));
+            } catch (RuntimeException exception) {
+                logger.warn("Ignoring malformed active alarm on conveyor {}", edgeIdentifier(alarm), exception);
+            }
+        }
+        return alarms;
+    }
+
+    private String edgeIdentifier(Map<?, ?> alarm) {
+        Object conveyorId = alarm.get("conveyorId");
+        return conveyorId != null ? conveyorId.toString() : "unknown";
     }
 }

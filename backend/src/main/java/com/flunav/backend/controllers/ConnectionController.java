@@ -5,7 +5,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.flunav.backend.config.BlockInDemo;
 import com.flunav.backend.domain.Conveyor;
@@ -14,6 +16,8 @@ import com.flunav.backend.utils.ControllerHelper;
 
 import flunav.events.*;
 import flunav.types.ConveyorType;
+import flunav.types.AlarmSeverity;
+import flunav.types.ActiveAlarm;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -67,6 +71,9 @@ public class ConnectionController {
     public record mainPathUpdateRequest(Boolean mainPath) {
     }
 
+    public record RaiseAlarmRequest(String alarmId, AlarmSeverity severity, String typology, boolean stopsConveyor) {
+    }
+
     @Autowired
     public ConnectionController(ConveyorService conveyorService, ControllerHelper eventProcessorHelper) {
         this.conveyorService = conveyorService;
@@ -84,6 +91,53 @@ public class ConnectionController {
     public ResponseEntity<Conveyor> getConveyorById(@PathVariable String id) {
         Conveyor conveyor = conveyorService.getConveyorById(id);
         return conveyor != null ? ResponseEntity.ok(conveyor) : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{conveyorId}/alarms")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERADMIN')")
+    @Operation(summary = "Raise an alarm on a conveyor")
+    public CompletableFuture<ResponseEntity<Void>> raiseAlarm(
+            @PathVariable String conveyorId,
+            @RequestBody RaiseAlarmRequest request) {
+        if (request == null || request.severity() == null || request.typology() == null
+                || request.typology().isBlank()) {
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+        }
+        requireConveyor(conveyorId);
+        String alarmId = request.alarmId() != null && !request.alarmId().isBlank()
+                ? request.alarmId()
+                : UUID.randomUUID().toString();
+        var event = new AlarmRaisedEvent(alarmId, conveyorId, request.severity(), request.typology().trim(),
+                request.stopsConveyor());
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(ignored -> ResponseEntity.accepted().build());
+    }
+
+    @PostMapping("/{conveyorId}/alarms/{alarmId}/clear")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERADMIN')")
+    @Operation(summary = "Clear an active conveyor alarm")
+    public CompletableFuture<ResponseEntity<Void>> clearAlarm(
+            @PathVariable String conveyorId,
+            @PathVariable String alarmId) {
+        Conveyor conveyor = requireConveyor(conveyorId);
+        ActiveAlarm alarm = conveyor.getActiveAlarms().stream()
+                .filter(candidate -> candidate.getAlarmId().equals(alarmId))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Active alarm not found: " + alarmId));
+        var event = new AlarmClearedEvent(
+                alarm.getAlarmId(), alarm.getConveyorId(), alarm.getSeverity(), alarm.getTypology(),
+                alarm.isStopsConveyor());
+        return eventProcessorHelper.processAndLogEvent(event)
+                .thenApply(ignored -> ResponseEntity.accepted().build());
+    }
+
+    private Conveyor requireConveyor(String conveyorId) {
+        try {
+            return conveyorService.getConveyorById(conveyorId);
+        } catch (RuntimeException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conveyor not found", exception);
+        }
     }
 
     @BlockInDemo

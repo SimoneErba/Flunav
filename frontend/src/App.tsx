@@ -30,6 +30,9 @@ import { AuthProvider, useAuth } from './context/auth.context';
 import './index.css';
 import { GraphImportExport } from './components/graph/GraphImportExport';
 
+const AssistantPage = React.lazy(() => import('./components/assistant/AssistantPage')
+  .then(module => ({ default: module.AssistantPage })));
+
 // ============================================================================
 // 1. AUTH GUARD
 // ============================================================================
@@ -312,6 +315,7 @@ function LiveWorkspace() {
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
          {navButton('BI', '/admin/bi', false, canAccessBi)}
+         {navButton('Assistant', '/assistant', false, true)}
       </div>
    );
 
@@ -488,6 +492,11 @@ function App() {
                   <Route path="/admin" element={<AdminWorkspace />} />
                   <Route path="/admin/destination-mappings" element={<AdminWorkspace />} />
                   <Route path="/admin/bi" element={<AdminWorkspace />} />
+                  <Route path="/assistant" element={(
+                    <React.Suspense fallback={<div className="p-6">Loading assistant…</div>}>
+                      <AssistantPage />
+                    </React.Suspense>
+                  )} />
                 </Route>
 
                 {/* Catch All */}

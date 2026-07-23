@@ -11,6 +11,8 @@ Thumbs.db
 /frontend/.vite/
 /frontend/.env
 /frontend/.env.*
+/assistant/node_modules/
+/assistant/.trigger/
 
 # Vite build cache
 /frontend/.cache/

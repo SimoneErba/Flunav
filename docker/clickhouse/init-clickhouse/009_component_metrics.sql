@@ -10,4 +10,4 @@ CREATE TABLE IF NOT EXISTS ComponentMetrics
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (simulation_id, component_id, metric_type, timestamp)
-TTL timestamp + INTERVAL 30 DAY;
+TTL toDateTime(timestamp) + INTERVAL 30 DAY;

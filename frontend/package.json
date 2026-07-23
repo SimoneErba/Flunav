@@ -21,6 +21,7 @@
     "@react-sigma/core": "^4.0.3",
     "@sigma/node-square": "^3.0.0",
     "@stomp/stompjs": "^7.0.1",
+    "@trigger.dev/react-hooks": "4.5.7",
     "axios": "^1.6.7",
     "graphology": "^0.25.4",
     "graphology-types": "^0.24.8",

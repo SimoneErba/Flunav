@@ -77,18 +77,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Clear in-memory and persisted auth before forcing navigation to the public login route.
   const logout = useCallback(() => {
+    const assistantPrefix = user?.username ? `flumen_assistant:${user.username}:` : null;
     setToken(null);
     setRefreshToken(null);
     setUser(null);
     localStorage.removeItem("flumen_token");
     localStorage.removeItem("flumen_refresh_token");
     localStorage.removeItem("flumen_user");
+    if (assistantPrefix) {
+      Object.keys(localStorage)
+        .filter(key => key.startsWith(assistantPrefix))
+        .forEach(key => localStorage.removeItem(key));
+    }
     delete axiosInstance.defaults.headers.common.Authorization;
 
     if (window.location.pathname !== "/login") {
       window.location.assign("/login");
     }
-  }, []);
+  }, [user?.username]);
 
   // Refresh at most once per request and force logout on any unrecoverable auth failure.
   useEffect(() => {

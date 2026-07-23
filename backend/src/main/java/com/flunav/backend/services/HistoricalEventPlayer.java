@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
@@ -30,18 +31,21 @@ public class HistoricalEventPlayer {
     private final SimulationService simulationService;
     private final WebSocketService webSocketService;
     private final TimeService timeService;
+    private final ObjectProvider<MetricSnapshotService> metricSnapshotService;
 
     private static final Duration PLAYBACK_WINDOW = Duration.ofSeconds(5);
     private static final Duration EXTERNAL_LOOKAHEAD_WALL_TIME = Duration.ofSeconds(1);
     private static final Duration MAX_EXTERNAL_LOOKAHEAD_WINDOW = Duration.ofMinutes(1);
 
     public HistoricalEventPlayer(EventProcessor eventProcessor, ClickHouseService clickHouseService,
-            @Lazy SimulationService simulationService, WebSocketService webSocketService, TimeService timeService) {
+            @Lazy SimulationService simulationService, WebSocketService webSocketService, TimeService timeService,
+            ObjectProvider<MetricSnapshotService> metricSnapshotService) {
         this.eventProcessor = eventProcessor;
         this.clickHouseService = clickHouseService;
         this.simulationService = simulationService;
         this.webSocketService = webSocketService;
         this.timeService = timeService;
+        this.metricSnapshotService = metricSnapshotService;
     }
 
     /**
@@ -90,6 +94,7 @@ public class HistoricalEventPlayer {
                 waitUntilScheduledSimulationTime(state, loopWallClockStartNs, windowStartTime, windowEndTime);
 
                 currentSimulationTime = windowEndTime;
+                captureVirtualMetricBoundary(simulationId, windowStartTime, windowEndTime);
                 simulationService.checkpointSimulationAt(simulationId, currentSimulationTime);
                 webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), currentSimulationTime);
             }
@@ -116,6 +121,21 @@ public class HistoricalEventPlayer {
 
         logger.info("Playback thread for simulation {} is terminating.", simulationId);
         return new AsyncResult<>(null);
+    }
+
+    private void captureVirtualMetricBoundary(String simulationId, Instant windowStart, Instant windowEnd) {
+        long boundarySeconds = Math.floorDiv(windowEnd.getEpochSecond(), 10) * 10;
+        if (boundarySeconds <= windowStart.getEpochSecond()) {
+            return;
+        }
+        MetricSnapshotService snapshots = metricSnapshotService.getIfAvailable();
+        if (snapshots == null) {
+            return;
+        }
+        Instant boundary = Instant.ofEpochSecond(boundarySeconds);
+        try (var timeContext = timeService.enterVirtualTime(boundary)) {
+            snapshots.captureAt(simulationId, boundary);
+        }
     }
 
     /**

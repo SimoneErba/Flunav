@@ -59,6 +59,7 @@ public class SecurityConfig {
                         auth
                                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                                .requestMatchers("/api/auth/me").authenticated()
                                 // Endpoint pubblici (Login, Swagger, WebSocket handshake)
                                 .requestMatchers("/api/auth/**").permitAll()
                                 .requestMatchers("/ws/**").permitAll() // WebSocket
@@ -87,7 +88,8 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Sender-ID", "X-Simulation-ID"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Sender-ID", "X-Simulation-ID",
+                "X-Flumen-Service-Token"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

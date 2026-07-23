@@ -11,6 +11,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Optional;
+import java.security.Principal;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -38,6 +40,18 @@ public class AuthController {
     }
 
     public record TokenRefreshResponse(String accessToken, String refreshToken) {
+    }
+
+    public record CurrentUserResponse(String username, String role) {
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<CurrentUserResponse> me(Principal principal, Authentication authentication) {
+        String role = authentication.getAuthorities().stream()
+                .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
+                .findFirst()
+                .orElse("VIEWER");
+        return ResponseEntity.ok(new CurrentUserResponse(principal.getName(), role));
     }
 
     @PostMapping("/login")

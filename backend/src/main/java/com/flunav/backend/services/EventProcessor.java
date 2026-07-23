@@ -23,6 +23,7 @@ import flunav.events.*;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
+import flunav.types.ActiveAlarm;
 import jakarta.annotation.PreDestroy;
 
 import org.modelmapper.ModelMapper;
@@ -242,6 +243,13 @@ public class EventProcessor {
 
             try {
                 Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
+                if (event instanceof AlarmRaisedEvent || event instanceof AlarmClearedEvent) {
+                    try {
+                        clickHouseService.saveAlarmFact(event, simulationId, alarmAffectedItems(event));
+                    } catch (RuntimeException analyticsFailure) {
+                        logger.error("Alarm state was reduced but its analytics fact could not be written", analyticsFailure);
+                    }
+                }
                 if (simulationId == null && !(event instanceof PathTraversedEvent)) {
                     clickHouseService.saveEventAsync(event);
                 }
@@ -888,7 +896,7 @@ public class EventProcessor {
                                 e.getMinDistance(),
                                 e.getType(),
                                 e.getIsActive(), e.getMainPath(), e.getCapacity(),
-                                e.getProperties(), customColor), e.getTimestamp());
+                                e.getProperties(), customColor, e.getIsActive(), List.of()), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -988,30 +996,91 @@ public class EventProcessor {
 
                 case ConnectionActivatedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
-                    conveyor.setActive(true);
+                    boolean wasActive = conveyor.isActive();
+                    conveyor.setOperatorEnabled(true);
+                    conveyor.setActive(!hasStoppingAlarm(conveyor));
                     conveyorService.updateConveyor(conveyor);
                     operationalAnalyticsService.recordSimulationConnectionSignal(
-                            e, conveyor.getId(), true, null,
+                            e, conveyor.getId(), conveyor.isActive(), null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
                     if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("operatorEnabled", true);
+                        updates.put("active", conveyor.isActive());
+                        updates.put("activeAlarms", conveyor.getActiveAlarms());
                         webSocketService.broadcastConnectionUpdated(
-                                new UpdateModel(conveyor.getId(), Map.of("active", true)), e.getTimestamp());
+                                new UpdateModel(conveyor.getId(), updates), e.getTimestamp());
                     }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY",
+                            "effectiveActivityChanged", wasActive != conveyor.isActive());
                 }
 
                 case ConnectionDeactivatedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    boolean wasActive = conveyor.isActive();
+                    conveyor.setOperatorEnabled(false);
                     conveyor.setActive(false);
                     conveyorService.updateConveyor(conveyor);
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, conveyor.getId(), false, null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
                     if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("operatorEnabled", false);
+                        updates.put("active", false);
+                        updates.put("activeAlarms", conveyor.getActiveAlarms());
                         webSocketService.broadcastConnectionUpdated(
-                                new UpdateModel(conveyor.getId(), Map.of("active", false)), e.getTimestamp());
+                                new UpdateModel(conveyor.getId(), updates), e.getTimestamp());
                     }
-                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY",
+                            "effectiveActivityChanged", wasActive);
+                }
+
+                case AlarmRaisedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getConveyorId());
+                    boolean wasActive = conveyor.isActive();
+                    ActiveAlarm existing = conveyor.getActiveAlarms().stream()
+                            .filter(alarm -> alarm.getAlarmId().equals(e.getAlarmId()))
+                            .findFirst()
+                            .orElse(null);
+                    if (existing != null) {
+                        if (existing.getSeverity() != e.getSeverity()
+                                || existing.isStopsConveyor() != e.isStopsConveyor()
+                                || !Objects.equals(existing.getTypology(), e.getTypology())) {
+                            throw new IllegalStateException(
+                                    "Alarm id is already active with different metadata: " + e.getAlarmId());
+                        }
+                        yield Map.of("status", "IGNORED_DUPLICATE",
+                                "effectiveActivityChanged", false);
+                    }
+                    conveyor.getActiveAlarms().add(new ActiveAlarm(
+                            e.getAlarmId(), e.getConveyorId(), e.getSeverity(), e.getTypology(),
+                            e.isStopsConveyor(), e.getTimestamp()));
+                    conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+                    conveyorService.updateConveyor(conveyor);
+                    if (shouldBroadcast) {
+                        broadcastConveyorAlarmState(conveyor, e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY",
+                            "effectiveActivityChanged", wasActive != conveyor.isActive());
+                }
+
+                case AlarmClearedEvent e -> {
+                    var conveyor = conveyorService.getConveyorById(e.getConveyorId());
+                    boolean wasActive = conveyor.isActive();
+                    boolean removed = conveyor.getActiveAlarms()
+                            .removeIf(alarm -> alarm.getAlarmId().equals(e.getAlarmId()));
+                    if (!removed) {
+                        yield Map.of("status", "IGNORED_DUPLICATE",
+                                "effectiveActivityChanged", false);
+                    }
+                    conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+                    conveyorService.updateConveyor(conveyor);
+                    if (shouldBroadcast) {
+                        broadcastConveyorAlarmState(conveyor, e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY",
+                            "effectiveActivityChanged", wasActive != conveyor.isActive());
                 }
 
                 case LocationAddToMainPath e -> {
@@ -1068,7 +1137,7 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
             };
-            invalidatePathCacheAfterTopologyChange(event);
+            invalidatePathCacheAfterTopologyChange(event, result);
             if (shouldBroadcast) {
                 throughputBucketService.recordSuccessfulReduction(event, result);
             }
@@ -1081,13 +1150,19 @@ public class EventProcessor {
      * The active DatabaseContextHolder namespace decides whether live or one
      * simulation cache is invalidated, keeping isolated graph states independent.
      */
-    private void invalidatePathCacheAfterTopologyChange(DomainEvent event) {
+    private void invalidatePathCacheAfterTopologyChange(DomainEvent event, Map<String, Object> result) {
+        if ((event instanceof AlarmRaisedEvent
+                || event instanceof AlarmClearedEvent
+                || event instanceof ConnectionActivatedEvent
+                || event instanceof ConnectionDeactivatedEvent)
+                && Boolean.TRUE.equals(result.get("effectiveActivityChanged"))) {
+            pathCacheRepository.invalidateCurrentNamespace();
+            return;
+        }
         if (event instanceof ConnectionCreatedEvent
                 || event instanceof ConnectionDeletedEvent
                 || event instanceof ConnectionSpeedChangedEvent
                 || event instanceof ConnectionLengthChangedEvent
-                || event instanceof ConnectionActivatedEvent
-                || event instanceof ConnectionDeactivatedEvent
                 || event instanceof LocationAddToMainPath
                 || event instanceof ConnectionRemoveFromMainPath
                 || event instanceof LocationCreatedEvent
@@ -1096,6 +1171,33 @@ public class EventProcessor {
                 || event instanceof LocationProcessingTimeChangedEvent) {
             pathCacheRepository.invalidateCurrentNamespace();
         }
+    }
+
+    private boolean hasStoppingAlarm(Conveyor conveyor) {
+        return conveyor.getActiveAlarms() != null
+                && conveyor.getActiveAlarms().stream().anyMatch(ActiveAlarm::isStopsConveyor);
+    }
+
+    private void broadcastConveyorAlarmState(Conveyor conveyor, Instant timestamp) {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("active", conveyor.isActive());
+        updates.put("operatorEnabled", conveyor.isOperatorEnabled());
+        updates.put("activeAlarms", conveyor.getActiveAlarms());
+        webSocketService.broadcastConnectionUpdated(new UpdateModel(conveyor.getId(), updates), timestamp);
+    }
+
+    private List<String> alarmAffectedItems(DomainEvent event) {
+        if (!(event instanceof AlarmRaisedEvent raised) || !raised.isStopsConveyor()) {
+            return List.of();
+        }
+        return liveItemRepository.getAllActiveItems().stream()
+                .filter(Objects::nonNull)
+                .filter(item -> raised.getConveyorId().equals(item.getPositionId())
+                        || (item.getPath() != null && item.getPath().contains(raised.getConveyorId())))
+                .map(RedisLiveItem::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     /**

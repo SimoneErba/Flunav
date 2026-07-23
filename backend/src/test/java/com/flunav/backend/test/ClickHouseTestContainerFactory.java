@@ -23,6 +23,9 @@ public final class ClickHouseTestContainerFactory {
                         MountableFile.forClasspathResource("init-clickhouse/007_item_summary.sql"),
                         "/docker-entrypoint-initdb.d/007_item_summary.sql")
                 .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("init-clickhouse/009_component_metrics.sql"),
+                        "/docker-entrypoint-initdb.d/009_component_metrics.sql")
+                .withCopyFileToContainer(
                         MountableFile.forClasspathResource("init-clickhouse/010_logs.sql"),
                         "/docker-entrypoint-initdb.d/010_logs.sql")
                 .withCopyFileToContainer(
@@ -32,8 +35,17 @@ public final class ClickHouseTestContainerFactory {
                         MountableFile.forClasspathResource("init-clickhouse/012_operational_analytics.sql"),
                         "/docker-entrypoint-initdb.d/012_operational_analytics.sql")
                 .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("init-clickhouse/013_alarm_analytics.sql"),
+                        "/docker-entrypoint-initdb.d/013_alarm_analytics.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("init-clickhouse/014_investigation_aggregates_1m.sql"),
+                        "/docker-entrypoint-initdb.d/014_investigation_aggregates_1m.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("init-clickhouse/015_investigation_backfill.sql"),
+                        "/docker-entrypoint-initdb.d/015_investigation_backfill.sql")
+                .withCopyFileToContainer(
                         MountableFile.forClasspathResource("init-clickhouse/004_analytics_count_mv.sql"),
-                        "/docker-entrypoint-initdb.d/013_analytics_count_mv.sql");
+                        "/docker-entrypoint-initdb.d/016_analytics_count_mv.sql");
     }
 
     public static ClickHouseContainer createSnapshotContainer() {

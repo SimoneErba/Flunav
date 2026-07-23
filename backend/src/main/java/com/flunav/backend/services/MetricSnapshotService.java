@@ -47,17 +47,20 @@ public class MetricSnapshotService {
      */
     @Scheduled(fixedRate = 10000)
     public void captureSystemSnapshot() {
-        // In a real multi-tenant scenario, iterate over all active simulation IDs here.
-        // For now, we grab the context-aware ID (or 'live' if null).
-        captureForSimulation(DatabaseContextHolder.getSimulationId());
+        captureAt(null, timeService.physicalNow());
     }
 
     public void captureForSimulation(String simulationId) {
-        if (simulationId == null) {
-            simulationId = "live"; // Default ID for live system
-        }
+        captureAt(simulationId, timeService.now());
+    }
 
-        Instant now = timeService.now();
+    /**
+     * Captures a deterministic metric boundary supplied by simulation playback.
+     * Live scheduling passes physical time, while callers in simulation context pass
+     * the virtual boundary.
+     */
+    public void captureAt(String simulationId, Instant now) {
+        String metricScope = simulationId != null ? simulationId : "live";
         List<Map<String, Object>> metricsBatch = new ArrayList<>();
 
         // 1. Snapshot Conveyors (Occupancy & Speed)
@@ -68,12 +71,14 @@ public class MetricSnapshotService {
             double speed = conveyor.getSpeed();
 
             // Add Occupancy Metric
-            metricsBatch.add(createMetricRow(now, simulationId, conveyor.getId(),
+            metricsBatch.add(createMetricRow(now, metricScope, conveyor.getId(),
                     "CONVEYOR", "OCCUPANCY", occupancy));
 
             // Add Speed Metric
-            metricsBatch.add(createMetricRow(now, simulationId, conveyor.getId(),
+            metricsBatch.add(createMetricRow(now, metricScope, conveyor.getId(),
                     "CONVEYOR", "SPEED", speed));
+            metricsBatch.add(createMetricRow(now, metricScope, conveyor.getId(),
+                    "CONVEYOR", "STATUS", conveyor.isActive() ? 1 : 0));
         }
 
         // 2. Snapshot Locations (Occupancy for Chutes/Queues)
@@ -82,8 +87,10 @@ public class MetricSnapshotService {
             if (location.getType() == LocationType.CHUTE || location.getType() == LocationType.ACCUMULATION) {
                 Long count = liveLocationRepo.getItemCount(location.getId());
 
-                metricsBatch.add(createMetricRow(now, simulationId, location.getId(),
+                metricsBatch.add(createMetricRow(now, metricScope, location.getId(),
                         "LOCATION", "OCCUPANCY", count));
+                metricsBatch.add(createMetricRow(now, metricScope, location.getId(),
+                        "LOCATION", "STATUS", Boolean.TRUE.equals(location.getActive()) ? 1 : 0));
             }
         }
 

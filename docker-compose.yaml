@@ -46,6 +46,7 @@ services:
       - SIMULATION_CAPACITY_MAX_BUILDING=1
       - SIMULATION_CAPACITY_MAX_ACTIVE_ITEMS=10000
       - SIMULATION_CAPACITY_MIN_FREE_MEMORY_BYTES=536870912
+      - APP_ASSISTANT_SERVICE_TOKEN=${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}
     volumes:
       - backend-logs:/var/log/flumen
     networks:
@@ -226,8 +227,309 @@ services:
       - backend
       - rabbitmq
 
+  assistant-postgres:
+    profiles: ["assistant"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trigger
+      POSTGRES_USER: trigger
+      POSTGRES_PASSWORD: ${ASSISTANT_POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - assistant-postgres-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "wal_level=logical"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trigger -d trigger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network]
+
+  assistant-electric:
+    profiles: ["assistant"]
+    image: electricsql/electric:1.2.4
+    environment:
+      DATABASE_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-change-me}@assistant-postgres:5432/trigger?sslmode=disable
+      ELECTRIC_INSECURE: "true"
+      ELECTRIC_USAGE_REPORTING: "false"
+    depends_on:
+      assistant-postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network]
+
+  assistant-redis:
+    profiles: ["assistant"]
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - assistant-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network]
+
+  assistant-clickhouse:
+    profiles: ["assistant"]
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_DB: trigger
+      CLICKHOUSE_USER: trigger
+      CLICKHOUSE_PASSWORD: ${ASSISTANT_CLICKHOUSE_PASSWORD:-change-me}
+    volumes:
+      - assistant-clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user trigger --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network]
+
+  assistant-s2-init:
+    profiles: ["assistant"]
+    image: busybox:1.37
+    environment:
+      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
+    command:
+      - sh
+      - -c
+      - |
+        cat > /config/s2-spec.json <<JSON
+        {
+          "basins": [
+            {
+              "name": "$$REALTIME_STREAMS_S2_BASIN",
+              "config": { "create_stream_on_append": true, "create_stream_on_read": true }
+            }
+          ]
+        }
+        JSON
+    volumes:
+      - assistant-s2-config:/config
+    networks: [assistant-network]
+
+  assistant-s2:
+    profiles: ["assistant"]
+    image: ghcr.io/s2-streamstore/s2:latest@sha256:d6ded5ca7dd619fa7c946f06e39a98f9c95c6883c8bb884e5eaa129f232c920c
+    user: "0:0"
+    command: ["lite", "--init-file", "/config/s2-spec.json", "--local-root", "/data"]
+    depends_on:
+      assistant-s2-init: { condition: service_completed_successfully }
+    volumes:
+      - assistant-s2-config:/config
+      - assistant-s2-data:/data
+    networks: [assistant-network]
+
+  assistant-object-storage:
+    profiles: ["assistant"]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${ASSISTANT_MINIO_USER:-flumen-trigger}
+      MINIO_ROOT_PASSWORD: ${ASSISTANT_MINIO_PASSWORD:-change-me-now}
+    volumes:
+      - assistant-object-storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network]
+
+  assistant-object-storage-init:
+    profiles: ["assistant"]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    environment:
+      MINIO_USER: ${ASSISTANT_MINIO_USER:-flumen-trigger}
+      MINIO_PASSWORD: ${ASSISTANT_MINIO_PASSWORD:-change-me-now}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        until mc alias set local http://assistant-object-storage:9000 "$$MINIO_USER" "$$MINIO_PASSWORD";
+        do sleep 1; done;
+        mc mb --ignore-existing local/packets
+    depends_on:
+      assistant-object-storage: { condition: service_healthy }
+    networks: [assistant-network]
+
+  assistant-registry:
+    profiles: ["assistant"]
+    image: registry:2.8.3
+    volumes:
+      - assistant-registry-data:/var/lib/registry
+    networks: [assistant-network]
+
+  assistant-socket-proxy:
+    profiles: ["assistant"]
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      POST: 1
+      VOLUMES: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [assistant-network]
+
+  assistant-trigger-webapp:
+    profiles: ["assistant"]
+    image: ghcr.io/triggerdotdev/trigger.dev:v4.5.7
+    environment:
+      APP_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      LOGIN_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      API_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      DATABASE_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-change-me}@assistant-postgres:5432/trigger?schema=public&sslmode=disable
+      DIRECT_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-change-me}@assistant-postgres:5432/trigger?schema=public&sslmode=disable
+      ELECTRIC_ORIGIN: http://assistant-electric:3000
+      REDIS_HOST: assistant-redis
+      REDIS_PORT: 6379
+      REDIS_TLS_DISABLED: "true"
+      CLICKHOUSE_URL: http://trigger:${ASSISTANT_CLICKHOUSE_PASSWORD:-change-me}@assistant-clickhouse:8123?secure=false
+      RUN_REPLICATION_ENABLED: 1
+      RUN_REPLICATION_CLICKHOUSE_URL: http://trigger:${ASSISTANT_CLICKHOUSE_PASSWORD:-change-me}@assistant-clickhouse:8123
+      OBJECT_STORE_BASE_URL: http://assistant-object-storage:9000
+      OBJECT_STORE_ACCESS_KEY_ID: ${ASSISTANT_MINIO_USER:-flumen-trigger}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${ASSISTANT_MINIO_PASSWORD:-change-me-now}
+      REALTIME_STREAMS_DEFAULT_VERSION: v2
+      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
+      REALTIME_STREAMS_S2_ENDPOINT: http://assistant-s2/v1
+      REALTIME_STREAMS_S2_SKIP_ACCESS_TOKENS: "true"
+      SESSION_SECRET: ${ASSISTANT_SESSION_SECRET:-replace-with-32-byte-secret}
+      MAGIC_LINK_SECRET: ${ASSISTANT_MAGIC_LINK_SECRET:-replace-with-32-byte-secret}
+      ENCRYPTION_KEY: ${ASSISTANT_ENCRYPTION_KEY:-replace-with-32-byte-secret}
+      PROVIDER_SECRET: ${ASSISTANT_PROVIDER_SECRET:-replace-with-provider-secret}
+      COORDINATOR_SECRET: ${ASSISTANT_COORDINATOR_SECRET:-replace-with-coordinator-secret}
+      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-replace-with-worker-secret}
+      DEPLOY_REGISTRY_HOST: assistant-registry:5000
+      DEPLOY_REGISTRY_NAMESPACE: flumen-trigger
+      TRIGGER_BOOTSTRAP_ENABLED: 1
+      TRIGGER_BOOTSTRAP_WORKER_GROUP_NAME: flumen-bootstrap
+      TRIGGER_BOOTSTRAP_WORKER_TOKEN_PATH: /home/node/shared/worker_token
+      TRIGGER_TELEMETRY_DISABLED: 1
+    user: root
+    command: ["sh", "-c", "chown -R node:node /home/node/shared && exec ./scripts/entrypoint.sh"]
+    volumes:
+      - assistant-trigger-shared:/home/node/shared
+    ports:
+      - "127.0.0.1:${ASSISTANT_TRIGGER_PORT:-8030}:3000"
+    depends_on:
+      assistant-postgres: { condition: service_healthy }
+      assistant-redis: { condition: service_healthy }
+      assistant-clickhouse: { condition: service_healthy }
+      assistant-electric: { condition: service_healthy }
+      assistant-s2: { condition: service_started }
+      assistant-object-storage-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "http.get('http://localhost:3000/healthcheck', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+    networks: [assistant-network]
+
+  assistant-trigger-supervisor:
+    profiles: ["assistant"]
+    image: ghcr.io/triggerdotdev/supervisor:v4.5.7
+    environment:
+      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
+      TRIGGER_WORKER_TOKEN: file:///home/node/shared/worker_token
+      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-replace-with-worker-secret}
+      DOCKER_HOST: tcp://assistant-socket-proxy:2375
+      TRIGGER_WORKLOAD_API_DOMAIN: assistant-trigger-supervisor
+      TRIGGER_WORKLOAD_API_PORT_EXTERNAL: 8020
+      DOCKER_RUNNER_NETWORKS: flumen-assistant,flumen-app
+      DOCKER_REGISTRY_URL: assistant-registry:5000
+      DOCKER_AUTOREMOVE_EXITED_CONTAINERS: 1
+      FLUMEN_BACKEND_URL: http://backend:8080
+      FLUMEN_SERVICE_TOKEN: ${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_SMALL_MODEL: ${GROQ_SMALL_MODEL:-openai/gpt-oss-20b}
+      GROQ_LARGE_MODEL: ${GROQ_LARGE_MODEL:-openai/gpt-oss-120b}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-2.5-flash}
+    user: root
+    command: ["sh", "-c", "chown -R node:node /home/node/shared && exec /usr/bin/dumb-init -- pnpm run --filter supervisor start"]
+    volumes:
+      - assistant-trigger-shared:/home/node/shared
+    depends_on:
+      assistant-trigger-webapp: { condition: service_healthy }
+      assistant-socket-proxy: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "http.get('http://localhost:8020/health', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+    networks: [assistant-network, app-network]
+
+  assistant-gateway:
+    profiles: ["assistant"]
+    build:
+      context: ./assistant
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8090
+      FLUMEN_BACKEND_URL: http://backend:8080
+      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
+      TRIGGER_PUBLIC_URL: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      TRIGGER_SECRET_KEY: ${ASSISTANT_TRIGGER_SECRET_KEY:-}
+    depends_on:
+      backend: { condition: service_started }
+      assistant-trigger-webapp: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [assistant-network, app-network]
+
+  assistant-task-deploy:
+    profiles: ["assistant"]
+    image: node:22-alpine
+    working_dir: /workspace
+    volumes:
+      - ./assistant:/workspace
+    environment:
+      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
+      TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
+      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
+    command: ["sh", "-c", "npm ci && npm run deploy"]
+    restart: "no"
+    depends_on:
+      assistant-trigger-webapp: { condition: service_healthy }
+    networks: [assistant-network]
+
+  trigger-dev:
+    profiles: ["assistant-dev"]
+    image: node:22-alpine
+    working_dir: /workspace
+    volumes:
+      - ./assistant:/workspace
+    environment:
+      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
+      TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
+      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
+      FLUMEN_BACKEND_URL: http://backend:8080
+      FLUMEN_SERVICE_TOKEN: ${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    command: ["sh", "-c", "npm ci && npm run dev"]
+    depends_on:
+      assistant-trigger-webapp: { condition: service_healthy }
+    networks: [assistant-network, app-network]
+
 networks:
   app-network:
+    name: flumen-app
+    driver: bridge
+  assistant-network:
+    name: flumen-assistant
     driver: bridge
 
 volumes:
@@ -240,3 +542,11 @@ volumes:
   certbot-www:
   backend-logs:
   vector-data:
+  assistant-postgres-data:
+  assistant-redis-data:
+  assistant-clickhouse-data:
+  assistant-object-storage-data:
+  assistant-registry-data:
+  assistant-s2-config:
+  assistant-s2-data:
+  assistant-trigger-shared:

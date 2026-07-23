@@ -16,6 +16,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -24,6 +26,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Value("${app.demo-mode:false}")
     private boolean demoMode;
+
+    @Value("${app.assistant.service-token:}")
+    private String assistantServiceToken;
 
     public JwtAuthenticationFilter(JwtUtils jwtUtils) {
         this.jwtUtils = jwtUtils;
@@ -52,6 +57,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             }
+        } else if (isValidAssistantServiceRequest(request)
+                && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                    "flumen-assistant", null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_VIEWER")));
+            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
         } else if (demoMode && SecurityContextHolder.getContext().getAuthentication() == null) {
             // In demo mode, if no token is provided, we set a default authentication
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
@@ -61,5 +72,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isValidAssistantServiceRequest(HttpServletRequest request) {
+        if (!request.getRequestURI().startsWith("/api/analytics/investigation/")
+                || assistantServiceToken == null || assistantServiceToken.isBlank()) {
+            return false;
+        }
+        String supplied = request.getHeader("X-Flumen-Service-Token");
+        return supplied != null && MessageDigest.isEqual(
+                assistantServiceToken.getBytes(StandardCharsets.UTF_8),
+                supplied.getBytes(StandardCharsets.UTF_8));
     }
 }
