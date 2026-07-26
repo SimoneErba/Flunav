@@ -12,7 +12,9 @@ import {
     DestinationExitMappingControllerApi,
     AuthControllerApi,
     UserControllerApi,
-    AnalyticsControllerApi
+    AnalyticsControllerApi,
+    InvestigationAnalyticsControllerApi,
+    AssistantGatewayControllerApi
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
 import { baseURL, CLIENT_ID } from '../api/config';
@@ -48,6 +50,14 @@ export const useApi = () => {
     const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const analyticsApi = useMemo(() => new AnalyticsControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const investigationAnalyticsApi = useMemo(
+        () => new InvestigationAnalyticsControllerApi(apiConfig, undefined, axiosInstance),
+        [apiConfig],
+    );
+    const assistantGatewayApi = useMemo(
+        () => new AssistantGatewayControllerApi(apiConfig, undefined, axiosInstance),
+        [apiConfig],
+    );
 
     return {
         graphApi,
@@ -62,6 +72,8 @@ export const useApi = () => {
         authApi,
         userApi,
         analyticsApi,
+        investigationAnalyticsApi,
+        assistantGatewayApi,
         clientId: CLIENT_ID,
     };
 };

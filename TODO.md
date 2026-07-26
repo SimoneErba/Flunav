@@ -184,3 +184,7 @@ avoid useless comments related to the promtp like "this was already correct". on
 avoid examples to explain concepts
 
 always give full code files dont omit things for brevity
+
+### trigger dev
+
+bring the volume so we dont have to recrate keys everytime? like bring postgres

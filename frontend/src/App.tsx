@@ -422,6 +422,7 @@ const AdminWorkspace = () => {
             {adminNavButton('Users', '/admin', !isDestinationMappings && !isBi, canAccessUsers)}
             {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
             {adminNavButton('BI', '/admin/bi', isBi, canAccessBi)}
+            {adminNavButton('Assistant', '/assistant', false, true)}
         </div>
     );
 

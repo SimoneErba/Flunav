@@ -13,6 +13,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -21,6 +23,9 @@ import java.security.MessageDigest;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+    private static final String ASSISTANT_API_PATH_PREFIX = "/api/assistant-api/";
 
     private final JwtUtils jwtUtils;
 
@@ -39,6 +44,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
+        final boolean assistantRequest = request.getRequestURI().startsWith(ASSISTANT_API_PATH_PREFIX);
 
         String username = null;
         String jwt = null;
@@ -56,7 +62,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
+                if (assistantRequest) {
+                    logger.info("Assistant API request authenticated for user {}", username);
+                }
+            } else if (assistantRequest) {
+                logger.warn("Assistant API request rejected because the bearer JWT is invalid");
             }
+        } else if (assistantRequest) {
+            logger.warn("Assistant API request rejected because the Authorization bearer token is missing");
         } else if (isValidAssistantServiceRequest(request)
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

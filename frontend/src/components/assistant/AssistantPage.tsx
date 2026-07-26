@@ -1,358 +1,133 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRealtimeRun } from '@trigger.dev/react-hooks';
+import { useChat } from '@ai-sdk/react';
+import { useTriggerChatTransport } from '@trigger.dev/sdk/chat/react';
+import type { UIMessage } from 'ai';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppHeader } from '../AppHeader';
 import { axiosInstance } from '../../api/axiosInstance';
 import { useAuth } from '../../context/auth.context';
 import { useSimulationContext } from '../../context/simulation.context';
+import { AppHeader } from '../AppHeader';
+import { InvestigationWidgets, type VisualAnswerDocument } from './InvestigationWidgets';
 
-type Alarm = {
-  alarmId: string;
-  conveyorId: string;
-  eventType: string;
-  severity: string;
-  typology: string;
-  stopsConveyor: boolean;
-  timestamp: string;
-};
+type AgentProgress = { label: string; percentage: number; status: string };
+type AgentMessage = UIMessage<unknown, { 'agent-progress': AgentProgress; 'visual-answer': VisualAnswerDocument }>;
+type PersistedMessage = { role: 'user' | 'assistant'; text: string; answer?: VisualAnswerDocument };
 
-type Summary = {
-  locations: number;
-  conveyors: number;
-  activeConveyors: number;
-  activeItems: number;
-  activeAlarms: number;
-  stoppingAlarms: number;
-};
-
-type Envelope<T> = { data: T; meta: { simulationId?: string }; error?: { message: string } };
-
-type Conversation = {
-  storageKey: string;
-  chatId: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  streamCursor?: string;
-  publicAccessToken?: string;
-};
-
-const loadConversation = (key: string): Conversation => {
-  const stored = localStorage.getItem(key);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as Partial<Conversation>;
-      const messages = Array.isArray(parsed.messages)
-        ? parsed.messages.filter((message): message is Conversation['messages'][number] => (
-          message !== null
-          && typeof message === 'object'
-          && (message.role === 'user' || message.role === 'assistant')
-          && typeof message.content === 'string'
-        ))
-        : null;
-      if (typeof parsed.chatId === 'string' && messages) {
-        return {
-          storageKey: key,
-          chatId: parsed.chatId,
-          messages,
-          streamCursor: typeof parsed.streamCursor === 'string' ? parsed.streamCursor : undefined,
-        };
-      }
-    } catch {
-      // Malformed browser-local history is discarded below.
-    }
-    localStorage.removeItem(key);
-  }
-  return { storageKey: key, chatId: crypto.randomUUID(), messages: [] };
-};
+const parseResponse = <T,>(value: unknown): T => typeof value === 'string' ? JSON.parse(value) as T : value as T;
 
 export const AssistantPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { activeSimulation } = useSimulationContext();
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [alarms, setAlarms] = useState<Alarm[]>([]);
-  const [servicesAvailable, setServicesAvailable] = useState(false);
+  const [available, setAvailable] = useState(false);
   const [triggerPublicUrl, setTriggerPublicUrl] = useState<string>();
-  const [question, setQuestion] = useState('');
+  const [prompt, setPrompt] = useState('');
   const scope = activeSimulation?.id ?? 'live';
-  const conversationKey = useMemo(
-    () => `flumen_assistant:${user?.username ?? 'anonymous'}:${scope}`,
-    [scope, user?.username],
-  );
-  const [conversation, setConversation] = useState<Conversation>(() => loadConversation(conversationKey));
+  const storageKey = useMemo(() => `flumen_assistant:${user?.username ?? 'anonymous'}:${scope}`, [scope, user?.username]);
+  const [chatId, setChatId] = useState(() => loadChat(storageKey).chatId);
+  const [history, setHistory] = useState<PersistedMessage[]>(() => loadChat(storageKey).history);
+  const [answer, setAnswer] = useState<VisualAnswerDocument | undefined>(() => loadChat(storageKey).answer);
 
   useEffect(() => {
-    setConversation(loadConversation(conversationKey));
-  }, [conversationKey]);
+    const saved = loadChat(storageKey);
+    setChatId(saved.chatId); setHistory(saved.history); setAnswer(saved.answer);
+  }, [storageKey]);
 
   useEffect(() => {
-    if (conversation.storageKey === conversationKey) {
-      const persistedConversation: Conversation = {
-        storageKey: conversation.storageKey,
-        chatId: conversation.chatId,
-        messages: conversation.messages,
-        streamCursor: conversation.streamCursor,
-      };
-      localStorage.setItem(conversationKey, JSON.stringify(persistedConversation));
-    }
-  }, [conversation, conversationKey]);
+    localStorage.setItem(storageKey, JSON.stringify({ chatId, history, answer }));
+  }, [answer, chatId, history, storageKey]);
 
   useEffect(() => {
-    const headers = activeSimulation?.id ? { 'X-Simulation-ID': activeSimulation.id } : undefined;
-    Promise.all([
-      axiosInstance.get<Envelope<Summary>>('/analytics/investigation/system/summary', { headers }),
-      axiosInstance.get<Envelope<Alarm[]>>('/analytics/investigation/alarms', { headers }),
-    ]).then(([summaryResponse, alarmResponse]) => {
-      setSummary(summaryResponse.data.data);
-      setAlarms(alarmResponse.data.data);
-    }).catch(() => {
-      setSummary(null);
-      setAlarms([]);
-    });
+    axiosInstance.get('/api/assistant-api/health', { validateStatus: () => true, timeout: 2500 })
+      .then(response => {
+        const data = parseResponse<{ status?: string; triggerPublicUrl?: string }>(response.data);
+        setAvailable(response.status === 200 && data.status === 'ok');
+        setTriggerPublicUrl(data.triggerPublicUrl);
+      }).catch(() => { setAvailable(false); setTriggerPublicUrl(undefined); });
+  }, [scope]);
 
-    axiosInstance.get('/assistant-api/health', {
-      timeout: 2500,
-      validateStatus: () => true,
-    }).then(response => {
-      setServicesAvailable(response.status === 200
-        && response.headers['content-type']?.includes('application/json')
-        && response.data?.status === 'ok');
-      setTriggerPublicUrl(typeof response.data?.triggerPublicUrl === 'string'
-        ? response.data.triggerPublicUrl
-        : undefined);
-    }).catch(() => {
-      setServicesAvailable(false);
-      setTriggerPublicUrl(undefined);
-    });
-  }, [activeSimulation?.id]);
+  const clientData = useMemo(() => ({
+    inheritedContext: answer ? { entityIds: answer.context.entityIds, selectedTimestamp: answer.context.selectedTimestamp } : undefined,
+  }), [answer]);
+  const transport = useTriggerChatTransport({
+    task: 'flumen-investigation-agent',
+    baseURL: triggerPublicUrl ?? import.meta.env.VITE_TRIGGER_PUBLIC_URL ?? 'http://localhost:8030',
+    clientData,
+    accessToken: async ({ chatId: sessionChatId }) => (await axiosInstance.post('/api/assistant-api/sessions/token', { chatId: sessionChatId, simulationId: activeSimulation?.id ?? null })).data.publicAccessToken,
+    startSession: async ({ chatId: sessionChatId, clientData: sessionClientData }) => (await axiosInstance.post('/api/assistant-api/sessions/start', {
+      chatId: sessionChatId,
+      simulationId: activeSimulation?.id ?? null,
+      clientData: sessionClientData,
+    })).data,
+  });
+  const { messages, sendMessage, stop: stopChat, status, error } = useChat<AgentMessage>({ id: chatId, transport });
+  const active = status === 'submitted' || status === 'streaming';
+  const latest = latestParts(messages);
+
+  useEffect(() => {
+    if (latest.answer) setAnswer(latest.answer);
+  }, [latest.answer]);
+
+  useEffect(() => {
+    if (active || !messages.length) return;
+    const completed = messages.flatMap(toPersistedMessage);
+    if (completed.length) setHistory(previous => mergeHistory(previous, completed));
+  }, [active, messages]);
 
   const submitQuestion = async () => {
-    const content = question.trim();
-    if (!content || !servicesAvailable || conversation.streamCursor) return;
-    const expectedConversationKey = conversationKey;
-    const chatId = conversation.chatId;
-    const simulationId = activeSimulation?.id ?? null;
-    setQuestion('');
-    setConversation(previous => ({
-      ...previous,
-      messages: [...previous.messages, { role: 'user', content }],
-    }));
-    try {
-      const response = await axiosInstance.post('/assistant-api/chat', {
-        chatId,
-        message: content,
-        simulationId,
-      });
-      setConversation(previous => ({
-        ...(previous.storageKey === expectedConversationKey ? {
-          ...previous,
-          messages: [...previous.messages, {
-            role: 'assistant' as const,
-            content: response.data.message ?? 'Investigation started.',
-          }],
-          streamCursor: response.data.runId,
-          publicAccessToken: response.data.publicAccessToken,
-        } : previous),
-      }));
-    } catch {
-      setServicesAvailable(false);
-      setConversation(previous => previous.storageKey === expectedConversationKey ? {
-        ...previous,
-        messages: [...previous.messages, {
-          role: 'assistant',
-          content: 'Assistant services are unavailable. Your question was not submitted.',
-        }],
-      } : previous);
-    }
+    const question = prompt.trim();
+    if (!question || active || !available) return;
+    setPrompt('');
+    await sendMessage({ text: question });
   };
+  const stop = useCallback(() => {
+    void transport.stopGeneration(chatId);
+    void axiosInstance.post('/api/assistant-api/sessions/stop', { chatId, simulationId: activeSimulation?.id ?? null });
+    void stopChat();
+  }, [activeSimulation?.id, chatId, stopChat, transport]);
 
-  useEffect(() => {
-    if (conversation.storageKey !== conversationKey
-      || !conversation.streamCursor
-      || conversation.publicAccessToken) {
-      return;
-    }
-    const expectedConversationKey = conversationKey;
-    axiosInstance.post('/assistant-api/token', {
-      runId: conversation.streamCursor,
-      chatId: conversation.chatId,
-      simulationId: activeSimulation?.id ?? null,
-    }).then(response => {
-      setConversation(previous => previous.storageKey === expectedConversationKey ? {
-        ...previous,
-        publicAccessToken: response.data.publicAccessToken,
-      } : previous);
-    }).catch(() => setServicesAvailable(false));
-  }, [
-    activeSimulation?.id,
-    conversation.chatId,
-    conversation.publicAccessToken,
-    conversation.storageKey,
-    conversation.streamCursor,
-    conversationKey,
-  ]);
+  const canAccessUsers = user?.role === 'SUPERADMIN';
+  const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+  const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+  const nav = (label: string, path: string, enabled: boolean, selected = false) => <button type="button" onClick={() => navigate(path)} disabled={!enabled} className={`rounded-md px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${selected ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-blue-400'}`}>{label}</button>;
+  const rendered = active || messages.length ? messages.flatMap(toPersistedMessage) : history;
 
-  const finishRun = (status: string, output: unknown) => {
-    const expectedConversationKey = conversationKey;
-    const successful = status === 'COMPLETED';
-    const message = successful && output && typeof output === 'object' && 'message' in output
-      && typeof output.message === 'string'
-      ? output.message
-      : successful ? 'Investigation completed.' : 'The investigation task could not complete.';
-    setConversation(previous => previous.storageKey === expectedConversationKey ? {
-      ...previous,
-      messages: [...previous.messages.slice(0, -1), { role: 'assistant', content: message }],
-      streamCursor: undefined,
-      publicAccessToken: undefined,
-    } : previous);
-  };
-
-  const latestByAlarm = Array.from(new Map(alarms.map(alarm => [alarm.alarmId, alarm])).values());
-
-  return (
-    <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-[#121212] dark:text-white">
-      <AppHeader
-        centerContent={<div className="font-semibold">FlowLens Assistant · {scope}</div>}
-        leftActions={(
-          <button type="button" onClick={() => navigate('/live')}
-            className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-gray-800">
-            Live workspace
-          </button>
-        )}
-      />
-      <main className="mx-auto grid w-full max-w-[1600px] flex-1 gap-5 p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(360px,.6fr)]">
-        <section className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MetricCard label="Active items" value={summary?.activeItems} />
-            <MetricCard label="Running conveyors" value={summary ? `${summary.activeConveyors}/${summary.conveyors}` : undefined} />
-            <MetricCard label="Stopping alarms" value={summary?.stoppingAlarms} warning={Boolean(summary?.stoppingAlarms)} />
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <h2 className="mb-4 text-lg font-semibold">Alarm timeline</h2>
-            {latestByAlarm.length === 0 ? (
-              <p className="text-sm text-gray-500">No alarm evidence in this scope and time window.</p>
-            ) : latestByAlarm.map(alarm => (
-              <div key={`${alarm.alarmId}-${alarm.eventType}`} className="mb-3 flex gap-4 border-l-2 border-amber-500 pl-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">{alarm.typology}</span>
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{alarm.severity}</span>
-                    {alarm.stopsConveyor && <span className="text-xs font-semibold text-red-600">STOPPING</span>}
-                  </div>
-                  <p className="text-sm text-gray-500">{alarm.conveyorId} · {alarm.eventType}</p>
-                </div>
-                <time className="text-xs text-gray-500">{new Date(alarm.timestamp).toLocaleString()}</time>
-              </div>
-            ))}
-          </div>
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <div className="border-b border-gray-200 px-5 py-4 font-semibold dark:border-gray-800">Evidence table</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-950">
-                  <tr><th className="px-5 py-3">Alarm</th><th className="px-5 py-3">Conveyor</th><th className="px-5 py-3">Evidence</th></tr>
-                </thead>
-                <tbody>{latestByAlarm.map(alarm => (
-                  <tr key={alarm.alarmId} className="border-t border-gray-100 dark:border-gray-800">
-                    <td className="px-5 py-3 font-mono text-xs">{alarm.alarmId}</td>
-                    <td className="px-5 py-3">{alarm.conveyorId}</td>
-                    <td className="px-5 py-3">{alarm.typology} is reported typology, not an asserted root cause.</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-        <aside className="flex min-h-[620px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <div className="border-b border-gray-200 p-5 dark:border-gray-800">
-            <h2 className="font-semibold">Investigation chat</h2>
-            {!servicesAvailable && (
-              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                Assistant services unavailable. Core Flumen analytics remain available.
-              </div>
-            )}
-          </div>
-          <div className="flex-1 space-y-3 overflow-y-auto p-5">
-            {conversation.streamCursor && triggerPublicUrl && (
-              <RealtimeRunStatus
-                runId={conversation.streamCursor}
-                accessToken={conversation.publicAccessToken}
-                baseURL={triggerPublicUrl}
-                onFinished={finishRun}
-              />
-            )}
-            {conversation.messages.map((message, index) => (
-              <div key={index} className={`rounded-lg p-3 text-sm ${
-                message.role === 'user' ? 'ml-8 bg-blue-600 text-white' : 'mr-8 bg-gray-100 dark:bg-gray-800'
-              }`}>{message.content}</div>
-            ))}
-          </div>
-          <div className="border-t border-gray-200 p-4 dark:border-gray-800">
-            <div className="flex gap-2">
-              <input value={question} onChange={event => setQuestion(event.target.value)}
-                onKeyDown={event => { if (event.key === 'Enter') void submitQuestion(); }}
-                disabled={!servicesAvailable || Boolean(conversation.streamCursor)}
-                placeholder="Ask about an alarm, item, or component…"
-                className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700" />
-              <button type="button" onClick={() => void submitQuestion()}
-                disabled={!servicesAvailable || !question.trim() || Boolean(conversation.streamCursor)}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Send</button>
-            </div>
-          </div>
-        </aside>
-      </main>
-    </div>
-  );
+  return <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-[#121212] dark:text-white">
+    <AppHeader centerContent={<div className="font-semibold">Assistant / {scope}</div>} leftActions={<div className="flex items-center gap-2">{nav('Live', '/live', true)}{nav('Users', '/admin', canAccessUsers)}{nav('Mappings', '/admin/destination-mappings', canAccessDestinationMappings)}{nav('BI', '/admin/bi', canAccessBi)}{nav('Assistant', '/assistant', true, true)}</div>} />
+    <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-6 pb-32">
+      {active && <Progress progress={latest.progress} onStop={stop} />}
+      <div className="space-y-4">{rendered.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === 'user' ? 'ml-auto max-w-[78%]' : 'mr-auto w-full'}><div className={`rounded-lg p-3 text-sm ${message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white shadow-sm dark:bg-gray-900'}`}>{message.text}</div>{message.role === 'assistant' && <InvestigationWidgets answer={message.answer ?? answer} />}</div>)}</div>
+    </main>
+    <form className="fixed inset-x-0 bottom-0 mx-auto flex w-full max-w-6xl flex-col gap-2 bg-gray-50 px-4 pb-6 pt-3 dark:bg-[#121212]" onSubmit={event => { event.preventDefault(); void submitQuestion(); }}>
+      {!available && <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">Assistant services are unavailable. Start the assistant gateway or check its configuration.</div>}
+      {error && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{error.message}</div>}
+      <div className="flex gap-2"><input value={prompt} onChange={event => setPrompt(event.target.value)} disabled={!available || active} placeholder="Ask about throughput, alarms, item journeys, or bottlenecks" className="min-w-0 flex-1 rounded-full border border-gray-300 bg-white px-5 py-3 text-sm shadow-sm outline-none focus:border-blue-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900" /><button type="submit" disabled={!available || !prompt.trim() || active} className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-40">Ask</button>{active && <button type="button" onClick={stop} className="rounded-full border border-red-300 px-5 py-3 text-sm font-semibold text-red-700 dark:border-red-800 dark:text-red-300">Stop</button>}</div>
+    </form>
+  </div>;
 };
 
-const MetricCard = ({ label, value, warning = false }: {
-  label: string;
-  value?: string | number;
-  warning?: boolean;
-}) => (
-  <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-2 text-3xl font-bold ${warning ? 'text-red-600' : ''}`}>{value ?? '—'}</div>
-  </div>
-);
+const Progress = ({ progress, onStop }: { progress?: AgentProgress; onStop: () => void }) => <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100"><div className="flex justify-between gap-3"><span>{progress?.label ?? 'Starting investigation…'}</span><button type="button" onClick={onStop} className="font-semibold underline">Stop</button></div><div className="mt-2 h-1.5 rounded bg-blue-100 dark:bg-blue-950"><div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.max(0, Math.min(100, progress?.percentage ?? 0))}%` }} /></div></div>;
 
-const TERMINAL_RUN_STATUSES = new Set([
-  'COMPLETED', 'FAILED', 'CRASHED', 'CANCELED', 'SYSTEM_FAILURE', 'INTERRUPTED', 'EXPIRED',
-]);
+function latestParts(messages: AgentMessage[]) {
+  let progress: AgentProgress | undefined; let answer: VisualAnswerDocument | undefined;
+  for (const message of messages) for (const part of message.parts) {
+    if (part.type === 'data-agent-progress') progress = part.data;
+    if (part.type === 'data-visual-answer') answer = part.data;
+  }
+  return { progress, answer };
+}
 
-const RealtimeRunStatus = ({ runId, accessToken, baseURL, onFinished }: {
-  runId: string;
-  accessToken?: string;
-  baseURL: string;
-  onFinished: (status: string, output: unknown) => void;
-}) => {
-  const completedRunRef = useRef<string>();
-  const { run, error } = useRealtimeRun(runId, {
-    accessToken,
-    baseURL,
-    enabled: Boolean(accessToken),
-  });
-  const status = String(run?.status ?? 'CONNECTING');
-  const progress = run?.metadata && typeof run.metadata.progress === 'number'
-    ? run.metadata.progress
-    : undefined;
+function toPersistedMessage(message: AgentMessage): PersistedMessage[] {
+  const text = message.parts.filter(part => part.type === 'text').map(part => part.text).join('').trim();
+  const answer = message.parts.find(part => part.type === 'data-visual-answer')?.data;
+  return message.role === 'user' || message.role === 'assistant' ? [{ role: message.role, text: text || (message.role === 'assistant' ? 'Investigation complete.' : ''), answer }] : [];
+}
 
-  useEffect(() => {
-    if (!run || !TERMINAL_RUN_STATUSES.has(status) || completedRunRef.current === runId) return;
-    completedRunRef.current = runId;
-    onFinished(status, run.output);
-  }, [onFinished, run, runId, status]);
+function loadChat(key: string): { chatId: string; history: PersistedMessage[]; answer?: VisualAnswerDocument } {
+  try { const parsed = JSON.parse(localStorage.getItem(key) ?? '{}') as Partial<{ chatId: string; history: PersistedMessage[]; answer: VisualAnswerDocument }>; return { chatId: typeof parsed.chatId === 'string' ? parsed.chatId : crypto.randomUUID(), history: Array.isArray(parsed.history) ? parsed.history : [], answer: parsed.answer }; } catch { return { chatId: crypto.randomUUID(), history: [] }; }
+}
 
-  return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
-      <div className="flex items-center justify-between gap-3">
-        <span>{error ? 'Realtime stream unavailable' : String(run?.metadata?.status ?? 'Connecting to investigation…')}</span>
-        <span>{progress !== undefined ? `${progress}%` : status.toLowerCase()}</span>
-      </div>
-      {progress !== undefined && (
-        <div className="mt-2 h-1.5 rounded bg-blue-100 dark:bg-blue-950">
-          <div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
-        </div>
-      )}
-    </div>
-  );
-};
+function mergeHistory(previous: PersistedMessage[], next: PersistedMessage[]) {
+  const serialized = new Set(previous.map(message => `${message.role}:${message.text}`));
+  return [...previous, ...next.filter(message => !serialized.has(`${message.role}:${message.text}`))].slice(-30);
+}

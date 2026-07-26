@@ -1,82 +1,65 @@
 import { createServer } from "node:http";
-import { auth, configure, runs, tasks } from "@trigger.dev/sdk";
+import { auth, configure, sessions } from "@trigger.dev/sdk";
 
 configure({
   secretKey: process.env.TRIGGER_SECRET_KEY,
   baseURL: process.env.TRIGGER_API_URL,
 });
 
-const sessions = new Map();
 const port = Number(process.env.PORT ?? 8090);
 const backendUrl = (process.env.FLUMEN_BACKEND_URL ?? "http://backend:8080").replace(/\/$/, "");
 const triggerPublicUrl = (process.env.TRIGGER_PUBLIC_URL ?? "http://localhost:8030").replace(/\/$/, "");
+const agentId = "flumen-investigation-agent";
 
 createServer(async (request, response) => {
   try {
-    const requestUrl = new URL(request.url ?? "/", "http://assistant-gateway");
+    const url = new URL(request.url ?? "/", "http://assistant-gateway");
     if (request.headers["x-forwarded-proto"] === "https" && !triggerPublicUrl.startsWith("https://")) {
-      return json(response, 503, {
-        error: "TRIGGER_PUBLIC_URL must use HTTPS when Flumen is served over HTTPS",
-      });
+      return json(response, 503, { error: "TRIGGER_PUBLIC_URL must use HTTPS when Flumen is served over HTTPS" });
     }
-    if (request.method === "GET" && requestUrl.pathname === "/health") {
-      return health(response);
-    }
+    if (request.method === "GET" && url.pathname === "/health") return health(response);
     const user = await authenticate(request);
-    if (request.method === "POST" && requestUrl.pathname === "/chat") {
-      const body = validateChatBody(await readJson(request));
-      const scope = body.simulationId ?? "live";
-      const key = `${user.username}:${scope}:${body.chatId}`;
-      const handle = await tasks.trigger("flumen-investigation", {
-        question: body.message,
-        username: user.username,
-        simulationId: body.simulationId,
-        chatId: body.chatId,
-      }, {
-        tags: [`user:${user.username}`, `scope:${scope}`, `chat:${body.chatId}`],
-        metadata: { username: user.username, simulationId: body.simulationId ?? null, chatId: body.chatId },
-        publicTokenOptions: { expirationTime: "15m" },
+    if (request.method === "POST" && url.pathname === "/sessions/start") {
+      const body = validateSessionBody(await readJson(request));
+      const existing = await ownedSession(body.chatId, user.username, body.simulationId);
+      if (existing) return json(response, 200, { publicAccessToken: await sessionToken(existing.id), chatId: body.chatId });
+      const created = await sessions.start({
+        type: "chat.agent",
+        externalId: body.chatId,
+        taskIdentifier: agentId,
+        tags: [`assistant-user:${user.username}`, `assistant-scope:${body.simulationId ?? "live"}`],
+        metadata: { username: user.username, simulationId: body.simulationId ?? null },
+        triggerConfig: {
+          idleTimeoutInSeconds: 30,
+          tags: [`chat:${body.chatId}`],
+          basePayload: {
+            messages: [],
+            trigger: "preload",
+            chatId: body.chatId,
+            metadata: body.clientData,
+          },
+        },
       });
-      sessions.set(key, { runId: handle.id, username: user.username, scope });
-      return json(response, 202, {
-        message: "Investigation started. Evidence and status will stream from the scoped run.",
-        runId: handle.id,
-        publicAccessToken: handle.publicAccessToken,
-      });
+      return json(response, 201, { publicAccessToken: created.publicAccessToken, chatId: body.chatId });
     }
-    if (request.method === "POST" && requestUrl.pathname === "/token") {
-      const body = validateRunBody(await readJson(request));
-      const scope = body.simulationId ?? "live";
-      const session = sessions.get(`${user.username}:${scope}:${body.chatId}`);
-      const run = await retrieveOwnedRun(body.runId, user.username, scope, body.chatId);
-      if (!run || (session && session.runId !== body.runId)) {
-        return json(response, 404, { error: "Session not found" });
-      }
-      const token = await auth.createPublicToken({
-        scopes: { read: { runs: [run.id] } },
-        expirationTime: "15m",
-      });
-      return json(response, 200, { publicAccessToken: token });
+    if (request.method === "POST" && url.pathname === "/sessions/token") {
+      const body = validateSessionBody(await readJson(request));
+      const session = await ownedSession(body.chatId, user.username, body.simulationId);
+      if (!session) return json(response, 404, { error: "Session not found" });
+      return json(response, 200, { publicAccessToken: await sessionToken(session.id), chatId: body.chatId });
     }
-    if (request.method === "GET" && requestUrl.pathname.startsWith("/runs/")) {
-      const runId = decodeURIComponent(requestUrl.pathname.slice("/runs/".length));
-      const scope = validateScope(requestUrl.searchParams.get("simulationId"));
-      const chatId = validateIdentifier(requestUrl.searchParams.get("chatId"), "chatId");
-      const run = await retrieveOwnedRun(runId, user.username, scope, chatId);
-      if (!run) return json(response, 404, { error: "Run not found" });
-      return json(response, 200, {
-        id: run.id,
-        status: run.status,
-        output: run.output,
-        metadata: run.metadata,
-      });
+    if (request.method === "POST" && url.pathname === "/sessions/stop") {
+      const body = validateSessionBody(await readJson(request));
+      const session = await ownedSession(body.chatId, user.username, body.simulationId);
+      if (!session) return json(response, 404, { error: "Session not found" });
+      await sessions.open(session.id).in.send({ kind: "stop", message: "Stopped by the authenticated user" });
+      return json(response, 202, { stopped: true });
     }
     return json(response, 404, { error: "Not found" });
   } catch (error) {
     const requestedStatus = Number(error?.status);
     const status = requestedStatus >= 400 && requestedStatus < 500 ? requestedStatus : 500;
-    const message = status === 500 ? "Assistant gateway failure" : error.message;
-    return json(response, status, { error: message });
+    return json(response, status, { error: status === 500 ? "Assistant gateway failure" : error.message });
   }
 }).listen(port);
 
@@ -90,14 +73,30 @@ async function authenticate(request) {
 
 async function health(response) {
   try {
-    const backendResponse = await fetch(`${backendUrl}/api/auth/me`, {
-      signal: AbortSignal.timeout(2000),
-    });
+    const backendResponse = await fetch(`${backendUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
     if (backendResponse.status >= 500) throw new Error("Backend unavailable");
-    return json(response, 200, { status: "ok", backend: "reachable", triggerPublicUrl });
+    return json(response, 200, { status: "ok", triggerPublicUrl, agentId });
   } catch {
-    return json(response, 503, { status: "unavailable", backend: "unreachable" });
+    return json(response, 503, { status: "unavailable" });
   }
+}
+
+async function ownedSession(chatId, username, simulationId) {
+  try {
+    const session = await sessions.retrieve(chatId);
+    const metadata = session.metadata && typeof session.metadata === "object" ? session.metadata : {};
+    if (metadata.username !== username || (metadata.simulationId ?? null) !== (simulationId ?? null)) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+async function sessionToken(sessionId) {
+  return auth.createPublicToken({
+    scopes: { read: { sessions: sessionId }, write: { sessions: sessionId } },
+    expirationTime: "15m",
+  });
 }
 
 async function readJson(request) {
@@ -113,42 +112,21 @@ async function readJson(request) {
   }
 }
 
-function json(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
-  response.end(JSON.stringify(body));
-}
-
-async function retrieveOwnedRun(runId, username, scope, chatId) {
-  if (typeof runId !== "string" || !runId.startsWith("run_")) return null;
-  const run = await runs.retrieve(runId);
-  const runMetadata = run.metadata && typeof run.metadata === "object" ? run.metadata : {};
-  if (runMetadata.username !== username) return null;
-  if (scope !== undefined && (runMetadata.simulationId ?? "live") !== scope) return null;
-  if (chatId !== undefined && runMetadata.chatId !== chatId) return null;
-  return run;
-}
-
-function validateChatBody(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw Object.assign(new Error("Invalid request body"), { status: 400 });
-  }
+function validateSessionBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw Object.assign(new Error("Invalid request body"), { status: 400 });
   const chatId = validateIdentifier(body.chatId, "chatId");
   const simulationId = validateScope(body.simulationId);
-  if (typeof body.message !== "string" || !body.message.trim() || body.message.length > 8000) {
-    throw Object.assign(new Error("message must contain between 1 and 8000 characters"), { status: 400 });
-  }
-  return { chatId, simulationId, message: body.message.trim() };
+  return { chatId, simulationId, clientData: sanitizeClientData(body.clientData) };
 }
 
-function validateRunBody(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw Object.assign(new Error("Invalid request body"), { status: 400 });
-  }
-  return {
-    runId: validateIdentifier(body.runId, "runId"),
-    chatId: validateIdentifier(body.chatId, "chatId"),
-    simulationId: validateScope(body.simulationId),
-  };
+function sanitizeClientData(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value;
+  const selected = source.selections && typeof source.selections === "object" && !Array.isArray(source.selections) ? source.selections : {};
+  const selections = Object.fromEntries(Object.entries(selected)
+    .filter(([key, entry]) => ["selectedComponentId", "selectedItemId", "selectedDestinationId", "selectedAlarmId", "selectedTimestamp"].includes(key)
+      && typeof entry === "string" && entry.length <= 160));
+  return Object.keys(selections).length ? { selections } : {};
 }
 
 function validateScope(value) {
@@ -157,8 +135,11 @@ function validateScope(value) {
 }
 
 function validateIdentifier(value, name) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
-    throw Object.assign(new Error(`${name} is invalid`), { status: 400 });
-  }
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw Object.assign(new Error(`${name} is invalid`), { status: 400 });
   return value;
+}
+
+function json(response, status, body) {
+  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  response.end(JSON.stringify(body));
 }

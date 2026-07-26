@@ -7,10 +7,14 @@
     "start": "node gateway/server.mjs",
     "dev": "trigger dev --api-url ${TRIGGER_API_URL}",
     "deploy": "trigger deploy --api-url ${TRIGGER_API_URL}",
+    "login-link": "bash scripts/trigger-login-link.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "4.5.7"
+    "@ai-sdk/openai": "^3.0.32",
+    "@trigger.dev/sdk": "4.5.7",
+    "ai": "^6.0.230",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@trigger.dev/build": "4.5.7",

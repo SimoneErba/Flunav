@@ -23,6 +23,7 @@ import com.flunav.backend.models.response.AlarmHistoryRecord;
 import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.services.ClickHouseService;
 import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.services.GraphService;
@@ -44,6 +45,7 @@ public class InvestigationAnalyticsController {
     private final TimeService timeService;
     private final ItemService itemService;
     private final RoutingDecisionService routingDecisionService;
+    private final LiveSimulationRepository liveSimulationRepository;
 
     public InvestigationAnalyticsController(
             GraphService graphService,
@@ -53,7 +55,8 @@ public class InvestigationAnalyticsController {
             ThroughputBucketService throughputBucketService,
             TimeService timeService,
             ItemService itemService,
-            RoutingDecisionService routingDecisionService) {
+            RoutingDecisionService routingDecisionService,
+            LiveSimulationRepository liveSimulationRepository) {
         this.graphService = graphService;
         this.conveyorService = conveyorService;
         this.liveItemRepository = liveItemRepository;
@@ -62,6 +65,7 @@ public class InvestigationAnalyticsController {
         this.timeService = timeService;
         this.itemService = itemService;
         this.routingDecisionService = routingDecisionService;
+        this.liveSimulationRepository = liveSimulationRepository;
     }
 
     public record Envelope<T>(T data, Meta meta, ApiError error) {
@@ -77,8 +81,12 @@ public class InvestigationAnalyticsController {
     public record ApiError(String code, String message) {
     }
 
+    public record ThroughputComparison(long entered, long exited, long baselineEntered, long baselineExited) {
+    }
+
     public record SystemSummary(long locations, long conveyors, long activeConveyors, long activeItems,
-            long activeAlarms, long stoppingAlarms) {
+            long activeAlarms, long stoppingAlarms, List<ThroughputMetric> throughput,
+            ThroughputComparison comparison) {
     }
 
     public record AlarmInvestigation(String alarmId, List<AlarmHistoryRecord> history,
@@ -100,6 +108,10 @@ public class InvestigationAnalyticsController {
     public record DestinationSummary(String destinationId, long assignedItems, long candidateItems) {
     }
 
+    public record SimulationSummary(String simulationId, Instant restoreTimestamp, String status,
+            Instant lastProcessedTimestamp, double speedFactor, double buildProgress) {
+    }
+
     public record RerouteOption(String itemId, String conveyorId, String destinationId,
             List<String> path, int availableCapacity, boolean advisoryOnly) {
     }
@@ -108,8 +120,16 @@ public class InvestigationAnalyticsController {
             List<String> committedItems, boolean preservesAssignedDestination, boolean advisoryOnly) {
     }
 
+    /**
+     * Reads throughput through the active live or simulation context so the
+     * comparison window never mixes projected simulation facts into live history.
+     */
     @GetMapping("/system/summary")
-    public Envelope<SystemSummary> systemSummary() {
+    public CompletableFuture<Envelope<SystemSummary>> systemSummary(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "60") int bucketSeconds) {
+        Window window = window(from, to, bucketSeconds);
         GraphData graph = graphService.getGraphData();
         long activeConveyors = graph.getConveyors().stream().filter(edge -> Boolean.TRUE.equals(edge.getActive())).count();
         long activeAlarms = graph.getConveyors().stream()
@@ -118,14 +138,52 @@ public class InvestigationAnalyticsController {
                 .filter(edge -> edge.getActiveAlarms() != null)
                 .flatMap(edge -> edge.getActiveAlarms().stream())
                 .filter(alarm -> alarm.isStopsConveyor()).count();
-        return Envelope.ok(new SystemSummary(
+        String simulationId = DatabaseContextHolder.getSimulationId();
+        CompletableFuture<List<ThroughputMetric>> current = simulationId == null
+                ? clickHouseService.getThroughputHistory(window.from(), window.to(), bucketSeconds)
+                : throughputBucketService.getSimulationHistory(simulationId, window.from(), window.to(), bucketSeconds);
+        Instant baselineFrom = window.from().minusSeconds(window.to().getEpochSecond() - window.from().getEpochSecond());
+        CompletableFuture<List<ThroughputMetric>> baseline = simulationId == null
+                ? clickHouseService.getThroughputHistory(baselineFrom, window.from(), bucketSeconds)
+                : throughputBucketService.getSimulationHistory(simulationId, baselineFrom, window.from(), bucketSeconds);
+        return current.thenCombine(baseline, (throughput, baselineThroughput) -> Envelope.ok(new SystemSummary(
                 graph.getLocations().size(), graph.getConveyors().size(), activeConveyors,
-                graph.getItems().size(), activeAlarms, stoppingAlarms));
+                graph.getItems().size(), activeAlarms, stoppingAlarms, throughput,
+                new ThroughputComparison(sumEntered(throughput), sumExited(throughput),
+                        sumEntered(baselineThroughput), sumExited(baselineThroughput)))));
     }
 
     @GetMapping("/topology")
     public Envelope<GraphData> topology() {
         return Envelope.ok(graphService.getGraphData());
+    }
+
+    /**
+     * Projects a graph at a requested point using the active context's virtual
+     * clock and disables cleanup, preserving replay state while ensuring callers
+     * cannot inspect future live or simulation positions.
+     */
+    @GetMapping("/system/snapshot")
+    public Envelope<GraphData> snapshotAt(@RequestParam Instant at) {
+        Instant current = timeService.now();
+        if (at.isAfter(current)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "snapshot time must not be after the active context clock");
+        }
+        return Envelope.ok(graphService.getGraphData(at, false, DatabaseContextHolder.getSimulationId(), true));
+    }
+
+    /**
+     * Exposes only persisted simulation metadata; runtime state remains isolated
+     * in its own Redis and OrientDB namespaces until a caller explicitly scopes a
+     * later semantic operation with that simulation id.
+     */
+    @GetMapping("/simulations")
+    public Envelope<List<SimulationSummary>> simulations() {
+        return Envelope.ok(liveSimulationRepository.getAllSimulationStates().stream()
+                .map(state -> new SimulationSummary(state.simulationId(), state.timestamp(), state.status().name(),
+                        state.lastProcessedTimestamp(), state.speedFactor(), state.buildProgress()))
+                .toList());
     }
 
     @GetMapping("/alarms")
@@ -308,5 +366,13 @@ public class InvestigationAnalyticsController {
     }
 
     private record Window(Instant from, Instant to) {
+    }
+
+    private long sumEntered(List<ThroughputMetric> metrics) {
+        return metrics.stream().mapToLong(ThroughputMetric::getItemsEntered).sum();
+    }
+
+    private long sumExited(List<ThroughputMetric> metrics) {
+        return metrics.stream().mapToLong(ThroughputMetric::getItemsExited).sum();
     }
 }

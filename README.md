@@ -85,6 +85,29 @@ The simulation clock is persisted as `lastProcessedTimestamp`. Playback advances
 
 Playback speed changes are rescheduled through the same pause/resume cancellation path. When speed changes while a simulation is `PLAYING`, the backend cancels the active playback worker as an internal reschedule, keeps the simulation status as `PLAYING`, checkpoints active conveyor items at the current playback anchor, recalculates item movement schedules, and starts a new playback worker from the same timestamp with the new speed. When speed changes while the simulation is `READY`, `PAUSED`, or `STOPPED`, the backend only stores and broadcasts the new speed; it does not start playback.
 
+## Running
+
+For installation or packaged deployment, start the complete Docker stack:
+
+```bash
+docker compose -f docker-compose.install.yaml up -d
+```
+
+For local development, start the backing services and Trigger.dev without backend, frontend, or nginx:
+
+```bash
+docker compose -f docker-compose.dev.yaml up -d
+```
+
+Then run the backend and frontend from the host:
+
+```bash
+cd backend
+./mvnw spring-boot:run
+cd ../frontend
+pnpm run dev
+```
+
 ## Logging
 
 The backend emits JSON logs to the console and writes `INFO+` records asynchronously to `LOG_PATH` (`logs` by default). Vector buffers records on disk and forwards them to `default.logs` in ClickHouse, where operational logs are retained for 30 days.
@@ -100,13 +123,13 @@ The two host directories are mounted read-only into Vector. Vector reads existin
 Useful ingestion diagnostics:
 
 ```bash
-docker compose config
-docker compose exec vector vector validate /etc/vector/vector.yaml
-docker compose logs --tail=100 vector
-docker compose exec clickhouse sh -c 'clickhouse-client \
+docker compose -f docker-compose.install.yaml config
+docker compose -f docker-compose.install.yaml exec vector vector validate /etc/vector/vector.yaml
+docker compose -f docker-compose.install.yaml logs --tail=100 vector
+docker compose -f docker-compose.install.yaml exec clickhouse sh -c 'clickhouse-client \
   --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
   --query "SELECT count(), min(timestamp), max(timestamp) FROM default.logs"'
-docker compose exec clickhouse sh -c 'clickhouse-client \
+docker compose -f docker-compose.install.yaml exec clickhouse sh -c 'clickhouse-client \
   --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
   --query "SELECT timestamp, level, environment, logger, message FROM default.logs ORDER BY timestamp DESC LIMIT 20"'
 ```

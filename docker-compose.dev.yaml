@@ -1,92 +1,19 @@
 services:
-  frontend:
-    image: ghcr.io/simoneerba/flunav-frontend:v0.1.4
-    container_name: flunav_frontend
-    # No ports exposed. Nginx will talk to this container on port 80.
-    depends_on:
-      - backend
-    networks:
-      - app-network
-
-  backend:
-    # Uses the image built locally via 'mvn jib:dockerBuild'
-    image: ghcr.io/simoneerba/flunav-backend:v0.1.4
-    container_name: flunav_backend
-    mem_limit: ${BACKEND_MEMORY_LIMIT}
-    # 🔒 SECURED: No ports exposed to host. Nginx proxies to port 8080 internally.
-    depends_on:
-      orientdb:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    environment:
-      - SPRING_APPLICATION_NAME=backend
-      - SPRING_PROFILES_ACTIVE=docker
-      - ORIENTDB_URL=remote:orientdb/main
-      - ORIENTDB_USERNAME=root
-      - ORIENTDB_PASSWORD=${ORIENTDB_ROOT_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_RABBITMQ_PORT=5672
-      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USER}
-      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASS}
-      - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB}
-      - CLICKHOUSE_USERNAME=${CLICKHOUSE_USER}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-      - LOG_PATH=/var/log/flumen
-      - APPLICATION_NAME=backend
-      - APPLICATION_ENVIRONMENT=docker
-      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0
-      - SIMULATION_CAPACITY_MAX_ACTIVE=3
-      - SIMULATION_CAPACITY_MAX_BUILDING=1
-      - SIMULATION_CAPACITY_MAX_ACTIVE_ITEMS=10000
-      - SIMULATION_CAPACITY_MIN_FREE_MEMORY_BYTES=536870912
-      - APP_ASSISTANT_GATEWAY_URL=http://assistant-gateway:8090
-      - APP_ASSISTANT_SERVICE_TOKEN=${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
-    volumes:
-      - backend-logs:/var/log/flumen
-    networks:
-      - app-network
-
-  vector:
-    image: timberio/vector:0.51.1-alpine
-    container_name: flunav_vector
-    restart: always
-    environment:
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB}
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-    volumes:
-      - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
-      - backend-logs:/var/log/flumen:ro
-      - ./logs:/var/log/flumen-host:ro
-      - ./backend/logs:/var/log/flumen-backend-host:ro
-      - vector-data:/var/lib/vector
-    command: ["--config", "/etc/vector/vector.yaml"]
-    networks:
-      - app-network
-
   orientdb:
     image: orientdb:3.2.50
-    container_name: flunav_orientdb
-    mem_limit: ${ORIENTDB_MEMORY_LIMIT}
+    container_name: flunav_dev_orientdb
+    mem_limit: ${ORIENTDB_MEMORY_LIMIT:-2g}
     environment:
-      ORIENTDB_ROOT_PASSWORD: ${ORIENTDB_ROOT_PASSWORD}
-      ORIENTDB_OPTS_MEMORY: ${ORIENTDB_HEAP_OPTS}
+      ORIENTDB_ROOT_PASSWORD: Flun4v!
+      ORIENTDB_OPTS_MEMORY: ${ORIENTDB_HEAP_OPTS:--Xms1g -Xmx1g}
       ORIENTDB_NETWORK_HOST: "0.0.0.0"
     ports:
-      # 🔒 SECURED: Only accessible via SSH Tunnel (localhost)
-      - "127.0.0.1:${ORIENTDB_BINARY_PORT}:2424"
-      - "127.0.0.1:${ORIENTDB_HTTP_PORT}:2480"
+      - "127.0.0.1:2424:2424"
+      - "127.0.0.1:2480:2480"
     volumes:
       - ./docker/orientdb/init:/docker-entrypoint-initdb.d
-      - orientdb-data:/orientdb/databases
-      - orientdb-config:/orientdb/config
+      - orientdb-dev-data:/orientdb/databases
+      - orientdb-dev-config:/orientdb/config
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2480"]
       interval: 10s
@@ -99,23 +26,21 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.12.3.21
-    container_name: flunav_clickhouse
-    mem_limit: ${CLICKHOUSE_MEMORY_LIMIT}
+    container_name: flunav_dev_clickhouse
+    mem_limit: ${CLICKHOUSE_MEMORY_LIMIT:-4g}
     restart: always
     ports:
-      # 🔒 SECURED: Only accessible via SSH Tunnel
-      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT}:8123"
-      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT}:9000"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
-      - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - clickhouse-dev-data:/var/lib/clickhouse
       - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
       - ./docker/clickhouse/init-clickhouse:/docker-entrypoint-initdb.d/
     environment:
       CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: Flun4v!
+      CLICKHOUSE_DB: default
     healthcheck:
       test:
         - CMD-SHELL
@@ -134,20 +59,18 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.12-management
-    container_name: flunav_rabbitmq
-    mem_limit: ${RABBITMQ_MEMORY_LIMIT}
+    container_name: flunav_dev_rabbitmq
+    mem_limit: ${RABBITMQ_MEMORY_LIMIT:-1g}
     restart: always
     ports:
-      # 🔒 SECURED: AMQP (5672) removed. Only internal containers can connect.
-      # UI (15672) locked to localhost for SSH Tunneling.
       - "127.0.0.1:5672:5672"
-      - "127.0.0.1:${RABBITMQ_UI_PORT}:15672"
+      - "127.0.0.1:15672:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: Flun4v!
     volumes:
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
-      - rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq-dev-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 30s
@@ -159,139 +82,113 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-    container_name: flunav_redis
-    mem_limit: ${REDIS_MEMORY_LIMIT}
-    # 🔒 SECURED: No ports exposed. Only Backend can talk to Redis.
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY}", "--maxmemory-policy", "noeviction"]
+    container_name: flunav_dev_redis
+    mem_limit: ${REDIS_MEMORY_LIMIT:-2g}
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
     volumes:
-      - redis_data:/data
+      - redis-dev-data:/data
     ports:
-    # expose only to localhost so Java apps on host can connect
-    - "127.0.0.1:6379:6379"
+      - "127.0.0.1:6379:6379"
     networks:
       - app-network
 
   redis-commander:
     image: rediscommander/redis-commander:latest
     restart: always
-    container_name: flunav_redis_ui
+    container_name: flunav_dev_redis_ui
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      REDIS_HOSTS: local:redis:6379
     ports:
-      # 🔒 SECURED: Admin UI locked to localhost
-      - "127.0.0.1:${REDIS_UI_PORT}:8081"
+      - "127.0.0.1:8081:8081"
     depends_on:
       - redis
     networks:
       - app-network
 
-  nginx:
-    image: nginx:alpine
-    container_name: flunav-nginx
+  vector:
+    image: timberio/vector:0.51.1-alpine
+    container_name: flunav_dev_vector
     restart: always
-    ports:
-      # 🌍 PUBLIC: These are the ONLY ports exposed to the internet
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - certbot-etc:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    depends_on:
-      - backend
-      - frontend
-    networks:
-      - app-network
-
-  certbot:
-    image: certbot/certbot
-    container_name: flunav_certbot
-    volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    command: renew --quiet --wait 30
-  
-  simulator:
-    image: ghcr.io/simoneerba/flunav-simulator:latest
-    container_name: flunav_simulator
-    restart: on-failure 
     environment:
-      - SIMULATION_MODE=${SIMULATOR_MODE}
-      - SIMULATION_ACTION=${SIMULATOR_ACTION}
-      - BASE_URL=http://backend:8080/api
-      - RABBIT_HOST=rabbitmq
-    command: ["${SIMULATOR_TYPE}"]   
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: Flun4v!
+    volumes:
+      - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - ./logs:/var/log/flumen-host:ro
+      - ./backend/logs:/var/log/flumen-backend-host:ro
+      - vector-dev-data:/var/lib/vector
+    command: ["--config", "/etc/vector/vector.yaml"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
     networks:
       - app-network
-    
-    depends_on:
-      - backend
-      - rabbitmq
 
   assistant-postgres:
-    profiles: ["assistant"]
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: trigger
       POSTGRES_USER: trigger
       POSTGRES_PASSWORD: ${ASSISTANT_POSTGRES_PASSWORD:-Flun4v!}
     volumes:
-      - assistant-postgres-data:/var/lib/postgresql/data
+      - assistant-postgres-dev-data:/var/lib/postgresql/data
     command: ["postgres", "-c", "wal_level=logical"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trigger -d trigger"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-electric:
-    profiles: ["assistant"]
     image: electricsql/electric:1.2.4
     environment:
       DATABASE_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-Flun4v!}@assistant-postgres:5432/trigger?sslmode=disable
       ELECTRIC_INSECURE: "true"
       ELECTRIC_USAGE_REPORTING: "false"
     depends_on:
-      assistant-postgres: { condition: service_healthy }
+      assistant-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-redis:
-    profiles: ["assistant"]
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - assistant-redis-data:/data
+      - assistant-redis-dev-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-clickhouse:
-    profiles: ["assistant"]
     image: clickhouse/clickhouse-server:25.12.3.21
     environment:
       CLICKHOUSE_DB: trigger
       CLICKHOUSE_USER: trigger
       CLICKHOUSE_PASSWORD: ${ASSISTANT_CLICKHOUSE_PASSWORD:-Flun4v!}
     volumes:
-      - assistant-clickhouse-data:/var/lib/clickhouse
+      - assistant-clickhouse-dev-data:/var/lib/clickhouse
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-client --user trigger --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-s2-init:
-    profiles: ["assistant"]
     image: busybox:1.37
     environment:
       REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
@@ -310,39 +207,40 @@ services:
         }
         JSON
     volumes:
-      - assistant-s2-config:/config
-    networks: [assistant-network]
+      - assistant-s2-dev-config:/config
+    networks:
+      - assistant-network
 
   assistant-s2:
-    profiles: ["assistant"]
     image: ghcr.io/s2-streamstore/s2:latest@sha256:d6ded5ca7dd619fa7c946f06e39a98f9c95c6883c8bb884e5eaa129f232c920c
     user: "0:0"
     command: ["lite", "--init-file", "/config/s2-spec.json", "--local-root", "/data"]
     depends_on:
-      assistant-s2-init: { condition: service_completed_successfully }
+      assistant-s2-init:
+        condition: service_completed_successfully
     volumes:
-      - assistant-s2-config:/config
-      - assistant-s2-data:/data
-    networks: [assistant-network]
+      - assistant-s2-dev-config:/config
+      - assistant-s2-dev-data:/data
+    networks:
+      - assistant-network
 
   assistant-object-storage:
-    profiles: ["assistant"]
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${ASSISTANT_MINIO_USER:-admin}
       MINIO_ROOT_PASSWORD: ${ASSISTANT_MINIO_PASSWORD:-Flun4v!Minio}
     volumes:
-      - assistant-object-storage-data:/data
+      - assistant-object-storage-dev-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-object-storage-init:
-    profiles: ["assistant"]
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     environment:
       MINIO_USER: ${ASSISTANT_MINIO_USER:-admin}
@@ -355,18 +253,19 @@ services:
         do sleep 1; done;
         mc mb --ignore-existing local/packets
     depends_on:
-      assistant-object-storage: { condition: service_healthy }
-    networks: [assistant-network]
+      assistant-object-storage:
+        condition: service_healthy
+    networks:
+      - assistant-network
 
   assistant-registry:
-    profiles: ["assistant"]
     image: registry:2.8.3
     volumes:
-      - assistant-registry-data:/var/lib/registry
-    networks: [assistant-network]
+      - assistant-registry-dev-data:/var/lib/registry
+    networks:
+      - assistant-network
 
   assistant-socket-proxy:
-    profiles: ["assistant"]
     image: tecnativa/docker-socket-proxy:0.3.0
     environment:
       CONTAINERS: 1
@@ -376,15 +275,16 @@ services:
       VOLUMES: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [assistant-network]
+    networks:
+      - assistant-network
 
   assistant-trigger-webapp:
-    profiles: ["assistant"]
     image: ghcr.io/triggerdotdev/trigger.dev:v4.5.7
     environment:
       APP_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
       LOGIN_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
-      API_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      API_ORIGIN: http://assistant-trigger-webapp:3000
+      DEV_ENGINE_URL: http://assistant-trigger-webapp:3000
       DATABASE_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-Flun4v!}@assistant-postgres:5432/trigger?schema=public&sslmode=disable
       DIRECT_URL: postgresql://trigger:${ASSISTANT_POSTGRES_PASSWORD:-Flun4v!}@assistant-postgres:5432/trigger?schema=public&sslmode=disable
       ELECTRIC_ORIGIN: http://assistant-electric:3000
@@ -416,26 +316,58 @@ services:
     user: root
     command: ["sh", "-c", "chown -R node:node /home/node/shared && exec ./scripts/entrypoint.sh"]
     volumes:
-      - assistant-trigger-shared:/home/node/shared
+      - assistant-trigger-dev-shared:/home/node/shared
     ports:
       - "127.0.0.1:${ASSISTANT_TRIGGER_PORT:-8030}:3000"
     depends_on:
-      assistant-postgres: { condition: service_healthy }
-      assistant-redis: { condition: service_healthy }
-      assistant-clickhouse: { condition: service_healthy }
-      assistant-electric: { condition: service_healthy }
-      assistant-s2: { condition: service_started }
-      assistant-object-storage-init: { condition: service_completed_successfully }
+      assistant-postgres:
+        condition: service_healthy
+      assistant-redis:
+        condition: service_healthy
+      assistant-clickhouse:
+        condition: service_healthy
+      assistant-electric:
+        condition: service_healthy
+      assistant-s2:
+        condition: service_started
+      assistant-object-storage-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "http.get('http://localhost:3000/healthcheck', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 10s
-    networks: [assistant-network]
+    networks:
+      - assistant-network
+
+  assistant-gateway:
+    build:
+      context: ./assistant
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8090
+      FLUMEN_BACKEND_URL: http://host.docker.internal:8080
+      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
+      TRIGGER_PUBLIC_URL: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
+      TRIGGER_SECRET_KEY: ${ASSISTANT_TRIGGER_SECRET_KEY:-}
+    ports:
+      - "127.0.0.1:${ASSISTANT_GATEWAY_PORT:-8090}:8090"
+    depends_on:
+      assistant-trigger-webapp:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - assistant-network
+      - app-network
 
   assistant-trigger-supervisor:
-    profiles: ["assistant"]
     image: ghcr.io/triggerdotdev/supervisor:v4.5.7
     environment:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
@@ -445,10 +377,10 @@ services:
       TRIGGER_WORKLOAD_API_DOMAIN: assistant-trigger-supervisor
       TRIGGER_WORKLOAD_API_PORT_EXTERNAL: 8020
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
-      DOCKER_RUNNER_NETWORKS: flumen-assistant,flumen-app
+      DOCKER_RUNNER_NETWORKS: flumen-dev-assistant,flumen-dev-app
       DOCKER_REGISTRY_URL: assistant-registry:5000
       DOCKER_AUTOREMOVE_EXITED_CONTAINERS: 1
-      FLUMEN_BACKEND_URL: http://backend:8080
+      FLUMEN_BACKEND_URL: http://host.docker.internal:8080
       FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -458,57 +390,25 @@ services:
     user: root
     command: ["sh", "-c", "chown -R node:node /home/node/shared && exec /usr/bin/dumb-init -- pnpm run --filter supervisor start"]
     volumes:
-      - assistant-trigger-shared:/home/node/shared
+      - assistant-trigger-dev-shared:/home/node/shared
     depends_on:
-      assistant-trigger-webapp: { condition: service_healthy }
-      assistant-socket-proxy: { condition: service_started }
+      assistant-trigger-webapp:
+        condition: service_healthy
+      assistant-socket-proxy:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "node", "-e", "http.get('http://localhost:8020/health', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 10s
-    networks: [assistant-network, app-network]
-
-  assistant-gateway:
-    profiles: ["assistant"]
-    build:
-      context: ./assistant
-      dockerfile: Dockerfile
-    environment:
-      PORT: 8090
-      FLUMEN_BACKEND_URL: http://backend:8080
-      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
-      TRIGGER_PUBLIC_URL: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
-      TRIGGER_SECRET_KEY: ${ASSISTANT_TRIGGER_SECRET_KEY:-}
-    depends_on:
-      backend: { condition: service_started }
-      assistant-trigger-webapp: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [assistant-network, app-network]
-
-  assistant-task-deploy:
-    profiles: ["assistant"]
-    image: node:22-alpine
-    working_dir: /workspace
-    volumes:
-      - ./assistant:/workspace
-    environment:
-      TRIGGER_API_URL: http://assistant-trigger-webapp:3000
-      TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
-      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
-    command: ["sh", "-c", "npm ci && npm run deploy"]
-    restart: "no"
-    depends_on:
-      assistant-trigger-webapp: { condition: service_healthy }
-    networks: [assistant-network]
+    networks:
+      - assistant-network
+      - app-network
 
   trigger-dev:
-    profiles: ["assistant-dev"]
     image: node:22-alpine
     working_dir: /workspace
     volumes:
@@ -517,38 +417,40 @@ services:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
       TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
-      FLUMEN_BACKEND_URL: http://backend:8080
+      FLUMEN_BACKEND_URL: http://host.docker.internal:8080
       FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     command: ["sh", "-c", "npm ci && npm run dev"]
     depends_on:
-      assistant-trigger-webapp: { condition: service_healthy }
-    networks: [assistant-network, app-network]
+      assistant-trigger-webapp:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - assistant-network
+      - app-network
 
 networks:
   app-network:
-    name: flumen-app
+    name: flumen-dev-app
     driver: bridge
   assistant-network:
-    name: flumen-assistant
+    name: flumen-dev-assistant
     driver: bridge
 
 volumes:
-  orientdb-data:
-  orientdb-config:
-  clickhouse-data:
-  rabbitmq_data:
-  redis_data:
-  certbot-etc:
-  certbot-www:
-  backend-logs:
-  vector-data:
-  assistant-postgres-data:
-  assistant-redis-data:
-  assistant-clickhouse-data:
-  assistant-object-storage-data:
-  assistant-registry-data:
-  assistant-s2-config:
-  assistant-s2-data:
-  assistant-trigger-shared:
+  orientdb-dev-data:
+  orientdb-dev-config:
+  clickhouse-dev-data:
+  rabbitmq-dev-data:
+  redis-dev-data:
+  vector-dev-data:
+  assistant-postgres-dev-data:
+  assistant-redis-dev-data:
+  assistant-clickhouse-dev-data:
+  assistant-object-storage-dev-data:
+  assistant-registry-dev-data:
+  assistant-s2-dev-config:
+  assistant-s2-dev-data:
+  assistant-trigger-dev-shared:

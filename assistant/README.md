@@ -19,6 +19,16 @@ use HTTPS whenever Flumen is served over HTTPS.
 The web app bootstraps a worker token into the private
 `assistant-trigger-shared` volume; the supervisor reads that token directly.
 
+For local Trigger dashboard sign-in, request a magic link at `http://localhost:8030`,
+then run this command before submitting the email form:
+
+```bash
+pnpm --dir assistant run login-link
+```
+
+It prints the next magic link written by the local Trigger webapp container and exits.
+Magic links are single-use and expire, so request a fresh one for each sign-in.
+
 ```bash
 docker compose --profile assistant up -d
 docker compose --profile assistant --profile assistant-dev up trigger-dev

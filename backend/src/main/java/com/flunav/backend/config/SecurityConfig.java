@@ -59,6 +59,7 @@ public class SecurityConfig {
                         auth
                                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                                .requestMatchers("/api/health").permitAll()
                                 .requestMatchers("/api/auth/me").authenticated()
                                 // Endpoint pubblici (Login, Swagger, WebSocket handshake)
                                 .requestMatchers("/api/auth/**").permitAll()
