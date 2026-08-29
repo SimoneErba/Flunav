@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
 import { baseURL } from '../api/config';
@@ -9,6 +9,7 @@ export const useGraph = () => {
     const [graphData, setGraphData] = useState<GraphData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<Error | null>(null);
+    const hasLoadedInitialGraph = useRef(false);
 
     /**
      * Fetches graph data.
@@ -55,9 +56,12 @@ export const useGraph = () => {
         }
     }, [graphApi, clientId]);
 
-    // Initial load (uses default context)
+    // Simulation graph loads are requested explicitly after the build reaches READY.
+    // A context change while it is still building must not be treated as an API outage.
     useEffect(() => {
-        refetchGraphData();
+        if (hasLoadedInitialGraph.current) return;
+        hasLoadedInitialGraph.current = true;
+        void refetchGraphData().catch(() => undefined);
     }, [refetchGraphData]);
 
     return { graphData, loading, error, refetchGraphData };

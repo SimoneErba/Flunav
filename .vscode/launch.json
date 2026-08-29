@@ -1,0 +1,74 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "BackendApplication",
+            "request": "launch",
+            "mainClass": "com.flunav.backend.BackendApplication",
+            "projectName": "backend",
+            "console": "internalConsole",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "java",
+            "name": "Launch Spring Boot App",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/backend",
+            "console": "internalConsole",
+            "mainClass": "com.flunav.backend.BackendApplication",
+            "projectName": "backend",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "SPRING_PROFILES_ACTIVE": "dev"
+            },
+            "stopOnEntry": false
+        },
+        {
+            "type": "java",
+            "name": "Launch Simulator (Line)",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/simulator",
+            "console": "integratedTerminal",
+            "mainClass": "flunav.simulator.App",
+            "projectName": "simulator",
+            "args": "line",
+            "env": {
+                "SIMULATION_MODE": "rabbit"
+            }
+        },
+        {
+            "type": "java",
+            "name": "Launch Simulator (Loop)",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/simulator",
+            "console": "integratedTerminal",
+            "mainClass": "fiumen.simulator.App",
+            "projectName": "simulator",
+            "args": "loop",
+            "env": {
+                "SIMULATION_MODE": "rabbit"
+            }
+        },
+        {
+            "name": "Launch Frontend",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "npm run dev",
+            "cwd": "${workspaceFolder}/frontend"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Launch ALL (Backend + Simulator)",
+            "configurations": [
+                "Launch Spring Boot App",
+                "Launch Simulator (Line)"
+                //"Launch Frontend"
+            ],
+            "preLaunchTask": "start-frontend",
+            "stopAll": true
+        }
+    ]
+}

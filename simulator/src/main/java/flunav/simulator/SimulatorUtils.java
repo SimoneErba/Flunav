@@ -1,10 +1,14 @@
 package flunav.simulator;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import flunav.events.AlarmClearedEvent;
+import flunav.events.AlarmRaisedEvent;
+import flunav.events.ChuteEmptyEvent;
 import flunav.events.ConnectionActivatedEvent;
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.ConnectionDeactivatedEvent;
@@ -15,6 +19,7 @@ import flunav.events.EntityEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeletedEvent;
 import flunav.events.ItemDestinationEvent;
+import flunav.events.ItemPathChangedEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.events.LocationCreatedEvent;
 import flunav.events.LocationDeletedEvent;
@@ -31,6 +36,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.StringJoiner;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -87,12 +95,13 @@ public final class SimulatorUtils {
     }
 
     public static void sendEvent(DomainEvent event, String httpMethod) throws Exception {
+        String eventSummary = summarizeEvent(event);
         if (MODE.equalsIgnoreCase("rabbit")) {
             String json = objectMapper.writeValueAsString(event);
             String hashKey = event instanceof EntityEvent ? ((EntityEvent) event).getEntityId() : "domainEvent";
             rabbitChannel.basicPublish(RABBIT_EXCHANGE, hashKey, null, json.getBytes());
             if (!quietEventLogs) {
-                logger.info(() -> "Sent event to RabbitMQ with hashKey=" + hashKey + ": " + json);
+                logger.info(() -> "Sent " + eventSummary + " | transport=RabbitMQ");
             }
         } else {
             String endpoint = getEndpointForEvent(event);
@@ -102,11 +111,16 @@ public final class SimulatorUtils {
             }
 
             String json = objectMapper.writeValueAsString(toApiPayload(event));
-            sendRawHttp(endpoint, httpMethod, json);
+            sendRawHttp(endpoint, httpMethod, json, eventSummary);
         }
     }
 
     public static void sendRawHttp(String endpoint, String httpMethod, String json) throws Exception {
+        sendRawHttp(endpoint, httpMethod, json, null);
+    }
+
+    private static void sendRawHttp(String endpoint, String httpMethod, String json, String eventSummary)
+            throws Exception {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(new URI(BASE_URL + endpoint))
                 .header("Content-Type", "application/json")
@@ -120,11 +134,142 @@ public final class SimulatorUtils {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 300) {
-            logger.warning(() -> "Failed to send request to " + endpoint + ": " + response.statusCode() + " "
-                    + response.body());
+            String requestSummary = eventSummary != null
+                    ? eventSummary
+                    : "HTTP request | method=" + httpMethod + " | endpoint=" + endpoint;
+            String errorDetails = summarizeHttpError(response.body());
+            logger.warning(() -> "Failed to send " + requestSummary + " | transport=HTTP | status="
+                    + response.statusCode() + errorDetails);
         } else if (!quietEventLogs) {
-            logger.info(() -> "Successfully sent request to " + endpoint + ": " + response.statusCode());
+            String requestSummary = eventSummary != null
+                    ? eventSummary
+                    : "HTTP request | method=" + httpMethod + " | endpoint=" + endpoint;
+            logger.info(() -> "Sent " + requestSummary + " | transport=HTTP | status=" + response.statusCode());
         }
+    }
+
+    /**
+     * Keeps simulator output readable while retaining the identifiers and values needed to follow a scenario.
+     */
+    static String summarizeEvent(DomainEvent event) {
+        String eventType = event.getEventType();
+
+        if (event instanceof ItemCreatedEvent e) {
+            return eventType + " | item=" + e.getEntityId() + " | location=" + e.getLocationId()
+                    + " | destinations=" + formatList(e.getDestinations()) + " | priority=" + e.getPriority();
+        }
+        if (event instanceof ItemDestinationEvent e) {
+            return eventType + " | item=" + e.getEntityId() + " | destination=" + e.getLocationId();
+        }
+        if (event instanceof ItemPositionChangedEvent e) {
+            return eventType + " | item=" + e.getEntityId() + " | location=" + e.getLocationId()
+                    + " | progress=" + e.getProgress();
+        }
+        if (event instanceof ItemPathChangedEvent e) {
+            return eventType + " | item=" + e.getEntityId() + " | path=" + formatPath(e.getPath());
+        }
+        if (event instanceof ItemDeletedEvent e) {
+            return eventType + " | item=" + e.getEntityId();
+        }
+        if (event instanceof ChuteEmptyEvent e) {
+            return eventType + " | chute=" + e.getEntityId();
+        }
+        if (event instanceof ConnectionCreatedEvent e) {
+            return eventType + " | conveyor=" + e.getConnectionId() + " | from=" + e.getSourceId()
+                    + " | to=" + e.getTargetId() + " | length=" + e.getLength() + " | speed=" + e.getSpeed();
+        }
+        if (event instanceof ConnectionDeletedEvent e) {
+            return eventType + " | from=" + e.getSourceLocationId() + " | to=" + e.getTargetLocationId();
+        }
+        if (event instanceof ConnectionPropertiesUpdatedEvent e) {
+            return eventType + " | conveyor=" + e.getEntityId() + " | fields="
+                    + formatFields(e.getUpdatedProperties());
+        }
+        if (event instanceof ConnectionActivatedEvent e) {
+            return eventType + " | conveyor=" + e.getEntityId();
+        }
+        if (event instanceof ConnectionDeactivatedEvent e) {
+            return eventType + " | conveyor=" + e.getEntityId();
+        }
+        if (event instanceof AlarmRaisedEvent e) {
+            return eventType + " | alarm=" + e.getAlarmId() + " | conveyor=" + e.getConveyorId()
+                    + " | severity=" + e.getSeverity() + " | type=" + e.getTypology()
+                    + " | stopsConveyor=" + e.isStopsConveyor();
+        }
+        if (event instanceof AlarmClearedEvent e) {
+            return eventType + " | alarm=" + e.getAlarmId() + " | conveyor=" + e.getConveyorId()
+                    + " | severity=" + e.getSeverity() + " | type=" + e.getTypology();
+        }
+        if (event instanceof LocationCreatedEvent e) {
+            return eventType + " | location=" + e.getEntityId() + " | type=" + e.getType()
+                    + " | capacity=" + e.getCapacity();
+        }
+        if (event instanceof LocationDeletedEvent e) {
+            return eventType + " | location=" + e.getEntityId();
+        }
+        if (event instanceof MapDestinationsEvent e) {
+            return eventType + " | field=" + e.getFieldName() + " | mappings=" + sizeOf(e.getMappings());
+        }
+        if (event instanceof MapDestinationExitsEvent e) {
+            return eventType + " | mappings=" + sizeOf(e.getMappings());
+        }
+        if (event instanceof MapDisplayRulesEvent e) {
+            return eventType + " | rules=" + sizeOf(e.getRules());
+        }
+        if (event instanceof EntityEvent e) {
+            return eventType + " | entity=" + e.getEntityId();
+        }
+        return eventType;
+    }
+
+    private static String formatList(List<String> values) {
+        return values == null || values.isEmpty() ? "none" : String.join(",", values);
+    }
+
+    private static String formatPath(List<String> path) {
+        return path == null || path.isEmpty() ? "empty" : String.join(" -> ", path);
+    }
+
+    private static String formatFields(Map<String, Object> properties) {
+        return properties == null || properties.isEmpty() ? "none" : String.join(",", properties.keySet());
+    }
+
+    private static int sizeOf(List<?> values) {
+        return values == null ? 0 : values.size();
+    }
+
+    private static String summarizeHttpError(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return "";
+        }
+
+        try {
+            JsonNode response = objectMapper.readTree(responseBody);
+            if (!response.isObject()) {
+                return " | error=" + singleLine(response.asText());
+            }
+
+            StringJoiner details = new StringJoiner("; ", " | error=", "");
+            addErrorDetail(details, response, "error");
+            addErrorDetail(details, response, "message");
+            addErrorDetail(details, response, "detail");
+            addErrorDetail(details, response, "path");
+            return details.length() > " | error=".length() ? details.toString() : " | error=structured response";
+        } catch (Exception ignored) {
+            return " | error=" + singleLine(responseBody);
+        }
+    }
+
+    private static void addErrorDetail(StringJoiner details, JsonNode response, String fieldName) {
+        JsonNode value = response.get(fieldName);
+        if (value != null && value.isValueNode() && !value.asText().isBlank()) {
+            details.add(fieldName + "=" + singleLine(value.asText()));
+        }
+    }
+
+    private static String singleLine(String value) {
+        String compact = value.replaceAll("\\s+", " ").trim();
+        return compact.length() <= 300 ? compact : compact.substring(0, 297) + "...";
     }
 
     public static String toJson(Object obj) throws Exception {

@@ -85,7 +85,8 @@ function LiveWorkspace() {
   const simTime = useSimulationClock(
       activeSimulation?.lastProcessedTimestamp ?? activeSimulation?.timestamp, 
       playbackSpeed, 
-      isPaused
+      isPaused,
+      activeSimulation?.id
   );
 
   const dateTimeLocal = useMemo(() => {
@@ -231,7 +232,7 @@ function LiveWorkspace() {
         {
             loading: 'Attempting to reconnect...',
             success: 'Connected successfully!',
-            error: 'Connection failed. Backend is still down.',
+            error: 'Graph data is still unavailable.',
         },
         { style: { borderRadius: '10px', background: '#333', color: '#fff' } }
     );
@@ -241,9 +242,9 @@ function LiveWorkspace() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
         <div className="p-10 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-center shadow-xl max-w-md">
-            <h2 className="text-red-600 text-2xl font-bold mb-2">Connection Failed</h2>
-            <p className="mb-4 text-gray-700 dark:text-gray-300">Could not connect to the Backend API.</p>
-            <button onClick={handleRetry} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors">Retry Connection ↻</button>
+            <h2 className="text-red-600 text-2xl font-bold mb-2">Graph Unavailable</h2>
+            <p className="mb-4 text-gray-700 dark:text-gray-300">Could not load graph data.</p>
+            <button onClick={handleRetry} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors">Retry Graph Load ↻</button>
         </div>
       </div>
     );

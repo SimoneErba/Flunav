@@ -7,11 +7,17 @@ This repository is a real-time digital twin for conveyor and sorting systems. Tr
 - Read the local code before changing behavior. The backend has several context-sensitive services where a small call-site change can affect live mode, replay mode, and simulation mode differently.
 - Keep changes scoped to the behavior being requested. Avoid opportunistic rewrites, broad formatting churn, dependency changes, or cleanup outside the touched path.
 - Preserve event replayability. New behavior that changes state should normally be represented as an event in `commons/src/main/java/flunav/events/`, processed through `EventProcessor`, and persisted for replay when it belongs to domain history.
-- Do not add prompt-related comments such as "this was already correct" or "fixed per request." Comments should explain code intent only where the logic is non-obvious.
 - When showing code to the user, provide complete files or complete relevant methods. Do not omit lines for brevity in generated code examples.
-- Check `GEMINI.md` and `TODO.md` when the task touches architecture, simulation, analytics, anomaly detection, or roadmap-level behavior.
+- Check `GEMINI.md` and `TODO.md` when a task touches architecture, simulation, analytics, anomaly detection, or roadmap behavior. Treat `TODO.md` as context, not authorization for adjacent work, and prefer current code and tests when documentation has drifted.
 
 ## Architecture
+
+### Repository Modules
+
+- `commons` contains shared event contracts used by `backend` and `simulator`. After changing it, install/build it first and verify every affected consumer.
+- `backend` is the Java 21 Spring application; `simulator` is a Java 17 event producer; `opc-gateway` is the Java 21 OPC-to-RabbitMQ bridge.
+- `frontend` is the browser application. `assistant` is an optional Node/Trigger.dev subsystem whose service tokens and provider secrets must remain server-side.
+- Preserve the package manager and lockfile already used by the touched module; do not switch package managers or update dependencies unless the task requires it.
 
 ### Backend Shape
 
@@ -75,6 +81,7 @@ When modifying processing code:
 - Preserve ordering for `EntityEvent` instances with the same entity id.
 - Be careful with calls that write both OrientDB and Redis. OrientDB holds durable topology/entity data; Redis holds derived hot state that replay and cleanup code may rebuild.
 - Leave retry handling for OrientDB concurrent modification errors in the processing path unless the replacement handles the same conflict class.
+- RabbitMQ deliveries are acknowledged only after `EventProcessor` completes. Preserve that boundary, route terminal failures to the DLQ, and make effects safe under redelivery where practical.
 - Broadcast only after state changes are successfully applied.
 - Do not persist simulation replay events to ClickHouse as live history.
 
@@ -87,6 +94,8 @@ When modifying processing code:
 
 Keep these boundaries intact. For example, item position in motion belongs in Redis for live speed, but replay needs enough event history and snapshot data to reconstruct it.
 
+When changing ClickHouse schemas, update the runtime scripts under `docker/clickhouse/init-clickhouse/` and the corresponding Testcontainers schema under `backend/src/test/resources/init-clickhouse/`. Bootstrap scripts alone do not migrate existing volumes, so schema evolution must include an idempotent forward-upgrade path where existing deployments are affected.
+
 When debugging live or test behavior, it is acceptable to inspect Redis and ClickHouse directly from the terminal to understand current runtime state, event history, snapshots, and analytics rows. Prefer read-only queries unless the task explicitly requires cleanup or state repair, and keep any manual cleanup scoped to the affected test or simulation data.
 
 ### Frontend Shape
@@ -95,7 +104,7 @@ The frontend is a React 18, Vite, TypeScript, Tailwind app centered on the graph
 
 - Use functional components and hooks only.
 - Keep graph interaction logic in hooks such as `useGraphInteractions` instead of spreading graph behavior through view components.
-- Use generated API client types where available.
+- Use generated API client types where available. Do not hand-edit `frontend/src/api-client/`; change the backend OpenAPI contract, regenerate the client, and update its call sites together.
 - WebSocket handlers should parse defensively, filter local echoes by sender/client id, and inject envelope timestamps into payload handling where the existing pattern does so.
 - Preserve dark mode and responsive behavior in Tailwind classes.
 - Avoid `any` unless an existing generic integration boundary requires it. If a handler has to accept unknown payloads, narrow the type before use.
@@ -135,21 +144,10 @@ com.flunav.backend.{controllers|services|repositories|domain|entities|models|uti
 
 Layering should remain Controller -> Service/EventProcessor -> Repository -> Storage. Controllers should not contain database orchestration or replay logic.
 
-### Naming
-
-- Classes: PascalCase.
-- Methods and variables: camelCase.
-- Constants: UPPER_SNAKE_CASE.
-- Events: end with `Event`.
-- Tests: end with `Tests`.
-- DTOs: place request/input models under `models/input` and response models under `models/response` unless an existing package is a better fit.
-
 ### Spring And Lombok
 
-- Use constructor injection for required dependencies.
-- Use `@Service`, `@Repository`, `@RestController`, `@ControllerAdvice`, and `@Component` according to responsibility.
-- Use Lombok consistently with nearby classes for DTOs and domain objects.
-- Keep exception handling centralized in `GlobalExceptionHandler` where practical.
+- Use constructor injection, follow nearby Lombok and Spring annotation patterns, and keep exception handling centralized in `GlobalExceptionHandler` where practical.
+- Name events with an `Event` suffix and tests with a `Tests` suffix. Put request/response DTOs under `models/input` and `models/response` unless an established feature package is a better fit.
 
 ### Type Safety And Error Handling
 
@@ -165,8 +163,7 @@ Organize imports into standard Java/Jakarta, third-party, and internal project i
 
 ### Comments
 
-Comments should explain why a decision is necessary, especially around replay ordering, simulation context, virtual time, and persistence boundaries. Do not comment every line, do not add examples in comments, and remove stale comments when changing behavior.
-For behaviorally important methods, add a short method-level comment at the top of the method or immediately before it that explains what the method does and why it uses that approach. Prioritize simulation, replay, priority routing, graph projection, event processing, persistence boundary, and concurrency-sensitive methods. Avoid adding these comments to trivial getters, setters, constructors, records, or methods whose purpose is already obvious from the name.
+Comments should explain why non-obvious behavior is necessary, especially around replay ordering, simulation context, virtual time, persistence, and concurrency. Add a short method-level comment for behaviorally important methods, but not for trivial or self-explanatory code. Remove stale comments and never add prompt-related commentary such as "fixed per request."
 
 ## TypeScript Guidelines
 
@@ -187,6 +184,12 @@ For behaviorally important methods, add a short method-level comment at the top 
 - When changing generated client inputs or outputs, update frontend call sites together with backend DTOs.
 - WebSocket payloads should stay timestamp-aware and sender-aware.
 
+## Security And Destructive Operations
+
+- Preserve the stateless JWT and role rules in `SecurityConfig`. Endpoint changes must verify both authorized and rejected access where the distinction matters.
+- Keep assistant service tokens, provider keys, database credentials, and other secrets out of frontend bundles, API responses, logs, and committed files.
+- Do not run `docker/purge-all.sh`, `docker compose down -v`, delete database volumes, or perform equivalent data-destructive operations unless the user explicitly requests and confirms that scope.
+
 ## Operational Item Cleanup
 
 Use `./scripts/clear-items.sh` to clear live item state without removing locations, conveyors, display rules, simulations, RabbitMQ messages, or ClickHouse history.
@@ -196,13 +199,3 @@ Use `./scripts/clear-items.sh` to clear live item state without removing locatio
 - Execute the cleanup with `./scripts/clear-items.sh --yes`.
 - The tool auto-detects the development or standard OrientDB and Redis containers. Use `--orient-container`, `--redis-container`, or `--database` only when targeting a different local Compose environment.
 - Avoid `--allow-running` unless the caller has separately stopped item scheduling and ingestion; it only bypasses the safety check and cannot cancel in-memory scheduled events.
-
-## Common Risk Areas
-
-- Thread-local leakage between live and simulation requests.
-- Replaying events with nondeterministic `Instant.now()` behavior instead of `TimeService`.
-- Writing replayed simulation events back to ClickHouse.
-- Updating Redis without maintaining the matching active set, conveyor set, or location occupancy set.
-- Dropping or changing event fields that old ClickHouse rows need.
-- Assuming live Redis state exists during historical restore.
-- Running broad tests unnecessarily and losing time, or adding mocks that hide integration bugs.

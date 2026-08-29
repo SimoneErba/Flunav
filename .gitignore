@@ -52,7 +52,9 @@ Icon?
 *.iml
 
 # === VSCode ===
-.vscode/
+!.vscode/
+.vscode/*
+!.vscode/launch.json
 
 # === Logs ===
 *.log

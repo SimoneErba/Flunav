@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -29,6 +30,16 @@ class RuleActivationEvaluatorTests {
                 root, properties, "priority", DataType.NUMBER, OperatorType.LESSER_OR_EQUAL, 0.8));
         assertFalse(RuleActivationEvaluator.isActive(
                 root, properties, "priority", DataType.NUMBER, OperatorType.LESSER, 0.4));
+    }
+
+    @Test
+    void nullableRootFieldShadowsCustomPropertyWithoutFailingEvaluation() {
+        Map<String, Object> root = new HashMap<>();
+        root.put("priority", null);
+        Map<String, Object> properties = Map.of("priority", 0.8);
+
+        assertFalse(RuleActivationEvaluator.isActive(
+                root, properties, "priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.4));
     }
 
     @Test

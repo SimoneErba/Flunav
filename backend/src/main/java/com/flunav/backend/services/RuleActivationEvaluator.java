@@ -42,11 +42,13 @@ final class RuleActivationEvaluator {
         if (values == null) {
             return null;
         }
-        return values.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(fieldName))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && key.equalsIgnoreCase(fieldName)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     /**

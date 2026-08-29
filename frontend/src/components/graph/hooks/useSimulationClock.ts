@@ -1,23 +1,40 @@
 import { useState, useRef, useEffect } from "react";
 
-export const useSimulationClock = (initialTimeISO: string | undefined, speed: number, isPaused: boolean) => {
+const resolveAnchorTime = (initialTimeISO: string | undefined) => {
+    const parsedTime = initialTimeISO ? new Date(initialTimeISO).getTime() : Number.NaN;
+    return Number.isFinite(parsedTime) ? parsedTime : Date.now();
+};
+
+export const useSimulationClock = (
+    initialTimeISO: string | undefined,
+    speed: number,
+    isPaused: boolean,
+    timelineId?: string
+) => {
     // The frontend clock mirrors backend virtual time for rendering only; backend
     // replay remains authoritative for event timestamps and state changes.
-    const [simTime, setSimTime] = useState<number>(() => 
-        initialTimeISO ? new Date(initialTimeISO).getTime() : Date.now()
-    );
+    const [simTime, setSimTime] = useState<number>(() => resolveAnchorTime(initialTimeISO));
     
     const lastFrameTime = useRef<number>(Date.now());
+    const activeTimelineId = useRef<string | undefined>(timelineId);
 
-    // Reset the local clock when switching live/simulation views so animation does
-    // not carry elapsed time from the previous timeline into the next one.
+    /**
+     * Reconciles backend checkpoints without rewinding an actively playing clock.
+     * Checkpoints describe when the backend sent an update, so resetting to them
+     * after transport delay would repeatedly move accelerated playback backward.
+     */
     useEffect(() => {
-        const targetTime = initialTimeISO ? new Date(initialTimeISO).getTime() : Date.now();
-        setSimTime(targetTime);
-        
-        // Reset the frame timer to prevent a huge "jump" in the next animation frame
+        const targetTime = resolveAnchorTime(initialTimeISO);
+        const switchedTimeline = activeTimelineId.current !== timelineId;
+        activeTimelineId.current = timelineId;
+
+        setSimTime(currentTime => {
+            if (switchedTimeline || isPaused) return targetTime;
+            return Math.max(currentTime, targetTime);
+        });
+
         lastFrameTime.current = Date.now();
-    }, [initialTimeISO]);
+    }, [initialTimeISO, isPaused, timelineId]);
 
     // Advance virtual time by real frame delta scaled by playback speed; pause
     // freezes rendering without changing the backend simulation timestamp.
@@ -36,7 +53,6 @@ export const useSimulationClock = (initialTimeISO: string | undefined, speed: nu
             frameId = requestAnimationFrame(loop);
         };
 
-        // Reset frame time on mount or when speed/pause changes
         lastFrameTime.current = Date.now();
         frameId = requestAnimationFrame(loop);
 

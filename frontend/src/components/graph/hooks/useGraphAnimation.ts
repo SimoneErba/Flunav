@@ -2,23 +2,21 @@ import { useEffect, useRef } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemResponse } from "../../../api-client/api";
 import type { Attributes } from "graphology-types";
-import { findNextEdge } from "../utils/graphUtils";
-import { dischargeItemToChute } from "../utils/chuteUtils";
-import { isHighPriorityItem } from "../utils/itemPriority";
 
 export const useGraphAnimation = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
     simTime: number,
-    draggedNodeRef: React.MutableRefObject<string | null>,
-    onHighPriorityCountChange?: (count: number) => void
+    draggedNodeRef: React.MutableRefObject<string | null>
 ) => {
     const sigma = useSigma();
     const animationFrameId = useRef<number | null>(null);
+    const simTimeRef = useRef(simTime);
+    simTimeRef.current = simTime;
 
     /**
-     * Projects item positions from the current simulation clock on every frame.
-     * The backend sends checkpoints and scheduled transitions; the frontend derives
-     * smooth positions between those timestamps without mutating backend state.
+     * Interpolates items only within their backend-confirmed position.
+     * Reaching a visual endpoint does not advance or remove an item; the next domain
+     * event remains authoritative for conveyor transitions, chutes, and exits.
      */
     useEffect(() => {
         const animate = () => {
@@ -34,19 +32,7 @@ export const useGraphAnimation = (
                 if (itemId === draggedNodeRef.current) return;
                 if (!graph.hasNode(itemId)) return;
 
-                // Path-aware prediction uses the backend-selected route first, then
-                // graphUtils falls back to main path or stops at ambiguous splits.
-                const getNextFromPath = (currentNodeId: string) => {
-                    if (!item.path) return null;
-                    const idx = item.path.indexOf(currentNodeId);
-                    if (idx !== -1 && idx < item.path.length - 1) {
-                        return item.path[idx + 1];
-                    }
-                    return null;
-                };
-
-                // Conveyor items are animated from entry timestamp and edge speed so
-                // replay speed changes do not require per-frame backend updates.
+                // Conveyor items are animated from the last authoritative checkpoint.
                 if (item.currentEdgeId) {
                     let edgeKey: string | undefined;
                     let edgeAttrs: Attributes | undefined;
@@ -67,154 +53,35 @@ export const useGraphAnimation = (
 
                         const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
                         const entryTime = new Date(item.entryTimestamp).getTime();
-                        let timeElapsed = simTime - entryTime;
-
-                        // FIX: Clamp small negative values (sync jitter)
-                        if (timeElapsed < 0 && timeElapsed > -500) {
-                             timeElapsed = 0;
-                        }
-
-                        // DEBUG LOG (Enable if needed)
-                        // if (activeItemsRef.current.keys().next().value === itemId) {
-                        //     console.log(`[Anim] Item ${itemId}: Sim=${simTime}, Entry=${entryTime}, Delta=${timeElapsed}`);
-                        // }
+                        const timeElapsed = simTimeRef.current - entryTime;
 
                         if (timeElapsed < 0) {
                             graph.setNodeAttribute(itemId, "hidden", true);
-                        } else if (timeElapsed >= totalDuration) {
-                            // --- ARRIVAL LOGIC ---
-                            
-                            // 1. CHECK FOR CHUTE (Discharge)
-                            if (targetNode.locationType === "CHUTE") {
-                                const completedAt = new Date(simTime).toISOString();
-                                dischargeItemToChute(graph, activeItemsRef.current, itemId, targetId, {
-                                    ...item,
-                                    currentEdgeId: undefined,
-                                    locationId: targetId,
-                                    entryTimestamp: completedAt,
-                                    progress: 1,
-                                }, completedAt);
-                                let highPriorityCount = 0;
-                                activeItemsRef.current.forEach((activeItem) => {
-                                    if (isHighPriorityItem(activeItem)) highPriorityCount++;
-                                });
-                                onHighPriorityCountChange?.(highPriorityCount);
-                                needsRefresh = true;
-                                return;
-                            }
-
-                            // 2. PREDICTION LOGIC
-                            const overflow = timeElapsed - totalDuration;
-                            const nextTargetNodeId = getNextFromPath(targetId);
-                            const nextEdgeKey = findNextEdge(targetId, graph, nextTargetNodeId);
-
-                            if (nextEdgeKey) {
-                                const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
-                                
-                                // Create new item state
-                                const newItem: ItemResponse = { 
-                                    ...item, 
-                                    currentEdgeId: nextEdgeAttrs.id, 
-                                    locationId: undefined, 
-                                    entryTimestamp: new Date(simTime - overflow).toISOString() 
-                                };
-
-                                activeItemsRef.current.set(itemId, newItem);
-                                
-                                // --- SYNC GRAPH ATTRIBUTES (Transition) ---
-                                // Update the graph so the Highlighter knows we switched edges
-                                graph.setNodeAttribute(itemId, "currentEdgeId", newItem.currentEdgeId);
-                                graph.setNodeAttribute(itemId, "locationId", null);
-                                // ------------------------------------------
-
-                                graph.setNodeAttribute(itemId, "x", targetNode.x);
-                                graph.setNodeAttribute(itemId, "y", targetNode.y);
-                                needsRefresh = true;
-                            } else {
-                                // Stop at end
-                                graph.setNodeAttribute(itemId, "x", targetNode.x);
-                                graph.setNodeAttribute(itemId, "y", targetNode.y);
-                                needsRefresh = true;
-                            }
                         } else {
-                            // Normal Movement
+                            const progress = Math.min(1, timeElapsed / totalDuration);
                             graph.setNodeAttribute(itemId, "hidden", false);
-                            const progress = timeElapsed / totalDuration;
                             const x = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
                             const y = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
                             
                             graph.setNodeAttribute(itemId, "x", x);
                             graph.setNodeAttribute(itemId, "y", y);
-
-                            // --- SYNC GRAPH ATTRIBUTES (Continuous) ---
-                            // Ensure the graph has the current logical state for the Highlighter
                             graph.setNodeAttribute(itemId, "currentEdgeId", item.currentEdgeId);
                             graph.setNodeAttribute(itemId, "locationId", null);
-
                             needsRefresh = true;
                         }
                     }
                 } 
-                // Location items can be advanced optimistically only when the next
-                // edge is unambiguous; otherwise they stay at the location node.
+                // Location items remain stationary until the backend confirms a move.
                 else if (item.locationId) {
                     if (!graph.hasNode(item.locationId)) return;
 
                     const locNode = graph.getNodeAttributes(item.locationId);
-                    const processingDelayMs = locNode.locationType === "TIMED_NODE"
-                        ? Number(locNode.timeToProcessMs ?? 0)
-                        : 0;
-                    const entryTime = new Date(item.entryTimestamp).getTime();
-                    let overflow = 0;
-
-                    if (processingDelayMs > 0) {
-                        let timeElapsed = simTime - entryTime;
-                        if (timeElapsed < 0 && timeElapsed > -500) {
-                            timeElapsed = 0;
-                        }
-
-                        if (timeElapsed < processingDelayMs) {
-                            graph.setNodeAttribute(itemId, "x", locNode.x);
-                            graph.setNodeAttribute(itemId, "y", locNode.y);
-                            graph.setNodeAttribute(itemId, "hidden", false);
-                            graph.setNodeAttribute(itemId, "currentEdgeId", null);
-                            graph.setNodeAttribute(itemId, "locationId", item.locationId);
-                            needsRefresh = true;
-                            return;
-                        }
-
-                        overflow = timeElapsed - processingDelayMs;
-                    }
-
-                    const nextTargetNodeId = getNextFromPath(item.locationId);
-                    const nextEdgeKey = findNextEdge(item.locationId, graph, nextTargetNodeId);
-                    
-                    if (nextEdgeKey) {
-                         const nextEdgeAttrs = graph.getEdgeAttributes(nextEdgeKey);
-                         
-                         const newItem: ItemResponse = { 
-                             ...item, 
-                             currentEdgeId: nextEdgeAttrs.id, 
-                             locationId: undefined, 
-                             entryTimestamp: new Date(simTime - overflow).toISOString() 
-                         };
-
-                         activeItemsRef.current.set(itemId, newItem);
-
-                         graph.setNodeAttribute(itemId, "currentEdgeId", newItem.currentEdgeId);
-                         graph.setNodeAttribute(itemId, "locationId", null);
-
-                         needsRefresh = true;
-                    } else {
-                        graph.setNodeAttribute(itemId, "x", locNode.x);
-                        graph.setNodeAttribute(itemId, "y", locNode.y);
-                        graph.setNodeAttribute(itemId, "hidden", false);
-
-                        graph.setNodeAttribute(itemId, "currentEdgeId", null);
-                        graph.setNodeAttribute(itemId, "locationId", item.locationId);
-
-                        needsRefresh = true;
-                    }
+                    graph.setNodeAttribute(itemId, "x", locNode.x);
+                    graph.setNodeAttribute(itemId, "y", locNode.y);
+                    graph.setNodeAttribute(itemId, "hidden", false);
+                    graph.setNodeAttribute(itemId, "currentEdgeId", null);
+                    graph.setNodeAttribute(itemId, "locationId", item.locationId);
+                    needsRefresh = true;
                 }
             });
 
@@ -224,5 +91,5 @@ export const useGraphAnimation = (
 
         animationFrameId.current = requestAnimationFrame(animate);
         return () => { if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current); };
-    }, [activeItemsRef, draggedNodeRef, onHighPriorityCountChange, sigma, simTime]);
+    }, [activeItemsRef, draggedNodeRef, sigma]);
 };
