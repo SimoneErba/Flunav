@@ -16,6 +16,19 @@ browser:
 Set `ASSISTANT_TRIGGER_PUBLIC_URL` to the externally reachable Trigger URL. It must
 use HTTPS whenever Flumen is served over HTTPS.
 
+When running the backend outside Docker, export one matching token before starting
+Spring:
+
+```bash
+export FLUMEN_SERVICE_TOKEN="${FLUMEN_SERVICE_TOKEN:-flumen-local-assistant-service-token}"
+export APP_ASSISTANT_SERVICE_TOKEN="$FLUMEN_SERVICE_TOKEN"
+```
+
+Restart `trigger-dev` after changing these values so the worker receives the
+updated environment. The assistant gateway `/health` endpoint verifies
+`/api/analytics/investigation/system/summary` with this token and reports auth
+failures explicitly.
+
 The web app bootstraps a worker token into the private
 `assistant-trigger-shared` volume; the supervisor reads that token directly.
 

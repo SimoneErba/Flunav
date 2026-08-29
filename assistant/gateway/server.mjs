@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { auth, configure, sessions } from "@trigger.dev/sdk";
+import { auth, configure, runs, sessions } from "@trigger.dev/sdk";
 
 configure({
   secretKey: process.env.TRIGGER_SECRET_KEY,
@@ -9,6 +9,7 @@ configure({
 const port = Number(process.env.PORT ?? 8090);
 const backendUrl = (process.env.FLUMEN_BACKEND_URL ?? "http://backend:8080").replace(/\/$/, "");
 const triggerPublicUrl = (process.env.TRIGGER_PUBLIC_URL ?? "http://localhost:8030").replace(/\/$/, "");
+const serviceToken = process.env.FLUMEN_SERVICE_TOKEN ?? process.env.FLUMEN_ASSISTANT_SERVICE_TOKEN ?? "";
 const agentId = "flumen-investigation-agent";
 
 createServer(async (request, response) => {
@@ -22,7 +23,7 @@ createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/sessions/start") {
       const body = validateSessionBody(await readJson(request));
       const existing = await ownedSession(body.chatId, user.username, body.simulationId);
-      if (existing) return json(response, 200, { publicAccessToken: await sessionToken(existing.id), chatId: body.chatId });
+      if (existing) return json(response, 200, { publicAccessToken: await sessionToken(body.chatId), chatId: body.chatId });
       const created = await sessions.start({
         type: "chat.agent",
         externalId: body.chatId,
@@ -46,7 +47,7 @@ createServer(async (request, response) => {
       const body = validateSessionBody(await readJson(request));
       const session = await ownedSession(body.chatId, user.username, body.simulationId);
       if (!session) return json(response, 404, { error: "Session not found" });
-      return json(response, 200, { publicAccessToken: await sessionToken(session.id), chatId: body.chatId });
+      return json(response, 200, { publicAccessToken: await sessionToken(body.chatId), chatId: body.chatId });
     }
     if (request.method === "POST" && url.pathname === "/sessions/stop") {
       const body = validateSessionBody(await readJson(request));
@@ -54,6 +55,21 @@ createServer(async (request, response) => {
       if (!session) return json(response, 404, { error: "Session not found" });
       await sessions.open(session.id).in.send({ kind: "stop", message: "Stopped by the authenticated user" });
       return json(response, 202, { stopped: true });
+    }
+    if (request.method === "POST" && url.pathname === "/sessions/reset") {
+      const body = validateSessionBody(await readJson(request));
+      const session = await ownedSession(body.chatId, user.username, body.simulationId);
+      let cancelled = false;
+      let closed = false;
+      if (session) {
+        const runId = session.currentRunId ?? session.runId;
+        if (runId) {
+          cancelled = await runs.cancel(runId).then(() => true).catch(() => false);
+        }
+        await sessions.open(session.id).in.send({ kind: "stop", message: "Reset by the authenticated user" }).catch(() => undefined);
+        closed = await sessions.close(session.id, { reason: "Reset by the authenticated user" }).then(() => true).catch(() => false);
+      }
+      return json(response, 202, { reset: true, cancelled, closed });
     }
     return json(response, 404, { error: "Not found" });
   } catch (error) {
@@ -75,9 +91,34 @@ async function health(response) {
   try {
     const backendResponse = await fetch(`${backendUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
     if (backendResponse.status >= 500) throw new Error("Backend unavailable");
-    return json(response, 200, { status: "ok", triggerPublicUrl, agentId });
-  } catch {
-    return json(response, 503, { status: "unavailable" });
+    const semantic = await semanticDiagnostic();
+    return json(response, semantic.ok ? 200 : 503, { status: semantic.ok ? "ok" : "unavailable", triggerPublicUrl, agentId, semantic });
+  } catch (error) {
+    return json(response, 503, { status: "unavailable", semantic: { ok: false, error: error instanceof Error ? error.message : "Assistant health check failed" } });
+  }
+}
+
+async function semanticDiagnostic() {
+  if (!serviceToken.trim()) {
+    return { ok: false, error: "FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN is required for assistant semantic access" };
+  }
+  try {
+    const semanticResponse = await fetch(`${backendUrl}/api/analytics/investigation/system/summary`, {
+      headers: { "X-Flumen-Service-Token": serviceToken },
+      signal: AbortSignal.timeout(3000),
+    });
+    await semanticResponse.arrayBuffer().catch(() => undefined);
+    if (semanticResponse.ok) return { ok: true, status: semanticResponse.status };
+    if (semanticResponse.status === 401 || semanticResponse.status === 403) {
+      return {
+        ok: false,
+        status: semanticResponse.status,
+        error: "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN.",
+      };
+    }
+    return { ok: false, status: semanticResponse.status, error: `Semantic endpoint returned HTTP ${semanticResponse.status}` };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Semantic diagnostic failed" };
   }
 }
 

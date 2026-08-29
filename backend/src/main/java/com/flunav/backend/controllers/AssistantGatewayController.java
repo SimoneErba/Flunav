@@ -7,8 +7,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,16 +29,23 @@ import jakarta.servlet.http.HttpServletRequest;
 public class AssistantGatewayController {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+    private static final String ASSISTANT_UNAVAILABLE_BODY =
+            "{\"status\":\"unavailable\",\"error\":\"Assistant gateway unavailable\"}";
     private static final Logger logger = LoggerFactory.getLogger(AssistantGatewayController.class);
 
     private final HttpClient httpClient;
     private final String assistantGatewayUrl;
 
+    @Autowired
     public AssistantGatewayController(
             @Value("${app.assistant.gateway-url:http://localhost:8090}") String assistantGatewayUrl) {
-        this.httpClient = HttpClient.newBuilder()
+        this(HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
-                .build();
+                .build(), assistantGatewayUrl);
+    }
+
+    AssistantGatewayController(HttpClient httpClient, String assistantGatewayUrl) {
+        this.httpClient = httpClient;
         this.assistantGatewayUrl = assistantGatewayUrl.replaceAll("/+$", "");
     }
 
@@ -45,8 +54,7 @@ public class AssistantGatewayController {
      * API base URL for core Flumen and assistant requests.
      */
     @GetMapping("/health")
-    public ResponseEntity<String> health(HttpServletRequest servletRequest)
-            throws IOException, InterruptedException {
+    public ResponseEntity<String> health(HttpServletRequest servletRequest) {
         return forwardJson("GET", "/health", null, null, servletRequest);
     }
 
@@ -59,8 +67,7 @@ public class AssistantGatewayController {
     public ResponseEntity<String> startSession(
             @RequestBody String body,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            HttpServletRequest servletRequest)
-            throws IOException, InterruptedException {
+            HttpServletRequest servletRequest) {
         return forwardJson("POST", "/sessions/start", body, authorization, servletRequest);
     }
 
@@ -71,8 +78,7 @@ public class AssistantGatewayController {
     public ResponseEntity<String> sessionToken(
             @RequestBody String body,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            HttpServletRequest servletRequest)
-            throws IOException, InterruptedException {
+            HttpServletRequest servletRequest) {
         return forwardJson("POST", "/sessions/token", body, authorization, servletRequest);
     }
 
@@ -84,9 +90,20 @@ public class AssistantGatewayController {
     public ResponseEntity<String> stopSession(
             @RequestBody String body,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            HttpServletRequest servletRequest)
-            throws IOException, InterruptedException {
+            HttpServletRequest servletRequest) {
         return forwardJson("POST", "/sessions/stop", body, authorization, servletRequest);
+    }
+
+    /**
+     * Closes the authenticated assistant chat and lets the frontend create a
+     * fresh Trigger session without retaining stale realtime state.
+     */
+    @PostMapping("/sessions/reset")
+    public ResponseEntity<String> resetSession(
+            @RequestBody String body,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            HttpServletRequest servletRequest) {
+        return forwardJson("POST", "/sessions/reset", body, authorization, servletRequest);
     }
 
     private ResponseEntity<String> forwardJson(
@@ -94,8 +111,7 @@ public class AssistantGatewayController {
             String path,
             String body,
             String authorization,
-            HttpServletRequest servletRequest)
-            throws IOException, InterruptedException {
+            HttpServletRequest servletRequest) {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(assistantGatewayUrl + path))
                 .timeout(REQUEST_TIMEOUT)
@@ -126,12 +142,18 @@ public class AssistantGatewayController {
                     .body(response.body());
         } catch (IOException exception) {
             logger.warn("Assistant gateway {} {} could not be reached: {}", method, path, exception.getMessage());
-            throw exception;
+            return assistantUnavailable();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             logger.warn("Assistant gateway {} {} request was interrupted", method, path);
-            throw exception;
+            return assistantUnavailable();
         }
+    }
+
+    private ResponseEntity<String> assistantUnavailable() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ASSISTANT_UNAVAILABLE_BODY);
     }
 
     private String abbreviateForLog(String responseBody) {

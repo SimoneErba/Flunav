@@ -65,7 +65,9 @@ public class LiveSystemScheduler {
     /**
      * Schedules the next live internal event for an entity.
      * Existing same-item tasks are cancelled first so route changes, speed changes,
-     * or blocking logic cannot leave stale future movement events in flight.
+     * or blocking logic cannot leave stale future movement events in flight. A due
+     * task claims its slot under the item lock, then releases the lock before event
+     * processing so the reducer can schedule the item's successor event.
      */
     public void scheduleInternalEvent(DomainEvent event) {
         if (!(event instanceof flunav.events.EntityEvent ee)) {
@@ -92,11 +94,11 @@ public class LiveSystemScheduler {
                     if (!scheduledTasksByItem.remove(itemId, task)) {
                         return;
                     }
-                    try {
-                        eventProcessor.process(event, true).join();
-                    } catch (Exception e) {
-                        logger.error("Error processing scheduled live event: {}", event.getEventType(), e);
-                    }
+                }
+                try {
+                    eventProcessor.process(event, true).join();
+                } catch (Exception e) {
+                    logger.error("Error processing scheduled live event: {}", event.getEventType(), e);
                 }
             }, delay, TimeUnit.MILLISECONDS);
             task.setFuture(future);

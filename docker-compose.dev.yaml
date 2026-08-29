@@ -280,6 +280,7 @@ services:
 
   assistant-trigger-webapp:
     image: ghcr.io/triggerdotdev/trigger.dev:v4.5.7
+    restart: always
     environment:
       APP_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
       LOGIN_ORIGIN: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
@@ -299,6 +300,7 @@ services:
       OBJECT_STORE_SECRET_ACCESS_KEY: ${ASSISTANT_MINIO_PASSWORD:-Flun4v!Minio}
       REALTIME_STREAMS_DEFAULT_VERSION: v2
       REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
+      REALTIME_STREAMS_S2_ACCESS_TOKEN: "ignored"
       REALTIME_STREAMS_S2_ENDPOINT: http://assistant-s2/v1
       REALTIME_STREAMS_S2_SKIP_ACCESS_TOKENS: "true"
       SESSION_SECRET: ${ASSISTANT_SESSION_SECRET:-flumen-session-secret-0000000000}
@@ -345,9 +347,11 @@ services:
     build:
       context: ./assistant
       dockerfile: Dockerfile
+    restart: always
     environment:
       PORT: 8090
       FLUMEN_BACKEND_URL: http://host.docker.internal:8080
+      FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_PUBLIC_URL: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
       TRIGGER_SECRET_KEY: ${ASSISTANT_TRIGGER_SECRET_KEY:-}
@@ -369,6 +373,7 @@ services:
 
   assistant-trigger-supervisor:
     image: ghcr.io/triggerdotdev/supervisor:v4.5.7
+    restart: always
     environment:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_WORKER_TOKEN: file:///home/node/shared/worker_token
@@ -410,6 +415,7 @@ services:
 
   trigger-dev:
     image: node:22-alpine
+    restart: always
     working_dir: /workspace
     volumes:
       - ./assistant:/workspace
@@ -421,6 +427,9 @@ services:
       FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_SMALL_MODEL: ${GROQ_SMALL_MODEL:-openai/gpt-oss-20b}
+      GROQ_LARGE_MODEL: ${GROQ_LARGE_MODEL:-openai/gpt-oss-120b}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-2.5-flash}
     command: ["sh", "-c", "npm ci && npm run dev"]
     depends_on:
       assistant-trigger-webapp:

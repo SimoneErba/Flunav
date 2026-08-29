@@ -2,9 +2,11 @@ import { task } from "@trigger.dev/sdk";
 import {
   classifyStrategy,
   composeVisualAnswer,
+  isKnownOperation,
   planOperations,
   resolveContext,
   runOperation,
+  validateOperations,
   type ChatClientData,
   type InvestigationScope,
   type SemanticOperation,
@@ -41,7 +43,7 @@ export const chooseBackendOperations = task({
   run: async (input: InvestigationInput) => {
     const context = resolveContext(requireQuestion(input.question), input);
     const strategy = classifyStrategy(input.question, context);
-    return { strategy, operations: planOperations(strategy, context) };
+    return { strategy, operations: validateOperations(strategy, planOperations(strategy, context)) };
   },
 });
 
@@ -64,7 +66,7 @@ export const chooseVisualWidgets = task({
 export const fetchWidgetData = task({
   id: "flumen.fetch-widget-data",
   run: async ({ operations, simulationId }: { operations: SemanticOperation[]; simulationId?: string }) => Promise.all(
-    operations.map(operation => runOperation(operation, scope(simulationId))),
+    operations.filter(isKnownOperation).map(operation => runOperation(operation, scope(simulationId))),
   ),
 });
 
@@ -73,7 +75,7 @@ export const planInvestigation = task({
   run: async (input: InvestigationInput) => {
     const context = resolveContext(requireQuestion(input.question), input);
     const strategy = classifyStrategy(input.question, context);
-    return { context, strategy, operations: planOperations(strategy, context) };
+    return { context, strategy, operations: validateOperations(strategy, planOperations(strategy, context)) };
   },
 });
 
@@ -91,7 +93,7 @@ async function investigate(input: InvestigationInput) {
   const question = requireQuestion(input.question);
   const context = resolveContext(question, input);
   const strategy = classifyStrategy(question, context);
-  const operations = planOperations(strategy, context);
+  const operations = validateOperations(strategy, planOperations(strategy, context));
   const evidence = await Promise.all(operations.map(operation => runOperation(operation, scope(input.simulationId))));
   return composeVisualAnswer(question, strategy, context, scope(input.simulationId), evidence);
 }

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { isOperationAllowed, templateForStrategy } from "./answer-templates.js";
+import { composeWidgets, findingsFor, type TypedWidgetData } from "./widget-shaping.js";
+import type { WidgetKind } from "./widget-catalog.js";
 
 export const chatClientDataSchema = z.object({
   selections: z.object({
@@ -35,6 +38,13 @@ export interface Evidence {
   error?: string;
 }
 
+export type AssistantRuntimeDiagnostic = {
+  ok: boolean;
+  status?: number;
+  url: string;
+  error?: string;
+};
+
 export type AgentProgress = {
   status: "resolving-context" | "classifying-strategy" | "planning-evidence" | "running-tool" | "assembling" | "complete" | "failed";
   label: string;
@@ -46,11 +56,11 @@ export type AgentProgress = {
 
 export type VisualWidget = {
   id: string;
-  kind: "metric-card" | "cartesian-chart" | "topology-graph" | "alarm-timeline" | "item-journey" | "traversal-time" | "evidence-table";
+  kind: WidgetKind;
   title: string;
   layout: { area: "kpi" | "primary" | "secondary"; span?: 1 | 2 | 3 | 4 };
   evidenceIds: string[];
-  data: unknown;
+  data: TypedWidgetData;
 };
 
 export type VisualAnswerDocument = {
@@ -61,14 +71,32 @@ export type VisualAnswerDocument = {
   generatedAt: string;
   simulationId?: string;
   strategy: InvestigationStrategy;
+  dataMode: "live" | "simulation" | "historical" | "mixed";
+  timeRange?: { from?: string; to?: string; selectedTimestamp?: string };
+  retainedContextIds: string[];
   context: { entityIds: string[]; selectedTimestamp?: string };
-  evidence: Array<{ operationId: string; operationKind: SemanticOperationKind; error?: string }>;
+  findings: string[];
+  evidence: Array<{ operationId: string; operationKind: SemanticOperationKind; records: number; error?: string; generatedAt?: string }>;
   widgets: VisualWidget[];
 };
 
 export type InvestigationScope = { username: string; simulationId?: string };
 
 const identifier = /^[A-Za-z0-9_.:-]{1,160}$/;
+const operationPathPatterns: Record<SemanticOperationKind, RegExp[]> = {
+  "system.summary": [/^\/system\/summary$/],
+  "topology.get": [/^\/topology$/],
+  "alarms.list": [/^\/alarms$/],
+  "alarms.investigation": [/^\/alarms\/[^/]{1,220}\/investigation$/],
+  "items.summary": [/^\/items\/[^/]{1,220}\/summary$/],
+  "items.events": [/^\/items\/[^/]{1,220}\/events$/],
+  "items.positions": [/^\/items\/positions$/],
+  "components.summary": [/^\/components\/[^/]{1,220}\/summary$/],
+  "conveyors.flow": [/^\/conveyors\/flow$/],
+  "destinations.summary": [/^\/destinations\/[^/]{1,220}\/summary$/],
+  "simulations.list": [/^\/simulations$/],
+  "system.snapshot": [/^\/system\/snapshot$/],
+};
 
 export function resolveContext(question: string, data: ChatClientData): { entityIds: string[]; selectedTimestamp?: string } {
   const selections = data.selections ?? {};
@@ -139,6 +167,22 @@ export function planOperations(strategy: InvestigationStrategy, context: ReturnT
   }
 }
 
+export function validateOperations(strategy: InvestigationStrategy, operations: SemanticOperation[]): SemanticOperation[] {
+  const seen = new Set<string>();
+  return operations
+    .filter(operation => isOperationAllowed(strategy, operation.kind) && isKnownOperation(operation))
+    .filter(operation => {
+      const key = `${operation.kind}:${operation.path}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+export function isKnownOperation(operation: SemanticOperation): boolean {
+  return operationPathPatterns[operation.kind]?.some(pattern => pattern.test(operation.path)) ?? false;
+}
+
 export async function runOperation(operation: SemanticOperation, scope: InvestigationScope): Promise<Evidence> {
   const baseUrl = required("FLUMEN_BACKEND_URL").replace(/\/$/, "");
   const url = new URL(`/api/analytics/investigation${operation.path}`, baseUrl);
@@ -155,33 +199,54 @@ export async function runOperation(operation: SemanticOperation, scope: Investig
   }
 }
 
+export async function validateSemanticAccess(scope: InvestigationScope): Promise<AssistantRuntimeDiagnostic> {
+  const baseUrl = required("FLUMEN_BACKEND_URL").replace(/\/$/, "");
+  const url = new URL("/api/analytics/investigation/system/summary", baseUrl);
+  const headers: Record<string, string> = { "X-Flumen-Service-Token": required("FLUMEN_SERVICE_TOKEN") };
+  if (scope.simulationId) headers["X-Simulation-ID"] = scope.simulationId;
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
+    await response.arrayBuffer().catch(() => undefined);
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: url.toString(),
+      error: response.ok ? undefined : diagnosticMessage(response.status),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      url: url.toString(),
+      error: error instanceof Error ? error.message : "semantic diagnostic failed",
+    };
+  }
+}
+
 export function composeVisualAnswer(question: string, strategy: InvestigationStrategy, context: ReturnType<typeof resolveContext>, scope: InvestigationScope, evidence: Evidence[]): VisualAnswerDocument {
-  const available = new Set(evidence.filter(entry => !entry.error).map(entry => entry.operationId));
-  const widget = (id: string, kind: VisualWidget["kind"], title: string, evidenceIds: string[], area: VisualWidget["layout"]["area"], data: unknown, span?: 1 | 2 | 3 | 4): VisualWidget | undefined => {
-    const bound = evidenceIds.filter(entry => available.has(entry));
-    return bound.length ? { id, kind, title, evidenceIds: bound, layout: { area, span }, data } : undefined;
-  };
-  const byId = Object.fromEntries(evidence.map(entry => [entry.operationId, unwrapData(entry.data)]));
-  const widgets = [
-    widget("system-kpis", "metric-card", "System state", ["system-summary"], "kpi", byId["system-summary"]),
-    widget("flow", "cartesian-chart", "Conveyor flow", ["conveyor-flow", "system-summary"], "primary", { flow: byId["conveyor-flow"], summary: byId["system-summary"] }, 2),
-    widget("topology", "topology-graph", "Topology", ["topology"], "primary", byId.topology, 2),
-    widget("alarms", "alarm-timeline", "Alarm timeline", ["alarm-investigation", "alarms"], "secondary", byId["alarm-investigation"] ?? byId.alarms, 2),
-    widget("journey", "item-journey", "Item journey", ["item-summary", "item-events"], "primary", { summary: byId["item-summary"], events: byId["item-events"] }, 2),
-    widget("traversal", "traversal-time", "Traversal metrics", ["system-summary", "item-summary"], "secondary", { summary: byId["system-summary"], item: byId["item-summary"] }, 2),
-    widget("evidence", "evidence-table", "Evidence", evidence.map(entry => entry.operationId), "secondary", evidence, 4),
-  ].filter((value): value is VisualWidget => Boolean(value));
+  const template = templateForStrategy(strategy, scope.simulationId);
+  const widgets = composeWidgets(strategy, scope, evidence);
+  const findings = findingsFor(strategy, scope, evidence);
   const succeeded = evidence.filter(entry => !entry.error).length;
   return {
     id: `visual-answer-${Date.now()}`,
-    title: titleFor(strategy),
+    title: template.title,
     question,
-    verdict: succeeded ? `Based on ${succeeded} read-only Flumen semantic operation${succeeded === 1 ? "" : "s"}.` : "No semantic evidence could be retrieved for this scope.",
+    verdict: succeeded ? `Based on ${succeeded} validated read-only Flumen semantic operation${succeeded === 1 ? "" : "s"}.` : "No semantic evidence could be retrieved for this scope.",
     generatedAt: new Date().toISOString(),
     simulationId: scope.simulationId,
     strategy,
+    dataMode: template.dataMode,
+    timeRange: context.selectedTimestamp ? { selectedTimestamp: context.selectedTimestamp } : undefined,
+    retainedContextIds: context.entityIds,
     context,
-    evidence: evidence.map(entry => ({ operationId: entry.operationId, operationKind: entry.operationKind, error: entry.error })),
+    findings,
+    evidence: evidence.map(entry => ({
+      operationId: entry.operationId,
+      operationKind: entry.operationKind,
+      records: countRecords(unwrapData(entry.data)),
+      error: entry.error,
+      generatedAt: generatedAt(entry.data),
+    })),
     widgets,
   };
 }
@@ -194,12 +259,27 @@ function unwrapData(value: unknown): unknown {
   return value && typeof value === "object" && "data" in value ? (value as { data: unknown }).data : value;
 }
 
-function titleFor(strategy: InvestigationStrategy): string {
-  return ({ system_status: "System investigation", alarm_investigation: "Alarm investigation", item_trace: "Item journey", component_investigation: "Component investigation", destination_performance: "Destination performance", historical_comparison: "Historical comparison", simulation_analysis: "Simulation analysis" })[strategy];
+function countRecords(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (!value || typeof value !== "object") return 0;
+  const nested = Object.values(value).find(entry => Array.isArray(entry));
+  return Array.isArray(nested) ? nested.length : 1;
+}
+
+function generatedAt(value: unknown): string | undefined {
+  const meta = value && typeof value === "object" && "meta" in value ? (value as { meta?: { generatedAt?: unknown } }).meta : undefined;
+  return typeof meta?.generatedAt === "string" ? meta.generatedAt : undefined;
 }
 
 function required(name: string): string {
   const value = process.env[name];
   if (!value?.trim()) throw new Error(`${name} is required`);
   return value;
+}
+
+function diagnosticMessage(status: number): string {
+  if (status === 401 || status === 403) {
+    return "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN in the assistant worker.";
+  }
+  return `Semantic endpoint returned HTTP ${status}`;
 }

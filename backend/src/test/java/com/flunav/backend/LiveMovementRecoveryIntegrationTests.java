@@ -148,6 +148,39 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
         assertEquals(startupTime.plusSeconds(8), scheduledEvent.getTimestamp());
     }
 
+    @Test
+    void dueMovementEventCanScheduleTheItemsNextMovement() throws Exception {
+        Instant createdAt = timeService.physicalNow();
+
+        createLocation("chain-start", LocationType.JUNCTION);
+        createLocation("chain-middle", LocationType.JUNCTION);
+        createLocation("chain-exit", LocationType.CHUTE);
+        conveyorService.createConveyor("chain-first", "chain-start", "chain-middle",
+                "First", 1.0, 1.0, 0.0, true, true);
+        conveyorService.createConveyor("chain-second", "chain-middle", "chain-exit",
+                "Second", 30.0, 1.0, 0.0, true, true);
+        createItemOnConveyor("scheduler-chain-item", "chain-first", createdAt, 0.0);
+        liveConveyorRepository.addItemToConveyor("chain-first", "scheduler-chain-item", createdAt);
+
+        Instant transitionAt = timeService.physicalNow().plusMillis(500);
+        liveSystemScheduler.scheduleInternalEvent(new ItemPositionChangedEvent(
+                "scheduler-chain-item", "chain-second", 0.0, transitionAt));
+
+        waitUntil(() -> {
+            var state = liveItemRepository.getItemState("scheduler-chain-item");
+            var nextEvent = liveSystemScheduler.getScheduledEvent("scheduler-chain-item");
+            return state != null
+                    && "chain-second".equals(state.getPositionId())
+                    && nextEvent instanceof ItemPositionChangedEvent positionChanged
+                    && "chain-exit".equals(positionChanged.getLocationId());
+        });
+
+        assertFalse(liveConveyorRepository.getItemsOrderedByDistance("chain-first")
+                .contains("scheduler-chain-item"));
+        assertTrue(liveConveyorRepository.getItemsOrderedByDistance("chain-second")
+                .contains("scheduler-chain-item"));
+    }
+
     private void createTwoConveyorTopology(String prefix) {
         createLocation(prefix + "-start", LocationType.JUNCTION);
         createLocation(prefix + "-middle", LocationType.JUNCTION);
@@ -193,6 +226,7 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
         liveSystemScheduler.cancelInternalEvent("checkpoint-item");
         liveSystemScheduler.cancelInternalEvent("overdue-item");
         liveSystemScheduler.cancelInternalEvent("A");
+        liveSystemScheduler.cancelInternalEvent("scheduler-chain-item");
 
         try {
             Objects.requireNonNull(redisTemplate.getConnectionFactory())

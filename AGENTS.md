@@ -187,6 +187,16 @@ For behaviorally important methods, add a short method-level comment at the top 
 - When changing generated client inputs or outputs, update frontend call sites together with backend DTOs.
 - WebSocket payloads should stay timestamp-aware and sender-aware.
 
+## Operational Item Cleanup
+
+Use `./scripts/clear-items.sh` to clear live item state without removing locations, conveyors, display rules, simulations, RabbitMQ messages, or ClickHouse history.
+
+- Stop the backend and simulator/event producers before cleanup so scheduled or queued events cannot recreate items during the operation.
+- Inspect the target and item counts with `./scripts/clear-items.sh --dry-run`.
+- Execute the cleanup with `./scripts/clear-items.sh --yes`.
+- The tool auto-detects the development or standard OrientDB and Redis containers. Use `--orient-container`, `--redis-container`, or `--database` only when targeting a different local Compose environment.
+- Avoid `--allow-running` unless the caller has separately stopped item scheduling and ingestion; it only bypasses the safety check and cannot cancel in-memory scheduled events.
+
 ## Common Risk Areas
 
 - Thread-local leakage between live and simulation requests.
