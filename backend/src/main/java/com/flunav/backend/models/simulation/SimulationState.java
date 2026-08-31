@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
 
 import flunav.events.DomainEvent;
+import flunav.events.AnomalyEvaluationTickEvent;
 import lombok.Data;
 
 @Data
@@ -21,7 +22,9 @@ public class SimulationState {
     private volatile double buildProgress;
     private final Object timingLock = new Object();
     private final PriorityBlockingQueue<DomainEvent> internalEventQueue = new PriorityBlockingQueue<>(11,
-            Comparator.comparing(DomainEvent::getTimestamp).thenComparing(DomainEvent::getEventId));
+            Comparator.comparing(DomainEvent::getTimestamp)
+                    .thenComparingInt(SimulationState::eventPriority)
+                    .thenComparing(DomainEvent::getEventId));
     private final Map<String, DomainEvent> scheduledEventsByItem = new ConcurrentHashMap<>();
 
     public SimulationState(String id, Instant timestamp) {
@@ -51,5 +54,16 @@ public class SimulationState {
         synchronized (this.timingLock) {
             this.timingLock.notifyAll();
         }
+    }
+
+    private static int eventPriority(DomainEvent event) {
+        if (!(event instanceof AnomalyEvaluationTickEvent tick)) {
+            return 0;
+        }
+        return switch (tick.getCadence()) {
+            case FAST -> 1;
+            case MINUTE -> 2;
+            case BASELINE -> 3;
+        };
     }
 }

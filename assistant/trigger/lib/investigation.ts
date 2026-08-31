@@ -22,7 +22,8 @@ export type InvestigationStrategy = "system_status" | "alarm_investigation" | "i
 export type SemanticOperationKind =
   | "system.summary" | "topology.get" | "alarms.list" | "alarms.investigation"
   | "items.summary" | "items.events" | "items.positions" | "components.summary"
-  | "conveyors.flow" | "destinations.summary" | "simulations.list" | "system.snapshot";
+  | "conveyors.flow" | "destinations.summary" | "simulations.list" | "system.snapshot"
+  | "anomalies.list" | "anomaly-incidents.list";
 
 export interface SemanticOperation {
   id: string;
@@ -96,6 +97,8 @@ const operationPathPatterns: Record<SemanticOperationKind, RegExp[]> = {
   "destinations.summary": [/^\/destinations\/[^/]{1,220}\/summary$/],
   "simulations.list": [/^\/simulations$/],
   "system.snapshot": [/^\/system\/snapshot$/],
+  "anomalies.list": [/^\/anomalies$/],
+  "anomaly-incidents.list": [/^\/anomaly-incidents$/],
 };
 
 export function resolveContext(question: string, data: ChatClientData): { entityIds: string[]; selectedTimestamp?: string } {
@@ -135,9 +138,14 @@ export function planOperations(strategy: InvestigationStrategy, context: ReturnT
       return id ? [
         ...common,
         ...snapshot,
+        { id: "anomaly-findings", kind: "anomalies.list", path: "/anomalies" },
+        { id: "anomaly-incidents", kind: "anomaly-incidents.list", path: "/anomaly-incidents" },
         { id: "alarm-investigation", kind: "alarms.investigation", path: `/alarms/${encodeURIComponent(id)}/investigation`, params: { bucketSeconds: 60 } },
         { id: "alarms", kind: "alarms.list", path: "/alarms" },
-      ] : [...common, ...snapshot, { id: "alarms", kind: "alarms.list", path: "/alarms" }];
+      ] : [...common, ...snapshot,
+        { id: "anomaly-findings", kind: "anomalies.list", path: "/anomalies" },
+        { id: "anomaly-incidents", kind: "anomaly-incidents.list", path: "/anomaly-incidents" },
+        { id: "alarms", kind: "alarms.list", path: "/alarms" }];
     case "item_trace":
       return id ? [
         ...common,
@@ -149,6 +157,8 @@ export function planOperations(strategy: InvestigationStrategy, context: ReturnT
       return id ? [
         ...common,
         ...snapshot,
+        { id: "anomaly-findings", kind: "anomalies.list", path: "/anomalies" },
+        { id: "anomaly-incidents", kind: "anomaly-incidents.list", path: "/anomaly-incidents" },
         { id: "component-summary", kind: "components.summary", path: `/components/${encodeURIComponent(id)}/summary` },
         { id: "conveyor-flow", kind: "conveyors.flow", path: "/conveyors/flow" },
       ] : [...common, ...snapshot, { id: "conveyor-flow", kind: "conveyors.flow", path: "/conveyors/flow" }];

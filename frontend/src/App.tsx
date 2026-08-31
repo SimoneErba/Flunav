@@ -73,7 +73,7 @@ function LiveWorkspace() {
   // --- Hooks ---
   const { graphData, loading: graphLoading, refetchGraphData, error: graphError } = useGraph();
   const { connected } = useWebSocketConnection();
-  const { subscribeToSimulationStatus } = useWebSocketEvents();
+  const { subscribeToSimulationStatus, subscribeToAnomalies } = useWebSocketEvents();
   const { simulationApi } = useApi();
   const activeSimulationIdRef = useRef<string | null>(null);
   activeSimulationIdRef.current = activeSimulation?.id || null;
@@ -213,6 +213,27 @@ function LiveWorkspace() {
     }).catch(console.warn);
     return () => { unsubscribe(); };
   }, [connected, activeSimulation?.id, refetchGraphData, setActiveSimulation, simulationApi, subscribeToSimulationStatus]); 
+
+  useEffect(() => {
+    if (!connected) return;
+    return subscribeToAnomalies((notification) => {
+      const finding = notification.finding;
+      const mode = finding?.temporalMode?.replaceAll('_', ' ') ?? (activeSimulation ? 'SIMULATION' : 'LIVE');
+      if (notification.kind === 'FINDING_DETECTED' && finding) {
+        toast(`${mode}: ${finding.detector.replaceAll('_', ' ')} on ${finding.componentId}`, {
+          icon: '⚠️',
+          id: `finding-${finding.findingId}`,
+        });
+      } else if (notification.kind === 'INCIDENT_UPDATED' && notification.incident) {
+        toast(`Probable root ${notification.incident.probableRootComponentId} · ${notification.incident.confidence.toLowerCase()} confidence`, {
+          icon: '🔎',
+          id: `incident-${notification.incident.incidentId}`,
+        });
+      } else if (notification.kind === 'ALARM_CLEARED') {
+        toast.success(`Advisory cleared on ${notification.componentId}`);
+      }
+    }, activeSimulation?.id);
+  }, [activeSimulation, connected, subscribeToAnomalies]);
 
   useEffect(() => {
     if (!activeSimulation?.id) return;

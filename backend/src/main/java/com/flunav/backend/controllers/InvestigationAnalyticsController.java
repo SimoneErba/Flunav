@@ -24,6 +24,9 @@ import com.flunav.backend.models.response.EntityEventRecord;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.repositories.AnomalyObservationRepository;
+import com.flunav.backend.models.analytics.AnomalyFinding;
+import com.flunav.backend.models.analytics.AnomalyIncident;
 import com.flunav.backend.services.ClickHouseService;
 import com.flunav.backend.services.ConveyorService;
 import com.flunav.backend.services.GraphService;
@@ -46,6 +49,7 @@ public class InvestigationAnalyticsController {
     private final ItemService itemService;
     private final RoutingDecisionService routingDecisionService;
     private final LiveSimulationRepository liveSimulationRepository;
+    private final AnomalyObservationRepository anomalyRepository;
 
     public InvestigationAnalyticsController(
             GraphService graphService,
@@ -56,7 +60,8 @@ public class InvestigationAnalyticsController {
             TimeService timeService,
             ItemService itemService,
             RoutingDecisionService routingDecisionService,
-            LiveSimulationRepository liveSimulationRepository) {
+            LiveSimulationRepository liveSimulationRepository,
+            AnomalyObservationRepository anomalyRepository) {
         this.graphService = graphService;
         this.conveyorService = conveyorService;
         this.liveItemRepository = liveItemRepository;
@@ -66,6 +71,7 @@ public class InvestigationAnalyticsController {
         this.itemService = itemService;
         this.routingDecisionService = routingDecisionService;
         this.liveSimulationRepository = liveSimulationRepository;
+        this.anomalyRepository = anomalyRepository;
     }
 
     public record Envelope<T>(T data, Meta meta, ApiError error) {
@@ -156,6 +162,20 @@ public class InvestigationAnalyticsController {
     @GetMapping("/topology")
     public Envelope<GraphData> topology() {
         return Envelope.ok(graphService.getGraphData());
+    }
+
+    @GetMapping("/anomalies")
+    public Envelope<List<AnomalyFinding>> anomalies(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to) {
+        Instant effectiveTo = to != null ? to : timeService.now();
+        Instant effectiveFrom = from != null ? from : effectiveTo.minusSeconds(24 * 3600L);
+        return Envelope.ok(anomalyRepository.getFindings(effectiveFrom, effectiveTo));
+    }
+
+    @GetMapping("/anomaly-incidents")
+    public Envelope<List<AnomalyIncident>> anomalyIncidents() {
+        return Envelope.ok(anomalyRepository.getIncidents());
     }
 
     /**

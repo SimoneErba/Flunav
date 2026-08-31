@@ -25,8 +25,13 @@ import flunav.events.AlarmClearedEvent;
 import flunav.events.AlarmRaisedEvent;
 import flunav.events.ConnectionActivatedEvent;
 import flunav.events.ConnectionDeactivatedEvent;
+import flunav.events.ComponentAlarmClearedEvent;
+import flunav.events.ComponentAlarmRaisedEvent;
 import flunav.events.DomainEvent;
+import flunav.types.ActiveAlarm;
 import flunav.types.AlarmSeverity;
+import flunav.types.AlarmSource;
+import flunav.types.ComponentType;
 import flunav.types.LocationType;
 
 @SpringBootTest(properties = {
@@ -115,6 +120,33 @@ class AlarmIntegrationTests extends BaseIntegrationTest {
                 () -> new AlarmRaisedEvent("alarm", "conveyor", AlarmSeverity.WARNING, "  ", false));
         assertThrows(NullPointerException.class,
                 () -> new AlarmClearedEvent("alarm", "conveyor", null, "FAULT", false));
+    }
+
+    @Test
+    void generalizedLocationAlarmsRemainAdvisoryAndLegacyAlarmJsonStillDeserializes() throws Exception {
+        String locationId = "general-alarm-location-" + UUID.randomUUID();
+        createLocation(locationId);
+        ComponentAlarmRaisedEvent raised = new ComponentAlarmRaisedEvent("automatic-alarm", "finding-1",
+                locationId, ComponentType.LOCATION, "SYSTEM_PRESSURE", AlarmSource.AUTOMATIC,
+                AlarmSeverity.WARNING, false, Instant.now());
+
+        assertInstanceOf(ComponentAlarmRaisedEvent.class,
+                objectMapper.readValue(objectMapper.writeValueAsString(raised), DomainEvent.class));
+        process(raised);
+        assertEquals(1, locationService.getLocationById(locationId).getActiveAlarms().size());
+        assertFalse(locationService.getLocationById(locationId).getActiveAlarms().getFirst().isStopsComponent());
+
+        process(new ComponentAlarmClearedEvent(raised.getAlarmId(), locationId, ComponentType.LOCATION,
+                raised.getTimestamp().plusSeconds(1)));
+        assertTrue(locationService.getLocationById(locationId).getActiveAlarms().isEmpty());
+
+        ActiveAlarm legacy = objectMapper.readValue("""
+                {"alarmId":"legacy","conveyorId":"legacy-conveyor","severity":"WARNING",
+                 "typology":"LEGACY","stopsConveyor":false,"raisedAt":"2026-01-01T00:00:00Z"}
+                """, ActiveAlarm.class);
+        assertEquals("legacy-conveyor", legacy.getComponentId());
+        assertEquals(ComponentType.CONVEYOR, legacy.getComponentType());
+        assertEquals(AlarmSource.MANUAL, legacy.getSource());
     }
 
     private void process(DomainEvent event) {

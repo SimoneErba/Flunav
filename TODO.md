@@ -1,22 +1,12 @@
 ### TODO
 
-TEST:
-
-check if on amssive graph items become big. check massive graph reformance
-
-stopping conveyour
-
----
-
 TODO:
 
-cache paths, until a conveyor is changed
 fix pathing. its nodes right now
 attese, ricircoli
 for analytics, count items exite not deleted
 backwards mode (need ot add a revert actio to some event)
 
-see other simulations (with a name, be able to switch to them)
 eiting te graph is just for the initiala setup, remove items while in edit mode
 chatbot to ask about item history or location events
 puppygraph or ckickgraph for analytics (BI) - 

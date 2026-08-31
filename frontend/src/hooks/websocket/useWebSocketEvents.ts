@@ -7,7 +7,8 @@ import {
     ConnectionMessage, 
     EntityUpdateMessage,
     SimulationStatusUpdate,
-    SimulationSpeedUpdate
+    SimulationSpeedUpdate,
+    AnomalyNotification
 } from '../../types/WebsocketTypes';
 import { ItemResponse, LocationInput, ThroughputMetric } from '../../api-client/api';
 
@@ -103,6 +104,11 @@ export const useWebSocketEvents = () => {
         return subscribe(buildTopic('analytics/throughput', simId), handler);
     }, [subscribe]);
 
+    const subscribeToAnomalies = useCallback((handler: (notification: AnomalyNotification & { timestamp: number }) => void,
+        simId?: string | null) => {
+        return subscribe(buildTopic('analytics/anomalies', simId), handler);
+    }, [subscribe]);
+
     return {
         connected,
         subscribeToSimulationStatus,
@@ -118,6 +124,7 @@ export const useWebSocketEvents = () => {
         subscribeToConnectionDeleted,
         subscribeToConnectionUpdated,
         subscribeToThroughputUpdates,
+        subscribeToAnomalies,
         subscribeToChuteEmptied
     };
 };

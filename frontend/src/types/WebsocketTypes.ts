@@ -1,5 +1,9 @@
-import { ConveyorResponse } from '../api-client/api';
-import { ItemPositionTypeEnum as PositionTypeEnum } from '../api-client/api';
+import {
+    AnomalyFinding,
+    AnomalyIncident,
+    ConveyorResponse,
+    ItemPositionTypeEnum as PositionTypeEnum,
+} from '../api-client/api';
 
 // --- Enums ---
 export enum CrudOperation {
@@ -55,3 +59,14 @@ export interface SimulationStatusUpdate {
 export interface SimulationSpeedUpdate {
     speed: number;
 }
+
+export interface AnomalyNotification {
+    kind: 'FINDING_DETECTED' | 'ALARM_RAISED' | 'ALARM_CLEARED' | 'INCIDENT_UPDATED';
+    finding?: AnomalyFinding | null;
+    incident?: AnomalyIncident | null;
+    alarmId?: string | null;
+    componentId?: string | null;
+    virtualTimestamp: string;
+}
+
+export type { AnomalyFinding, AnomalyIncident };

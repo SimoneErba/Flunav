@@ -3,6 +3,8 @@ package com.flunav.backend.services;
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Location;
 import com.flunav.backend.context.MdcContext;
+import com.flunav.backend.context.AnomalyProcessingContext;
+import com.flunav.backend.models.analytics.AnomalyProcessingMode;
 import com.flunav.backend.exception.DuplicateItemException;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.UpdateModel;
@@ -81,6 +83,8 @@ public class EventProcessor {
     private final ThroughputBucketService throughputBucketService;
     private final PathCacheRepository pathCacheRepository;
     private final OperationalAnalyticsService operationalAnalyticsService;
+    private final AnomalyObservationService anomalyObservationService;
+    private final AnomalyEngine anomalyEngine;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -117,6 +121,8 @@ public class EventProcessor {
             ThroughputBucketService throughputBucketService,
             PathCacheRepository pathCacheRepository,
             OperationalAnalyticsService operationalAnalyticsService,
+            AnomalyObservationService anomalyObservationService,
+            @Lazy AnomalyEngine anomalyEngine,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -145,6 +151,8 @@ public class EventProcessor {
         this.throughputBucketService = throughputBucketService;
         this.pathCacheRepository = pathCacheRepository;
         this.operationalAnalyticsService = operationalAnalyticsService;
+        this.anomalyObservationService = anomalyObservationService;
+        this.anomalyEngine = anomalyEngine;
         this.manageLogic = manageLogic;
     }
 
@@ -243,14 +251,16 @@ public class EventProcessor {
 
             try {
                 Map<String, Object> resultMap = processEvent(event, shouldBroadcast);
-                if (event instanceof AlarmRaisedEvent || event instanceof AlarmClearedEvent) {
+                if (event instanceof AlarmRaisedEvent || event instanceof AlarmClearedEvent
+                        || event instanceof ComponentAlarmRaisedEvent || event instanceof ComponentAlarmClearedEvent) {
                     try {
                         clickHouseService.saveAlarmFact(event, simulationId, alarmAffectedItems(event));
                     } catch (RuntimeException analyticsFailure) {
                         logger.error("Alarm state was reduced but its analytics fact could not be written", analyticsFailure);
                     }
                 }
-                if (simulationId == null && !(event instanceof PathTraversedEvent)) {
+                if (simulationId == null && !(event instanceof PathTraversedEvent)
+                        && !(event instanceof AnomalyEvaluationTickEvent)) {
                     clickHouseService.saveEventAsync(event);
                 }
                 logProcessingCompleted(shouldBroadcast, elapsedMillis(startedAt));
@@ -495,9 +505,7 @@ public class EventProcessor {
                                 e.getTimestamp(), shouldBroadcast);
                     }
 
-                    if (shouldBroadcast) {
-                        recordCompletedTransit(e, lastState, positionType);
-                    }
+                    anomalyObservationService.collectPositionChange(e, lastState, positionType);
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
@@ -1083,6 +1091,25 @@ public class EventProcessor {
                             "effectiveActivityChanged", wasActive != conveyor.isActive());
                 }
 
+                case ComponentAlarmRaisedEvent e -> reduceComponentAlarmRaised(e, shouldBroadcast);
+
+                case ComponentAlarmClearedEvent e -> reduceComponentAlarmCleared(e, shouldBroadcast);
+
+                case AnomalyEvaluationTickEvent e -> {
+                    AnomalyProcessingMode analyticsMode = AnomalyProcessingContext.getMode();
+                    if (analyticsMode == null) {
+                        String simulationId = DatabaseContextHolder.getSimulationId();
+                        analyticsMode = simulationId == null
+                                ? AnomalyProcessingMode.LIVE
+                                : e.getTimestamp().isAfter(timeService.physicalNow())
+                                        ? AnomalyProcessingMode.FUTURE_SIMULATION
+                                        : AnomalyProcessingMode.HISTORICAL_PLAYBACK;
+                    }
+                    anomalyEngine.evaluate(e, analyticsMode);
+                    simulationService.scheduleNextAnomalyTick(e);
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case LocationAddToMainPath e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     conveyor.setMainPath(true);
@@ -1138,11 +1165,82 @@ public class EventProcessor {
                 }
             };
             invalidatePathCacheAfterTopologyChange(event, result);
+            anomalyObservationService.collectTopologyChange(event);
             if (shouldBroadcast) {
                 throughputBucketService.recordSuccessfulReduction(event, result);
             }
             return result;
         });
+    }
+
+    private Map<String, Object> reduceComponentAlarmRaised(ComponentAlarmRaisedEvent event,
+            boolean shouldBroadcast) {
+        if (event.getComponentType() == flunav.types.ComponentType.CONVEYOR) {
+            Conveyor conveyor = conveyorService.getConveyorById(event.getComponentId());
+            ActiveAlarm existing = conveyor.getActiveAlarms().stream()
+                    .filter(alarm -> alarm.getAlarmId().equals(event.getAlarmId())).findFirst().orElse(null);
+            if (existing != null) {
+                return Map.of("status", "IGNORED_DUPLICATE", "effectiveActivityChanged", false);
+            }
+            boolean wasActive = conveyor.isActive();
+            conveyor.getActiveAlarms().add(new ActiveAlarm(event.getAlarmId(), event.getComponentId(),
+                    event.getFindingId(), event.getComponentType(), event.getSeverity(), event.getTypology(),
+                    event.getSource(), event.isStopsComponent(), event.getTimestamp()));
+            conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+            conveyorService.updateConveyor(conveyor);
+            if (shouldBroadcast) {
+                broadcastConveyorAlarmState(conveyor, event.getTimestamp());
+            }
+            return Map.of("status", "PROCESSED_SUCCESSFULLY",
+                    "effectiveActivityChanged", wasActive != conveyor.isActive());
+        }
+
+        Location location = locationService.getLocationById(event.getComponentId());
+        if (location.getActiveAlarms().stream().anyMatch(alarm -> alarm.getAlarmId().equals(event.getAlarmId()))) {
+            return Map.of("status", "IGNORED_DUPLICATE", "effectiveActivityChanged", false);
+        }
+        location.getActiveAlarms().add(new ActiveAlarm(event.getAlarmId(), event.getComponentId(),
+                event.getFindingId(), event.getComponentType(), event.getSeverity(), event.getTypology(),
+                event.getSource(), event.isStopsComponent(), event.getTimestamp()));
+        locationService.fullUpdateLocation(location);
+        if (shouldBroadcast) {
+            webSocketService.broadcastLocationPropertiesUpdated(
+                    new UpdateModel(location.getId(), Map.of("activeAlarms", location.getActiveAlarms())),
+                    event.getTimestamp());
+        }
+        return Map.of("status", "PROCESSED_SUCCESSFULLY", "effectiveActivityChanged", false);
+    }
+
+    private Map<String, Object> reduceComponentAlarmCleared(ComponentAlarmClearedEvent event,
+            boolean shouldBroadcast) {
+        if (event.getComponentType() == flunav.types.ComponentType.CONVEYOR) {
+            Conveyor conveyor = conveyorService.getConveyorById(event.getComponentId());
+            boolean wasActive = conveyor.isActive();
+            boolean removed = conveyor.getActiveAlarms().removeIf(alarm -> alarm.getAlarmId().equals(event.getAlarmId()));
+            if (!removed) {
+                return Map.of("status", "IGNORED_DUPLICATE", "effectiveActivityChanged", false);
+            }
+            conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+            conveyorService.updateConveyor(conveyor);
+            if (shouldBroadcast) {
+                broadcastConveyorAlarmState(conveyor, event.getTimestamp());
+            }
+            return Map.of("status", "PROCESSED_SUCCESSFULLY",
+                    "effectiveActivityChanged", wasActive != conveyor.isActive());
+        }
+
+        Location location = locationService.getLocationById(event.getComponentId());
+        boolean removed = location.getActiveAlarms().removeIf(alarm -> alarm.getAlarmId().equals(event.getAlarmId()));
+        if (!removed) {
+            return Map.of("status", "IGNORED_DUPLICATE", "effectiveActivityChanged", false);
+        }
+        locationService.fullUpdateLocation(location);
+        if (shouldBroadcast) {
+            webSocketService.broadcastLocationPropertiesUpdated(
+                    new UpdateModel(location.getId(), Map.of("activeAlarms", location.getActiveAlarms())),
+                    event.getTimestamp());
+        }
+        return Map.of("status", "PROCESSED_SUCCESSFULLY", "effectiveActivityChanged", false);
     }
 
     /**
@@ -1153,6 +1251,8 @@ public class EventProcessor {
     private void invalidatePathCacheAfterTopologyChange(DomainEvent event, Map<String, Object> result) {
         if ((event instanceof AlarmRaisedEvent
                 || event instanceof AlarmClearedEvent
+                || event instanceof ComponentAlarmRaisedEvent
+                || event instanceof ComponentAlarmClearedEvent
                 || event instanceof ConnectionActivatedEvent
                 || event instanceof ConnectionDeactivatedEvent)
                 && Boolean.TRUE.equals(result.get("effectiveActivityChanged"))) {
@@ -1187,13 +1287,24 @@ public class EventProcessor {
     }
 
     private List<String> alarmAffectedItems(DomainEvent event) {
-        if (!(event instanceof AlarmRaisedEvent raised) || !raised.isStopsConveyor()) {
+        String componentId;
+        boolean stops;
+        if (event instanceof AlarmRaisedEvent raised) {
+            componentId = raised.getConveyorId();
+            stops = raised.isStopsConveyor();
+        } else if (event instanceof ComponentAlarmRaisedEvent raised) {
+            componentId = raised.getComponentId();
+            stops = raised.isStopsComponent();
+        } else {
+            return List.of();
+        }
+        if (!stops) {
             return List.of();
         }
         return liveItemRepository.getAllActiveItems().stream()
                 .filter(Objects::nonNull)
-                .filter(item -> raised.getConveyorId().equals(item.getPositionId())
-                        || (item.getPath() != null && item.getPath().contains(raised.getConveyorId())))
+                .filter(item -> componentId.equals(item.getPositionId())
+                        || (item.getPath() != null && item.getPath().contains(componentId)))
                 .map(RedisLiveItem::getId)
                 .filter(Objects::nonNull)
                 .distinct()

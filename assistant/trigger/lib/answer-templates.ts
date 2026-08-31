@@ -23,8 +23,8 @@ export const answerTemplates: Record<InvestigationStrategy, AnswerTemplate> = {
     title: "Alarm investigation",
     dataMode: "mixed",
     requiredOperations: ["alarms.investigation"],
-    optionalOperations: ["system.summary", "topology.get", "alarms.list", "system.snapshot"],
-    findingHints: ["alarmId", "affectedItems", "stoppingAlarms", "conclusion"],
+    optionalOperations: ["system.summary", "topology.get", "alarms.list", "system.snapshot", "anomalies.list", "anomaly-incidents.list"],
+    findingHints: ["alarmId", "affectedItems", "stoppingAlarms", "findingId", "probableRootComponentId", "confidence", "conclusion"],
   },
   item_trace: {
     id: "item_trace",
@@ -39,7 +39,7 @@ export const answerTemplates: Record<InvestigationStrategy, AnswerTemplate> = {
     title: "Component investigation",
     dataMode: "live",
     requiredOperations: ["components.summary"],
-    optionalOperations: ["system.summary", "topology.get", "conveyors.flow", "system.snapshot"],
+    optionalOperations: ["system.summary", "topology.get", "conveyors.flow", "system.snapshot", "anomalies.list", "anomaly-incidents.list"],
     findingHints: ["componentId", "occupancy", "capacity", "activeAlarms"],
   },
   destination_performance: {

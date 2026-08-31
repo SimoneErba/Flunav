@@ -12,6 +12,10 @@ import com.flunav.backend.models.analytics.ConnectionStateSignal;
 import com.flunav.backend.models.analytics.ExitCandidate;
 import com.flunav.backend.models.analytics.LocationTransitMetric;
 import com.flunav.backend.models.analytics.MetricEvent;
+import com.flunav.backend.models.analytics.AnomalyFinding;
+import com.flunav.backend.models.analytics.AnomalyIncident;
+import com.flunav.backend.models.analytics.DetectorBaseline;
+import com.flunav.backend.models.analytics.LocationFlowObservation;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.BadActorMetric;
 import com.flunav.backend.models.response.EntityEventRecord;
@@ -30,6 +34,8 @@ import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.PathTraversedEvent;
 import flunav.events.AlarmRaisedEvent;
 import flunav.events.AlarmClearedEvent;
+import flunav.events.ComponentAlarmRaisedEvent;
+import flunav.events.ComponentAlarmClearedEvent;
 import flunav.events.UnknownEvent;
 import jakarta.annotation.PreDestroy;
 
@@ -93,6 +99,7 @@ public class ClickHouseService {
             ensureMovementAnalyticsSchema();
             ensureOperationalAnalyticsSchema();
             ensureAlarmAnalyticsSchema();
+            ensureAnomalyAnalyticsSchema();
             logger.info("ClickHouse Client V2 initialized successfully.");
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
@@ -355,6 +362,7 @@ public class ClickHouseService {
     public synchronized void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
         String simulationId = metric.simulationId() != null ? metric.simulationId() : currentSimulationScope();
         enqueueOrThrow(locationTransitQueue, new LocationTransitMetric(
+                metric.sourceEventId(),
                 metric.timestamp(),
                 simulationId,
                 metric.itemId(),
@@ -390,6 +398,7 @@ public class ClickHouseService {
             for (LocationTransitMetric metric : batch) {
                 Map<String, Object> row = new HashMap<>();
                 row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+                row.put("source_event_id", Objects.toString(metric.sourceEventId(), ""));
                 row.put("simulation_id", metric.simulationId());
                 row.put("item_id", metric.itemId());
                 row.put("from_location_id", metric.fromLocationId());
@@ -798,6 +807,7 @@ public class ClickHouseService {
                     CREATE TABLE IF NOT EXISTS %s.analytics_path_traversal_ingest
                     (
                         event_timestamp DateTime64(3),
+                        source_event_id String,
                         simulation_id LowCardinality(String),
                         item_id String,
                         previous_position_id String,
@@ -808,6 +818,8 @@ public class ClickHouseService {
                     )
                     ENGINE = Null
                     """.formatted(clickhouseDatabase));
+            executeClickHouseStatement("ALTER TABLE " + clickhouseDatabase
+                    + ".analytics_location_transit_events ADD COLUMN IF NOT EXISTS source_event_id String DEFAULT '' AFTER event_timestamp");
 
             executeClickHouseStatement("""
                     CREATE TABLE IF NOT EXISTS %s.item_journeys
@@ -1053,15 +1065,243 @@ public class ClickHouseService {
     }
 
     /**
+     * Creates the detector fact and state tables for existing ClickHouse volumes.
+     * Bootstrap SQL handles new deployments; these idempotent statements are the
+     * forward-upgrade path for already initialized installations.
+     */
+    private void ensureAnomalyAnalyticsSchema() {
+        try {
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_anomaly_findings
+                    (
+                        finding_id String, scope_id LowCardinality(String), simulation_id LowCardinality(String),
+                        detector LowCardinality(String), detector_version LowCardinality(String),
+                        temporal_mode LowCardinality(String), component_id String,
+                        component_type LowCardinality(String), item_id String, previous_position_id String,
+                        reported_position_id String, expected_intermediate_positions Array(String),
+                        observed_metrics_json String, baseline_mean Nullable(Float64),
+                        baseline_median Nullable(Float64), baseline_stddev Nullable(Float64),
+                        baseline_mad Nullable(Float64), z_score Nullable(Float64), modified_z_score Nullable(Float64),
+                        sample_count UInt64, baseline_window_start Nullable(DateTime64(3, 'UTC')),
+                        baseline_window_end Nullable(DateTime64(3, 'UTC')), severity LowCardinality(String),
+                        alarm_id String, alarm_state LowCardinality(String),
+                        observation_timestamp DateTime64(3, 'UTC'), tick_timestamp DateTime64(3, 'UTC'),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version) ORDER BY (scope_id, finding_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_anomaly_incidents
+                    (
+                        incident_id String, scope_id LowCardinality(String), simulation_id LowCardinality(String),
+                        probable_root_component_id String, confidence LowCardinality(String),
+                        finding_ids Array(String), component_ids Array(String),
+                        first_finding_timestamp DateTime64(3, 'UTC'), updated_at DateTime64(3, 'UTC'),
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version) ORDER BY (scope_id, incident_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_detector_baselines
+                    (
+                        baseline_id String, scope_id LowCardinality(String), detector_version LowCardinality(String),
+                        detector LowCardinality(String), component_id String, path_key String,
+                        window_start DateTime64(3, 'UTC'), window_end DateTime64(3, 'UTC'), sample_count UInt64,
+                        mean Float64, population_stddev Float64, median Float64, mad Float64,
+                        minimum Float64, maximum Float64, calculated_at DateTime64(3, 'UTC'),
+                        epoch_started_at DateTime64(3, 'UTC'), version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    ORDER BY (scope_id, detector, path_key, baseline_id)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_component_flow_events
+                    (
+                        source_event_id String, event_timestamp DateTime64(3, 'UTC'),
+                        scope_id LowCardinality(String), simulation_id LowCardinality(String), component_id String,
+                        component_type LowCardinality(String), direction LowCardinality(String), item_id String,
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    PARTITION BY toYYYYMM(event_timestamp)
+                    ORDER BY (scope_id, source_event_id, component_id, direction)
+                    """);
+            executeClickHouseStatement("""
+                    CREATE TABLE IF NOT EXISTS analytics_component_flow_1m
+                    (
+                        bucket_start DateTime64(3, 'UTC'), scope_id LowCardinality(String),
+                        simulation_id LowCardinality(String), component_id String,
+                        component_type LowCardinality(String), arrivals UInt64, departures UInt64,
+                        throughput UInt64, pressure Int64,
+                        version DateTime64(3, 'UTC') DEFAULT now64(3)
+                    ) ENGINE = ReplacingMergeTree(version)
+                    PARTITION BY toYYYYMM(bucket_start)
+                    ORDER BY (scope_id, component_type, component_id, bucket_start)
+                    """);
+            executeClickHouseStatement("ALTER TABLE analytics_alarm_events ADD COLUMN IF NOT EXISTS finding_id String DEFAULT '' AFTER alarm_id");
+            executeClickHouseStatement("ALTER TABLE analytics_alarm_events ADD COLUMN IF NOT EXISTS component_type LowCardinality(String) DEFAULT 'CONVEYOR' AFTER conveyor_id");
+            executeClickHouseStatement("ALTER TABLE analytics_alarm_events ADD COLUMN IF NOT EXISTS source LowCardinality(String) DEFAULT 'MANUAL' AFTER typology");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to ensure anomaly analytics schema", e);
+        }
+    }
+
+    public void saveAnomalyFinding(AnomalyFinding finding) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("finding_id", finding.findingId());
+        row.put("scope_id", finding.scopeId());
+        row.put("simulation_id", Objects.toString(finding.simulationId(), ""));
+        row.put("detector", finding.detector().name());
+        row.put("detector_version", finding.detectorVersion());
+        row.put("temporal_mode", finding.temporalMode().name());
+        row.put("component_id", Objects.toString(finding.componentId(), ""));
+        row.put("component_type", finding.componentType().name());
+        row.put("item_id", Objects.toString(finding.itemId(), ""));
+        row.put("previous_position_id", Objects.toString(finding.previousPositionId(), ""));
+        row.put("reported_position_id", Objects.toString(finding.reportedPositionId(), ""));
+        row.put("expected_intermediate_positions", finding.expectedIntermediatePositions());
+        row.put("observed_metrics_json", writeJson(finding.observedMetrics()));
+        row.put("baseline_mean", finding.baselineMean());
+        row.put("baseline_median", finding.baselineMedian());
+        row.put("baseline_stddev", finding.baselineStddev());
+        row.put("baseline_mad", finding.baselineMad());
+        row.put("z_score", finding.zScore());
+        row.put("modified_z_score", finding.modifiedZScore());
+        row.put("sample_count", finding.sampleCount());
+        row.put("baseline_window_start", formatNullable(finding.baselineWindowStart()));
+        row.put("baseline_window_end", formatNullable(finding.baselineWindowEnd()));
+        row.put("severity", finding.severity().name());
+        row.put("alarm_id", Objects.toString(finding.alarmId(), ""));
+        row.put("alarm_state", finding.alarmState().name());
+        row.put("observation_timestamp", CLICKHOUSE_FORMATTER.format(finding.observationTimestamp()));
+        row.put("tick_timestamp", CLICKHOUSE_FORMATTER.format(finding.tickTimestamp()));
+        insertJsonRows("analytics_anomaly_findings", List.of(row));
+    }
+
+    public void saveAnomalyIncident(AnomalyIncident incident) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("incident_id", incident.incidentId());
+        row.put("scope_id", incident.scopeId());
+        row.put("simulation_id", Objects.toString(incident.simulationId(), ""));
+        row.put("probable_root_component_id", incident.probableRootComponentId());
+        row.put("confidence", incident.confidence());
+        row.put("finding_ids", incident.findingIds());
+        row.put("component_ids", incident.componentIds());
+        row.put("first_finding_timestamp", CLICKHOUSE_FORMATTER.format(incident.firstFindingTimestamp()));
+        row.put("updated_at", CLICKHOUSE_FORMATTER.format(incident.updatedAt()));
+        insertJsonRows("analytics_anomaly_incidents", List.of(row));
+    }
+
+    public void saveDetectorBaseline(DetectorBaseline baseline) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("baseline_id", baseline.baselineId());
+        row.put("scope_id", baseline.scopeId());
+        row.put("detector_version", baseline.detectorVersion());
+        row.put("detector", baseline.detector().name());
+        row.put("component_id", Objects.toString(baseline.componentId(), ""));
+        row.put("path_key", baseline.pathKey());
+        row.put("window_start", CLICKHOUSE_FORMATTER.format(baseline.windowStart()));
+        row.put("window_end", CLICKHOUSE_FORMATTER.format(baseline.windowEnd()));
+        row.put("sample_count", baseline.sampleCount());
+        row.put("mean", baseline.mean());
+        row.put("population_stddev", baseline.populationStddev());
+        row.put("median", baseline.median());
+        row.put("mad", baseline.mad());
+        row.put("minimum", baseline.minimum());
+        row.put("maximum", baseline.maximum());
+        row.put("calculated_at", CLICKHOUSE_FORMATTER.format(baseline.calculatedAt()));
+        row.put("epoch_started_at", CLICKHOUSE_FORMATTER.format(baseline.epochStartedAt()));
+        insertJsonRows("analytics_detector_baselines", List.of(row));
+    }
+
+    public void saveComponentFlowObservation(LocationFlowObservation observation, String scopeId,
+            String simulationId) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("source_event_id", observation.sourceEventId());
+        row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(observation.timestamp()));
+        row.put("scope_id", scopeId);
+        row.put("simulation_id", Objects.toString(simulationId, ""));
+        row.put("component_id", observation.locationId());
+        row.put("component_type", "LOCATION");
+        row.put("direction", observation.direction().name());
+        row.put("item_id", observation.itemId());
+        insertJsonRows("analytics_component_flow_events", List.of(row));
+    }
+
+    public void saveComponentFlowBucket(Instant bucketStart, String scopeId, String simulationId,
+            String componentId, String componentType, long arrivals, long departures) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("bucket_start", CLICKHOUSE_FORMATTER.format(bucketStart));
+        row.put("scope_id", scopeId);
+        row.put("simulation_id", Objects.toString(simulationId, ""));
+        row.put("component_id", componentId);
+        row.put("component_type", componentType);
+        row.put("arrivals", arrivals);
+        row.put("departures", departures);
+        row.put("throughput", departures);
+        row.put("pressure", arrivals - departures);
+        insertJsonRows("analytics_component_flow_1m", List.of(row));
+    }
+
+    public List<TransitSample> getTransitSamples(String scopeId, Instant from, Instant to) {
+        String sourceScope = scopeId.equals("live") ? "live" : scopeId;
+        String sql = """
+                SELECT from_position_id AS conveyor_id, from_location_id, to_location_id,
+                       toFloat64(transit_time_ms) AS duration,
+                       toUnixTimestamp64Milli(event_timestamp) AS event_ms
+                FROM analytics_location_transit_events
+                WHERE simulation_id = {scope:String}
+                  AND event_timestamp >= {from:DateTime64(3, 'UTC')}
+                  AND event_timestamp < {to:DateTime64(3, 'UTC')}
+                FORMAT JSONEachRow
+                """;
+        List<TransitSample> samples = new ArrayList<>();
+        try (QueryResponse response = client.query(sql, Map.of(
+                "scope", sourceScope,
+                "from", CLICKHOUSE_FORMATTER.format(from),
+                "to", CLICKHOUSE_FORMATTER.format(to))).get();
+                InputStream input = response.getInputStream()) {
+            MappingIterator<Map<String, Object>> rows = objectMapper.readerFor(Map.class).readValues(input);
+            while (rows.hasNext()) {
+                Map<String, Object> row = rows.next();
+                samples.add(new TransitSample(Objects.toString(row.get("conveyor_id"), ""),
+                        Objects.toString(row.get("from_location_id"), ""),
+                        Objects.toString(row.get("to_location_id"), ""),
+                        ((Number) row.get("duration")).doubleValue(),
+                        Instant.ofEpochMilli(((Number) row.get("event_ms")).longValue())));
+            }
+            return samples;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load transit baseline samples", e);
+        }
+    }
+
+    public record TransitSample(String conveyorId, String sourceLocationId, String targetLocationId,
+            double durationMillis, Instant timestamp) {
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to encode analytics JSON", e);
+        }
+    }
+
+    private String formatNullable(Instant value) {
+        return value != null ? CLICKHOUSE_FORMATTER.format(value) : null;
+    }
+
+    /**
      * Writes the immutable alarm fact after its state reducer succeeds. Simulation
      * facts carry their namespace and are removed with the simulation.
      */
     public synchronized void saveAlarmFact(DomainEvent event, String simulationId, List<String> affectedItemIds) {
-        if (!(event instanceof AlarmRaisedEvent) && !(event instanceof AlarmClearedEvent)) {
+        if (!(event instanceof AlarmRaisedEvent) && !(event instanceof AlarmClearedEvent)
+                && !(event instanceof ComponentAlarmRaisedEvent) && !(event instanceof ComponentAlarmClearedEvent)) {
             return;
         }
         String alarmId;
         String conveyorId;
+        String findingId = "";
+        String componentType = "CONVEYOR";
+        String source = "MANUAL";
         String severity;
         String typology;
         boolean stopsConveyor;
@@ -1071,28 +1311,48 @@ public class ClickHouseService {
             severity = raised.getSeverity().name();
             typology = raised.getTypology();
             stopsConveyor = raised.isStopsConveyor();
-        } else {
-            AlarmClearedEvent cleared = (AlarmClearedEvent) event;
+        } else if (event instanceof AlarmClearedEvent cleared) {
             alarmId = cleared.getAlarmId();
             conveyorId = cleared.getConveyorId();
             severity = cleared.getSeverity().name();
             typology = cleared.getTypology();
             stopsConveyor = cleared.isStopsConveyor();
+        } else if (event instanceof ComponentAlarmRaisedEvent raised) {
+            alarmId = raised.getAlarmId();
+            conveyorId = raised.getComponentId();
+            findingId = Objects.toString(raised.getFindingId(), "");
+            componentType = raised.getComponentType().name();
+            source = raised.getSource().name();
+            severity = raised.getSeverity().name();
+            typology = raised.getTypology();
+            stopsConveyor = raised.isStopsComponent();
+        } else {
+            ComponentAlarmClearedEvent cleared = (ComponentAlarmClearedEvent) event;
+            alarmId = cleared.getAlarmId();
+            conveyorId = cleared.getComponentId();
+            componentType = cleared.getComponentType().name();
+            severity = "WARNING";
+            typology = "COMPONENT_ALARM";
+            stopsConveyor = false;
         }
 
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("event_id", event.getEventId());
         row.put("alarm_id", alarmId);
+        row.put("finding_id", findingId);
         row.put("conveyor_id", conveyorId);
+        row.put("component_type", componentType);
         row.put("event_type", event.getEventType());
         row.put("severity", severity);
         row.put("typology", typology);
+        row.put("source", source);
         row.put("stops_conveyor", stopsConveyor ? 1 : 0);
         row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(event.getTimestamp()));
         row.put("simulation_id", simulationId != null ? simulationId : "");
         insertJsonRows("analytics_alarm_events", List.of(row));
 
-        if (event instanceof AlarmRaisedEvent && stopsConveyor && affectedItemIds != null
+        if ((event instanceof AlarmRaisedEvent || event instanceof ComponentAlarmRaisedEvent)
+                && stopsConveyor && affectedItemIds != null
                 && !affectedItemIds.isEmpty()) {
             List<Map<String, Object>> itemRows = affectedItemIds.stream().distinct().map(itemId -> {
                 Map<String, Object> itemRow = new LinkedHashMap<>();
@@ -1713,23 +1973,44 @@ public class ClickHouseService {
      * mutations ensure an immediately reused id cannot observe the old analytics.
      */
     public void deleteOperationalAnalyticsForSimulation(String simulationId) {
+        locationTransitQueue.removeIf(metric -> simulationId.equals(metric.simulationId()));
+        pathTraversalQueue.removeIf(metric -> simulationId.equals(metric.simulationId()));
         exitCandidateQueue.removeIf(candidate -> simulationId.equals(candidate.simulationId()));
         recirculationQueue.removeIf(fact -> simulationId.equals(fact.simulationId()));
         simulationConnectionQueue.removeIf(signal -> simulationId.equals(signal.simulationId()));
+        IllegalStateException cleanupFailure = null;
         for (String table : List.of(
                 "analytics_exit_candidates",
                 "analytics_completed_journeys",
                 "analytics_recirculation_facts",
                 "analytics_simulation_connection_events",
                 "analytics_alarm_events",
-                "analytics_alarm_affected_items")) {
+                "analytics_alarm_affected_items",
+                "analytics_anomaly_findings",
+                "analytics_anomaly_incidents",
+                "analytics_detector_baselines",
+                "analytics_component_flow_events",
+                "analytics_component_flow_1m",
+                "analytics_location_transit_events",
+                "analytics_location_transit_counts",
+                "analytics_path_transit_stats")) {
+            String scopeColumn = "analytics_detector_baselines".equals(table) ? "scope_id" : "simulation_id";
             String sql = "ALTER TABLE " + table
-                    + " DELETE WHERE simulation_id = {simulation_id:String} SETTINGS mutations_sync = 1";
+                    + " DELETE WHERE " + scopeColumn + " = {simulation_id:String} SETTINGS mutations_sync = 1";
             try (QueryResponse ignored = client.query(sql, Map.of("simulation_id", simulationId)).get()) {
                 // Mutation completion is enforced by mutations_sync.
             } catch (Exception e) {
-                throw new IllegalStateException("Failed to delete simulation analytics from " + table, e);
+                logger.error("Failed to delete simulation analytics from {}", table, e);
+                if (cleanupFailure == null) {
+                    cleanupFailure = new IllegalStateException(
+                            "Failed to delete one or more simulation analytics tables", e);
+                } else {
+                    cleanupFailure.addSuppressed(e);
+                }
             }
+        }
+        if (cleanupFailure != null) {
+            throw cleanupFailure;
         }
     }
 

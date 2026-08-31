@@ -12,6 +12,8 @@ import com.orientechnologies.orient.core.sql.executor.OResultSet;
 import flunav.types.ConveyorType;
 import flunav.types.ActiveAlarm;
 import flunav.types.AlarmSeverity;
+import flunav.types.AlarmSource;
+import flunav.types.ComponentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -251,13 +253,21 @@ public class ConveyorService {
         if (alarms == null) {
             return List.of();
         }
-        return alarms.stream().map(alarm -> Map.<String, Object>of(
-                "alarmId", alarm.getAlarmId(),
-                "conveyorId", alarm.getConveyorId(),
-                "severity", alarm.getSeverity().name(),
-                "typology", alarm.getTypology(),
-                "stopsConveyor", alarm.isStopsConveyor(),
-                "raisedAt", alarm.getRaisedAt().toString())).toList();
+        return alarms.stream().map(alarm -> {
+            Map<String, Object> value = new java.util.HashMap<>();
+            value.put("alarmId", alarm.getAlarmId());
+            value.put("conveyorId", alarm.getConveyorId());
+            value.put("componentId", alarm.getComponentId());
+            value.put("findingId", alarm.getFindingId());
+            value.put("componentType", alarm.getComponentType().name());
+            value.put("severity", alarm.getSeverity().name());
+            value.put("typology", alarm.getTypology());
+            value.put("source", alarm.getSource().name());
+            value.put("stopsComponent", alarm.isStopsComponent());
+            value.put("stopsConveyor", alarm.isStopsConveyor());
+            value.put("raisedAt", alarm.getRaisedAt().toString());
+            return value;
+        }).toList();
     }
 
     private List<ActiveAlarm> deserializeAlarms(Object stored) {
@@ -270,13 +280,19 @@ public class ConveyorService {
                 continue;
             }
             try {
-                alarms.add(new ActiveAlarm(
-                        String.valueOf(alarm.get("alarmId")),
-                        String.valueOf(alarm.get("conveyorId")),
+                String componentId = String.valueOf(alarm.get("componentId") != null
+                        ? alarm.get("componentId") : alarm.get("conveyorId"));
+                boolean stops = Boolean.parseBoolean(String.valueOf(alarm.get("stopsComponent") != null
+                        ? alarm.get("stopsComponent") : alarm.get("stopsConveyor")));
+                alarms.add(new ActiveAlarm(String.valueOf(alarm.get("alarmId")), componentId,
+                        alarm.get("findingId") != null ? String.valueOf(alarm.get("findingId")) : null,
+                        ComponentType.CONVEYOR,
                         AlarmSeverity.valueOf(String.valueOf(alarm.get("severity"))),
                         String.valueOf(alarm.get("typology")),
-                        Boolean.parseBoolean(String.valueOf(alarm.get("stopsConveyor"))),
-                        Instant.parse(String.valueOf(alarm.get("raisedAt")))));
+                        alarm.get("source") != null
+                                ? AlarmSource.valueOf(String.valueOf(alarm.get("source")))
+                                : AlarmSource.MANUAL,
+                        stops, Instant.parse(String.valueOf(alarm.get("raisedAt")))));
             } catch (RuntimeException exception) {
                 logger.warn("Ignoring malformed active alarm on conveyor {}", edgeIdentifier(alarm), exception);
             }

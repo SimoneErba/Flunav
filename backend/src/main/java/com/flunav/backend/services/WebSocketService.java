@@ -8,6 +8,7 @@ import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.models.simulation.SimulationStatus;
+import com.flunav.backend.models.analytics.AnomalyNotification;
 
 import flunav.context.UserContextHolder;
 import flunav.types.PositionType;
@@ -156,6 +157,13 @@ public class WebSocketService {
     public void broadcastThroughputMetric(String simulationId, ThroughputMetric metric) {
         try (var ignored = UserContextHolder.enterSenderContext(null)) {
             sendToTopic(simulationId, "analytics/throughput", metric, metric.getTimestamp().toEpochMilli());
+        }
+    }
+
+    public void broadcastAnomaly(String simulationId, AnomalyNotification notification) {
+        try (var ignored = UserContextHolder.enterSenderContext(null)) {
+            sendToTopic(simulationId, "analytics/anomalies", notification,
+                    notification.virtualTimestamp().toEpochMilli());
         }
     }
 

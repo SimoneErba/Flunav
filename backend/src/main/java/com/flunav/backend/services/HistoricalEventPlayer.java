@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.ObjectProvider;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.AnomalyProcessingContext;
+import com.flunav.backend.models.analytics.AnomalyProcessingMode;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 
@@ -332,7 +334,11 @@ public class HistoricalEventPlayer {
      * derived state written during replay is deterministic.
      */
     private void processEvent(String simulationId, DomainEvent event) {
-        try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
+        AnomalyProcessingMode mode = event.getTimestamp().isAfter(timeService.physicalNow())
+                ? AnomalyProcessingMode.FUTURE_SIMULATION
+                : AnomalyProcessingMode.HISTORICAL_PLAYBACK;
+        try (var timeContext = timeService.enterVirtualTime(event.getTimestamp());
+                var analyticsContext = AnomalyProcessingContext.enter(mode)) {
             eventProcessor.processEvent(event);
             simulationService.updateLastProcessedTimestamp(simulationId, event.getTimestamp());
         }

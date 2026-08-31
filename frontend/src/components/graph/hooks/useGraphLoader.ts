@@ -24,10 +24,13 @@ export const useGraphLoader = (
 
         // 1. Locations — add `itemsInChute: []` to all nodes upfront
         initialGraphData?.locations?.forEach((loc) => {
+            const hasAdvisory = (((loc as typeof loc & { activeAlarms?: unknown[] }).activeAlarms?.length) ?? 0) > 0;
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id!),
                 y: loc.longitude ?? hashToNumber(loc.id + "random"),
-                label: loc.name,
+                label: hasAdvisory ? `⚠ ${loc.name}` : loc.name,
+                advisoryOriginalLabel: loc.name,
+                advisory: hasAdvisory,
                 size: 10,
                 color: loc.customColor || "#69b3a2",
                 type: "circle",
@@ -51,8 +54,11 @@ export const useGraphLoader = (
                 const color = conv.customColor || '#808080';
                 const speed = conv.speed ?? 1.0;
                 const length = conv.length ?? 1.0;
+                const hasAdvisory = (conv.activeAlarms?.length ?? 0) > 0;
                 graph.addEdgeWithKey(conv.id, conv.sourceId, conv.targetId, {
-                    id: conv.id, type: 'arrow', size, label: conv.name,
+                    id: conv.id, type: 'arrow', size, label: hasAdvisory ? `⚠ ${conv.name ?? conv.id}` : conv.name,
+                    advisoryOriginalLabel: conv.name,
+                    advisory: hasAdvisory,
                     speed: isActive ? speed : 0, length, mainPath: conv.mainPath,
                     color: isActive ? color : '#FF0000',
                     customColor: conv.customColor,

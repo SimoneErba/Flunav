@@ -53,6 +53,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = ConnectionPropertiesUpdatedEvent.class, name = "CONNECTION_PROPERTIES_UPDATED"),
         @JsonSubTypes.Type(value = AlarmRaisedEvent.class, name = "ALARM_RAISED"),
         @JsonSubTypes.Type(value = AlarmClearedEvent.class, name = "ALARM_CLEARED"),
+        @JsonSubTypes.Type(value = ComponentAlarmRaisedEvent.class, name = "COMPONENT_ALARM_RAISED"),
+        @JsonSubTypes.Type(value = ComponentAlarmClearedEvent.class, name = "COMPONENT_ALARM_CLEARED"),
+        @JsonSubTypes.Type(value = AnomalyEvaluationTickEvent.class, name = "ANOMALY_EVALUATION_TICK"),
 
         // --- DESTINATION MAP EVENTS ---
         @JsonSubTypes.Type(value = MapDestinationsEvent.class, name = "MAP_DESTINATIONS"),

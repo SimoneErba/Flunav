@@ -189,8 +189,8 @@ class AssistantGatewayControllerTests {
         }
 
         @Override
-        public Version version() {
-            return Version.HTTP_1_1;
+        public HttpClient.Version version() {
+            return HttpClient.Version.HTTP_1_1;
         }
 
         @Override
@@ -269,8 +269,8 @@ class AssistantGatewayControllerTests {
         }
 
         @Override
-        public Version version() {
-            return Version.HTTP_1_1;
+        public HttpClient.Version version() {
+            return HttpClient.Version.HTTP_1_1;
         }
     }
 

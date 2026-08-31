@@ -6,6 +6,7 @@ import { RuleRow } from "./editors/RuleRow";
 import { v4 as uuidv4 } from 'uuid';
 import { PathAnalytics } from "./analytics/PathAnalytics";
 import { OperationalAnalytics } from "./analytics/OperationalAnalytics";
+import { AnomalyFeed } from "./analytics/AnomalyFeed";
 import { useAuth } from "../context/auth.context";
 import { AdminCommands } from "./admin/AdminCommands";
 
@@ -422,6 +423,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
               <PathAnalytics />
             </div>
             <OperationalAnalytics />
+            <AnomalyFeed />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">

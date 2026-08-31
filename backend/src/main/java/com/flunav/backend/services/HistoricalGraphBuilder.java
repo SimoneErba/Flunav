@@ -1,6 +1,8 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.AnomalyProcessingContext;
+import com.flunav.backend.models.analytics.AnomalyProcessingMode;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
@@ -64,7 +66,8 @@ public class HistoricalGraphBuilder {
      */
     @Async("taskExecutor")
     public void build(String simulationId, Instant restorePoint, Semaphore buildPermits) {
-        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId);
+                var analyticsContext = AnomalyProcessingContext.enter(AnomalyProcessingMode.HISTORICAL_BUILD)) {
             logger.info("Starting historical graph build for simulation: {}", simulationId);
             Instant physicalNow = timeService.physicalNow();
             Instant realEventReplayEnd = restorePoint.isAfter(physicalNow) ? physicalNow : restorePoint;
@@ -103,6 +106,7 @@ public class HistoricalGraphBuilder {
                     progressStart,
                     restorePoint,
                     simulationService);
+            simulationService.initializeAnomalySchedule(simulationId, progressStart);
             progressTracker.report(progressStart, true);
 
             replayEventsAndInternalQueue(simulationId, firstEventPage, eventsAfterTimestamp, realEventReplayEnd,
@@ -303,6 +307,7 @@ public class HistoricalGraphBuilder {
                         if (locData.getProperties() != null) {
                             locationVertex.setProperty("properties", locData.getProperties());
                         }
+                        locationVertex.setProperty("activeAlarms", List.of());
 
                         locationVertex.save();
                         locationIdToRidMap.put(locData.getId(), locationVertex.getIdentity());

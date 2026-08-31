@@ -30,6 +30,8 @@ import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
+import com.flunav.backend.repositories.AnomalyObservationRepository;
+import flunav.events.AnomalyEvaluationTickEvent;
 
 import flunav.events.DomainEvent;
 import flunav.types.PositionType;
@@ -51,6 +53,8 @@ public class SimulationService {
     private final ItemMovementProcessor itemMovementProcessor;
     private final ClickHouseService clickHouseService;
     private final RoutingCoordinator routingCoordinator;
+    private final AnomalyEngine anomalyEngine;
+    private final AnomalyObservationRepository anomalyObservationRepository;
     private final int maxActiveSimulations;
     private final int maxBuildingSimulations;
     private final long maxActiveItemsPerSimulation;
@@ -81,6 +85,8 @@ public class SimulationService {
             @Lazy ItemMovementProcessor itemMovementProcessor,
             ClickHouseService clickHouseService,
             RoutingCoordinator routingCoordinator,
+            @Lazy AnomalyEngine anomalyEngine,
+            AnomalyObservationRepository anomalyObservationRepository,
             @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
             @Value("${simulation.capacity.max-building:1}") int maxBuildingSimulations,
             @Value("${simulation.capacity.max-active-items:10000}") long maxActiveItemsPerSimulation,
@@ -97,6 +103,8 @@ public class SimulationService {
         this.itemMovementProcessor = itemMovementProcessor;
         this.clickHouseService = clickHouseService;
         this.routingCoordinator = routingCoordinator;
+        this.anomalyEngine = anomalyEngine;
+        this.anomalyObservationRepository = anomalyObservationRepository;
         this.maxActiveSimulations = maxActiveSimulations;
         this.maxBuildingSimulations = maxBuildingSimulations;
         this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
@@ -119,10 +127,14 @@ public class SimulationService {
      */
     public SimulationState createSimulation(String simulationId, Instant timestamp) {
         enforceSimulationCapacity();
+        Instant createdAt = timeService.physicalNow();
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
-                timeService.physicalNow(), null, 1.0, 0.0);
+                createdAt, null, 1.0, 0.0);
         simulationCache.put(simulationId, state);
         persistState(state);
+        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            anomalyObservationRepository.initializeForkTimestamp(createdAt);
+        }
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
         return state;
@@ -160,6 +172,7 @@ public class SimulationService {
 
     private void startPlaybackWorker(String simulationId, SimulationState state, Instant simulationStartTime,
             double speedFactor) {
+        initializeAnomalySchedule(simulationId, simulationStartTime);
         state.setStatus(SimulationStatus.PLAYING);
         state.setSpeedFactor(speedFactor);
         state.setLastProcessedTimestamp(simulationStartTime);
@@ -269,6 +282,7 @@ public class SimulationService {
             logger.warn("Failed to cleanup ClickHouse analytics for simulation {}: {}", simulationId, e.getMessage());
         }
         routingCoordinator.cleanupSimulation(simulationId);
+        anomalyObservationRepository.cleanupSimulationData(simulationId);
 
         if (state != null) {
             logger.info("Successfully destroyed simulation: {}", simulationId);
@@ -555,6 +569,48 @@ public class SimulationService {
                 state.getLastProcessedTimestamp(),
                 state.getSpeedFactor(),
                 state.getBuildProgress()));
+    }
+
+    /**
+     * Seeds each cadence at its first unprocessed UTC-aligned boundary. Tick state
+     * is read inside the simulation namespace so restarts do not duplicate a
+     * boundary that was already committed.
+     */
+    public void initializeAnomalySchedule(String simulationId, Instant startingTimestamp) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null) {
+            return;
+        }
+        try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
+            anomalyObservationRepository.initializeForkTimestamp(timeService.physicalNow());
+            for (AnomalyEvaluationTickEvent.Cadence cadence : AnomalyEvaluationTickEvent.Cadence.values()) {
+                boolean queued = state.getInternalEventQueue().stream()
+                        .anyMatch(event -> event instanceof AnomalyEvaluationTickEvent tick
+                                && tick.getCadence() == cadence);
+                if (queued) {
+                    continue;
+                }
+                Instant last = anomalyObservationRepository.getLastBoundary(cadence);
+                Instant after = last != null ? last : startingTimestamp;
+                state.getInternalEventQueue().add(new AnomalyEvaluationTickEvent(cadence,
+                        anomalyEngine.nextBoundary(after, cadence)));
+            }
+        }
+    }
+
+    public void scheduleNextAnomalyTick(AnomalyEvaluationTickEvent processed) {
+        SimulationState state = getCurrentSimulation();
+        if (state == null) {
+            return;
+        }
+        boolean alreadyQueued = state.getInternalEventQueue().stream()
+                .anyMatch(event -> event instanceof AnomalyEvaluationTickEvent tick
+                        && tick.getCadence() == processed.getCadence()
+                        && tick.getTimestamp().isAfter(processed.getTimestamp()));
+        if (!alreadyQueued) {
+            state.getInternalEventQueue().add(new AnomalyEvaluationTickEvent(processed.getCadence(),
+                    anomalyEngine.nextBoundary(processed.getTimestamp(), processed.getCadence())));
+        }
     }
 
     /**

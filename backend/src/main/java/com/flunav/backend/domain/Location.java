@@ -10,6 +10,9 @@ import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import flunav.types.ActiveAlarm;
 
 @Getter
 public class Location {
@@ -30,6 +33,7 @@ public class Location {
 
     // Optional processing delay for TIMED_NODE locations.
     private Long timeToProcessMs;
+    private List<ActiveAlarm> activeAlarms = new ArrayList<>();
 
     // Calculated field (populated by Service from Redis/Graph state)
     // This is NOT stored in OrientDB as a property, but calculated at runtime.
@@ -105,5 +109,9 @@ public class Location {
 
     public void setType(LocationType type) {
         this.type = type;
+    }
+
+    public void setActiveAlarms(List<ActiveAlarm> activeAlarms) {
+        this.activeAlarms = activeAlarms != null ? new ArrayList<>(activeAlarms) : new ArrayList<>();
     }
 }

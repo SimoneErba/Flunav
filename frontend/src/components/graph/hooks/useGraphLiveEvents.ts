@@ -40,7 +40,8 @@ export const useGraphLiveEvents = (
         subscribeToConnectionCreated,
         subscribeToConnectionDeleted,
         subscribeToConnectionUpdated,
-        subscribeToChuteEmptied
+        subscribeToChuteEmptied,
+        subscribeToAnomalies
     } = useWebSocketEvents();
 
     // WebSocket handlers are registered once per subscription set, so this ref
@@ -465,6 +466,32 @@ export const useGraphLiveEvents = (
             }
         }, simulationId));
 
+        unsubscribers.push(subscribeToAnomalies((notification) => {
+            const finding = notification.finding;
+            const componentId = finding?.componentId ?? notification.componentId;
+            if (!componentId) return;
+            const enabled = notification.kind !== 'ALARM_CLEARED';
+            if (finding?.componentType === 'LOCATION' || (!finding && graph.hasNode(componentId))) {
+                if (!graph.hasNode(componentId)) return;
+                const original = graph.getNodeAttribute(componentId, 'advisoryOriginalLabel')
+                    ?? graph.getNodeAttribute(componentId, 'label');
+                graph.setNodeAttribute(componentId, 'advisoryOriginalLabel', original);
+                graph.setNodeAttribute(componentId, 'advisory', enabled);
+                graph.setNodeAttribute(componentId, 'label', enabled ? `⚠ ${original}` : original);
+            } else {
+                const edge = graph.hasEdge(componentId)
+                    ? componentId
+                    : graph.findEdge((_key, attrs) => attrs.id === componentId);
+                if (!edge) return;
+                const original = graph.getEdgeAttribute(edge, 'advisoryOriginalLabel')
+                    ?? graph.getEdgeAttribute(edge, 'label');
+                graph.setEdgeAttribute(edge, 'advisoryOriginalLabel', original);
+                graph.setEdgeAttribute(edge, 'advisory', enabled);
+                graph.setEdgeAttribute(edge, 'label', enabled ? `⚠ ${original ?? componentId}` : original);
+            }
+            sigma.refresh();
+        }, simulationId));
+
         return () => unsubscribers.forEach(u => u());
     }, [
         activeItemsRef,
@@ -483,7 +510,8 @@ export const useGraphLiveEvents = (
         subscribeToItemDeleted,
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
-        subscribeToPositionUpdates
+        subscribeToPositionUpdates,
+        subscribeToAnomalies
     ]);
 
     return { adjustItemsForSpeedChange };

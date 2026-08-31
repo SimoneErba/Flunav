@@ -5,6 +5,8 @@ import flunav.types.LocationType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import flunav.types.ActiveAlarm;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -28,4 +30,12 @@ public class LocationResponse {
     // Metadata
     private Map<String, Object> properties;
     private String customColor;
+    private List<ActiveAlarm> activeAlarms;
+
+    public LocationResponse(String id, String name, LocationType type, Boolean active, Double latitude,
+            Double longitude, Integer capacity, Long timeToProcessMs, Map<String, Object> properties,
+            String customColor) {
+        this(id, name, type, active, latitude, longitude, capacity, timeToProcessMs, properties, customColor,
+                List.of());
+    }
 }

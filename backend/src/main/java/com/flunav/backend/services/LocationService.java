@@ -14,6 +14,10 @@ import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+import flunav.types.ActiveAlarm;
+import flunav.types.AlarmSeverity;
+import flunav.types.AlarmSource;
+import flunav.types.ComponentType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +84,7 @@ public class LocationService {
             vertex.setProperty("type", location.getType());
             vertex.setProperty("active", location.getActive());
             vertex.setProperty("properties", location.getProperties());
+            vertex.setProperty("activeAlarms", List.of());
 
             if (location.getCapacity() != null) {
                 vertex.setProperty("capacity", location.getCapacity());
@@ -146,6 +151,7 @@ public class LocationService {
 
             locationVertex.setProperty("capacity", location.getCapacity());
             locationVertex.setProperty("timeToProcessMs", location.getTimeToProcessMs());
+            locationVertex.setProperty("activeAlarms", serializeAlarms(location.getActiveAlarms()));
 
             locationVertex.save();
 
@@ -198,7 +204,7 @@ public class LocationService {
             type = LocationType.GENERIC;
         }
 
-        return new Location(
+        Location location = new Location(
                 vertex.getProperty("customId"),
                 vertex.getProperty("name"),
                 type,
@@ -208,6 +214,54 @@ public class LocationService {
                 vertex.getProperty("longitude"),
                 capacity,
                 timeToProcessMs);
+        location.setActiveAlarms(deserializeAlarms(vertex.getProperty("activeAlarms"), location.getId()));
+        return location;
+    }
+
+    private List<java.util.Map<String, Object>> serializeAlarms(List<ActiveAlarm> alarms) {
+        if (alarms == null) {
+            return List.of();
+        }
+        return alarms.stream().map(alarm -> {
+            java.util.Map<String, Object> value = new java.util.HashMap<>();
+            value.put("alarmId", alarm.getAlarmId());
+            value.put("componentId", alarm.getComponentId());
+            value.put("findingId", alarm.getFindingId());
+            value.put("componentType", alarm.getComponentType().name());
+            value.put("severity", alarm.getSeverity().name());
+            value.put("typology", alarm.getTypology());
+            value.put("source", alarm.getSource().name());
+            value.put("stopsComponent", alarm.isStopsComponent());
+            value.put("raisedAt", alarm.getRaisedAt().toString());
+            return value;
+        }).toList();
+    }
+
+    private List<ActiveAlarm> deserializeAlarms(Object stored, String locationId) {
+        if (!(stored instanceof Iterable<?> values)) {
+            return new ArrayList<>();
+        }
+        List<ActiveAlarm> alarms = new ArrayList<>();
+        for (Object value : values) {
+            if (!(value instanceof java.util.Map<?, ?> alarm)) {
+                continue;
+            }
+            try {
+                alarms.add(new ActiveAlarm(String.valueOf(alarm.get("alarmId")), locationId,
+                        alarm.get("findingId") != null ? String.valueOf(alarm.get("findingId")) : null,
+                        ComponentType.LOCATION,
+                        AlarmSeverity.valueOf(String.valueOf(alarm.get("severity"))),
+                        String.valueOf(alarm.get("typology")),
+                        alarm.get("source") != null
+                                ? AlarmSource.valueOf(String.valueOf(alarm.get("source")))
+                                : AlarmSource.MANUAL,
+                        Boolean.parseBoolean(String.valueOf(alarm.get("stopsComponent"))),
+                        java.time.Instant.parse(String.valueOf(alarm.get("raisedAt")))));
+            } catch (RuntimeException exception) {
+                logger.warn("Ignoring malformed active alarm on location {}", locationId, exception);
+            }
+        }
+        return alarms;
     }
 
     private Long numberToLong(Object value) {
