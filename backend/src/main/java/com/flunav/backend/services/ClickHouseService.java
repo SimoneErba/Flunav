@@ -1263,8 +1263,8 @@ public class ClickHouseService {
                 samples.add(new TransitSample(Objects.toString(row.get("conveyor_id"), ""),
                         Objects.toString(row.get("from_location_id"), ""),
                         Objects.toString(row.get("to_location_id"), ""),
-                        ((Number) row.get("duration")).doubleValue(),
-                        Instant.ofEpochMilli(((Number) row.get("event_ms")).longValue())));
+                        asDouble(row.get("duration")),
+                        Instant.ofEpochMilli(Long.parseLong(String.valueOf(row.get("event_ms"))))));
             }
             return samples;
         } catch (Exception e) {

@@ -13,6 +13,7 @@ import { HoverOverlay } from "./HoverOverlay";
 import { ItemEditor, ItemEditorData } from "../editors/item.editor";
 import { HoverTarget } from "./DisplayGraph";
 import { LiveHud } from "./LiveHud";
+import { useSimulationContext } from "../../context/simulation.context";
 
 interface GraphEventsProps {
   initialGraphData: GraphData;
@@ -121,6 +122,11 @@ export const GraphEvents = ({
     initialGraphData, simulationId, simTime,
     hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData, colorOverrides
 }: GraphEventsProps) => {
+  const { designMode } = useSimulationContext();
+  useEffect(() => {
+    setHoverTarget(null);
+    setSelectedItemData(null);
+  }, [simulationId, designMode, setHoverTarget, setSelectedItemData]);
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
   
   // 1. Load Data
@@ -154,7 +160,7 @@ export const GraphEvents = ({
         <GraphTestApiBridge activeItemsRef={activeItemsRef} simTime={simTime} />
       )}
 
-      <LiveHud activeItemsRef={activeItemsRef} simulationId={simulationId} />
+      {!designMode && <LiveHud activeItemsRef={activeItemsRef} simulationId={simulationId} />}
 
       {/* SVG Line for Edge Creation */}
       {/* Converted inline styles to Tailwind classes */}

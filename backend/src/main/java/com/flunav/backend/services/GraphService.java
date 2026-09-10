@@ -69,6 +69,13 @@ public class GraphService {
         return getGraphData(timeService.now());
     }
 
+    /** Design mode reads only topology, without computing item positions or occupancy. */
+    public GraphData getTopologyData() {
+        Topology topology = fetchTopology();
+        return new GraphData(new ArrayList<>(topology.nodeMap.values()),
+                new ArrayList<>(topology.conveyorMap.values()), List.of(), timeService.now());
+    }
+
     public GraphData getGraphData(Instant now) {
         return getGraphData(now, true, DatabaseContextHolder.getSimulationId(), false);
     }

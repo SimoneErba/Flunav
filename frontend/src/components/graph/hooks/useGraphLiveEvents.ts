@@ -6,6 +6,7 @@ import { hashToNumber } from "../utils/graphUtils";
 import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
 import { isHighPriorityItem } from "../utils/itemPriority";
+import { useSimulationContext } from "../../../context/simulation.context";
 
 /**
  * Narrows websocket property values before applying them to graph coordinates.
@@ -27,6 +28,7 @@ export const useGraphLiveEvents = (
     simTime: number,
     onHighPriorityCountChange?: (count: number) => void
 ) => {
+    const { designMode } = useSimulationContext();
     const sigma = useSigma();
     const {
         connected,
@@ -102,6 +104,7 @@ export const useGraphLiveEvents = (
 
         // Position updates carry event timestamps, not browser arrival time, so the
         // handler converts progress back into the entry timestamp used by animation.
+        if (!designMode) {
         unsubscribers.push(subscribeToPositionUpdates((update) => {
             if (!graph.hasNode(update.itemId)) return;
 
@@ -351,6 +354,7 @@ export const useGraphLiveEvents = (
         }, simulationId));
 
         // 3. Location CRUD
+        }
         unsubscribers.push(subscribeToLocationCreated((loc) => {
             if (graph.hasNode(loc.id)) return;
             graph.addNode(loc.id, {
@@ -405,7 +409,7 @@ export const useGraphLiveEvents = (
             if (graph.hasEdge(conn.from, conn.to)) graph.dropEdge(conn.from, conn.to);
         }, simulationId));
 
-        unsubscribers.push(subscribeToChuteEmptied((chuteId: string) => {
+        if (!designMode) unsubscribers.push(subscribeToChuteEmptied((chuteId: string) => {
             if (graph.hasNode(chuteId)) {
                 const capacity = graph.getNodeAttribute(chuteId, "capacity");
                 const baseName = graph.getNodeAttribute(chuteId, "label")?.split(" (")[0];
@@ -466,7 +470,7 @@ export const useGraphLiveEvents = (
             }
         }, simulationId));
 
-        unsubscribers.push(subscribeToAnomalies((notification) => {
+        if (!designMode) unsubscribers.push(subscribeToAnomalies((notification) => {
             const finding = notification.finding;
             const componentId = finding?.componentId ?? notification.componentId;
             if (!componentId) return;
@@ -511,7 +515,8 @@ export const useGraphLiveEvents = (
         subscribeToLocationCreated,
         subscribeToLocationDeleted,
         subscribeToPositionUpdates,
-        subscribeToAnomalies
+        subscribeToAnomalies,
+        designMode
     ]);
 
     return { adjustItemsForSpeedChange };

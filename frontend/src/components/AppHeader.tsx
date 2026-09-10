@@ -14,16 +14,16 @@ export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeade
   return (
     <header className="
       relative
-      h-20 px-6  /* Increased height from h-16 to h-20 for a bigger presence */
+      min-h-20 px-4 py-2 gap-y-2
       bg-white/90 dark:bg-gray-900/90 backdrop-blur-md
       border-b border-gray-200 dark:border-gray-800 
-      flex items-center justify-between 
+      flex flex-wrap items-center justify-between
       shrink-0 z-50 sticky top-0
       transition-all duration-300
     ">
       
       {/* --- LEFT SECTION --- */}
-      <div className="relative z-20 flex items-center gap-6 flex-1 basis-1/4 min-w-0">
+      <div className="relative z-20 flex items-center gap-3 flex-1 min-w-0 overflow-x-auto">
         {/* Logo Area */}
         <div className="flex items-center gap-3 shrink-0">
           {/* Increased to h-12 (48px) */}
@@ -43,12 +43,12 @@ export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeade
       </div>
 
       {/* --- CENTER SECTION --- */}
-      <div className="relative z-10 flex-1 basis-2/4 flex justify-center min-w-0">
+      <div className="relative z-10 order-3 basis-full flex justify-center min-w-0 overflow-x-auto">
         {centerContent}
       </div>
 
       {/* --- RIGHT SECTION --- */}
-      <div className="relative z-20 flex items-center justify-end gap-3 flex-1 basis-1/4 min-w-0">
+      <div className="relative z-20 flex shrink-0 items-center justify-end gap-2 pl-2">
         {rightActions && (
           <div className="flex items-center gap-2 pr-1 shrink-0">
             {rightActions}

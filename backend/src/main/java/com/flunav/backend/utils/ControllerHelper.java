@@ -14,11 +14,20 @@ import java.util.concurrent.CompletableFuture;
 public class ControllerHelper {
 
     private final EventProcessor eventProcessor;
+    private final com.flunav.backend.services.SimulationService simulationService;
+    private final com.flunav.backend.services.TimeService timeService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private static final Logger logger = LoggerFactory.getLogger(ControllerHelper.class);
 
     @Autowired
-    public ControllerHelper(EventProcessor eventProcessor) {
+    public ControllerHelper(EventProcessor eventProcessor,
+            com.flunav.backend.services.SimulationService simulationService,
+            com.flunav.backend.services.TimeService timeService,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.eventProcessor = eventProcessor;
+        this.simulationService = simulationService;
+        this.timeService = timeService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -29,6 +38,21 @@ public class ControllerHelper {
      *         processor.
      */
     public CompletableFuture<Map<String, Object>> processAndLogEvent(DomainEvent event) {
+        var state = simulationService.getCurrentSimulation();
+        if (state != null) {
+            synchronized (state.getExecutionLock()) {
+                var timestamp = simulationService.getSimulationClock(state);
+                try (var virtualTime = timeService.enterVirtualTime(timestamp)) {
+                    // Round-trip through the existing Jackson contract to keep immutable event DTOs intact.
+                    com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.valueToTree(event);
+                    payload.put("timestamp", timestamp.toString());
+                    DomainEvent scenarioEvent = objectMapper.treeToValue(payload, DomainEvent.class);
+                    return eventProcessor.process(scenarioEvent, true);
+                } catch (Exception failure) {
+                    return CompletableFuture.failedFuture(failure);
+                }
+            }
+        }
         return eventProcessor.process(event, true)
                 .thenApply(resultMap -> {
 

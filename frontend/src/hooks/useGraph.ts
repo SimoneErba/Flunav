@@ -3,13 +3,16 @@ import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
 import { baseURL } from '../api/config';
 import { axiosInstance } from '../api/axiosInstance';
+import { useSimulationContext } from '../context/simulation.context';
 
 export const useGraph = () => {
+    const { designMode } = useSimulationContext();
     const { graphApi, clientId } = useApi(); // Default API from context
     const [graphData, setGraphData] = useState<GraphData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<Error | null>(null);
     const hasLoadedInitialGraph = useRef(false);
+    const requestVersion = useRef(0);
 
     /**
      * Fetches graph data.
@@ -19,6 +22,7 @@ export const useGraph = () => {
      *  - string: Force specific Simulation ID
      */
     const refetchGraphData = useCallback(async (simulationIdOverride?: string | null) => {
+        const version = ++requestVersion.current;
         setLoading(true);
         try {
             let api = graphApi;
@@ -38,23 +42,26 @@ export const useGraph = () => {
                 api = new GraphApi(config, undefined, axiosInstance);
             }
 
-            const response = await api.getGraphData();
+            const response = await api.getGraphData(designMode);
             // Ensure we set the timestamp if missing (fallback)
             const data = response.data;
             if (!data.timestamp) {
                 data.timestamp = new Date().toISOString();
             }
             
-            setGraphData(data);
-            setError(null);
+            if (version === requestVersion.current) {
+                setGraphData(data);
+                setError(null);
+            }
         } catch (err) {
+            if (version !== requestVersion.current) return;
             console.error("Failed to fetch graph data", err);
             setError(err as Error);
             throw err;
         } finally {
-            setLoading(false);
+            if (version === requestVersion.current) setLoading(false);
         }
-    }, [graphApi, clientId]);
+    }, [graphApi, clientId, designMode]);
 
     // Simulation graph loads are requested explicitly after the build reaches READY.
     // A context change while it is still building must not be treated as an API outage.

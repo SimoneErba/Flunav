@@ -56,6 +56,15 @@ public class WebSocketService {
 
     // --- SIMULATION CONTROL EVENTS ---
 
+    public void broadcastSimulationMode(com.flunav.backend.models.simulation.SimulationState state) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("status", state.getStatus());
+        message.put("kind", state.getKind());
+        message.put("liveInputState", state.getLiveInputState());
+        sendToTopic(state.getId(), "status", message,
+                (state.getLastProcessedTimestamp() != null ? state.getLastProcessedTimestamp() : state.getTimestamp()).toEpochMilli());
+    }
+
     public void broadcastSimulationUpdate(String simulationId, SimulationStatus status, Instant timestamp) {
         broadcastSimulationUpdate(simulationId, status, timestamp, null);
     }

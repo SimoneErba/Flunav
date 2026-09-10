@@ -177,6 +177,7 @@ export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => 
 
         return () => {
             try {
+                if (!sigma.getContainer().querySelector('canvas')) return;
                 sigma.setSetting("edgeReducer", null);
                 sigma.setSetting("nodeReducer", null);
 

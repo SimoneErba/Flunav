@@ -4,6 +4,8 @@ import java.time.Instant;
 
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.simulation.SimulationState;
+import com.flunav.backend.models.simulation.SimulationKind;
+import com.flunav.backend.models.simulation.LiveInputState;
 import flunav.events.AnomalyEvaluationTickEvent;
 
 import lombok.Getter;
@@ -20,6 +22,11 @@ public class SimulationStateResponse {
     private final Instant nextFastTick;
     private final Instant nextMinuteTick;
     private final Instant nextBaselineTick;
+    private final SimulationKind kind;
+    private final String sourceSimulationId;
+    private final Instant forkTimestamp;
+    private final Instant liveHandoffTimestamp;
+    private final LiveInputState liveInputState;
 
     /**
      * Keeps existing call sites compatible when only the original simulation anchor
@@ -50,6 +57,11 @@ public class SimulationStateResponse {
         this.nextFastTick = null;
         this.nextMinuteTick = null;
         this.nextBaselineTick = null;
+        this.kind = SimulationKind.STANDARD;
+        this.sourceSimulationId = null;
+        this.forkTimestamp = null;
+        this.liveHandoffTimestamp = null;
+        this.liveInputState = LiveInputState.ACTIVE;
     }
 
     /**
@@ -65,6 +77,11 @@ public class SimulationStateResponse {
         this.nextFastTick = nextTick(state, AnomalyEvaluationTickEvent.Cadence.FAST);
         this.nextMinuteTick = nextTick(state, AnomalyEvaluationTickEvent.Cadence.MINUTE);
         this.nextBaselineTick = nextTick(state, AnomalyEvaluationTickEvent.Cadence.BASELINE);
+        this.kind = state.getKind();
+        this.sourceSimulationId = state.getSourceSimulationId();
+        this.forkTimestamp = state.getForkTimestamp();
+        this.liveHandoffTimestamp = state.getLiveHandoffTimestamp();
+        this.liveInputState = state.getLiveInputState();
     }
 
     private static Instant nextTick(SimulationState state, AnomalyEvaluationTickEvent.Cadence cadence) {

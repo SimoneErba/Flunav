@@ -53,6 +53,14 @@ public class SimulationController {
                 .body(new SimulationStateResponse(state));
     }
 
+    @PostMapping("/what-if")
+    @Operation(summary = "Fork a paused what-if scenario from live or an existing simulation")
+    public ResponseEntity<SimulationStateResponse> createWhatIf(
+            @RequestBody(required = false) com.flunav.backend.models.input.WhatIfRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(new SimulationStateResponse(
+                simulationService.createWhatIf(request == null ? null : request.sourceSimulationId())));
+    }
+
     @GetMapping("/{simulationId}")
     @Operation(summary = "Get simulation status", description = "Poll this endpoint to check the build status (e.g., QUEUED, BUILDING, READY).")
     @ApiResponse(responseCode = "200", description = "Current state of the simulation.")

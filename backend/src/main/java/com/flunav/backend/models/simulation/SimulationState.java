@@ -20,6 +20,13 @@ public class SimulationState {
     private volatile Instant lastProcessedTimestamp;
     private volatile double speedFactor = 1.0;
     private volatile double buildProgress;
+    private SimulationKind kind = SimulationKind.STANDARD;
+    private String sourceSimulationId;
+    private Instant forkTimestamp;
+    private Instant liveHandoffTimestamp;
+    private volatile LiveInputState liveInputState = LiveInputState.ACTIVE;
+    private final Object executionLock = new Object();
+    private final java.util.concurrent.atomic.AtomicLong playbackGeneration = new java.util.concurrent.atomic.AtomicLong();
     private final Object timingLock = new Object();
     private final PriorityBlockingQueue<DomainEvent> internalEventQueue = new PriorityBlockingQueue<>(11,
             Comparator.comparing(DomainEvent::getTimestamp)

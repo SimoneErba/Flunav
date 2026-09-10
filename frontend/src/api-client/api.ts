@@ -3028,6 +3028,36 @@ export interface SimulationStateResponse {
      * @memberof SimulationStateResponse
      */
     'nextBaselineTick'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'kind'?: SimulationStateResponseKindEnum;
+    /**
+     *
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'sourceSimulationId'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'forkTimestamp'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'liveHandoffTimestamp'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof SimulationStateResponse
+     */
+    'liveInputState'?: SimulationStateResponseLiveInputStateEnum;
 }
 
 export const SimulationStateResponseStatusEnum = {
@@ -3042,6 +3072,19 @@ export const SimulationStateResponseStatusEnum = {
 } as const;
 
 export type SimulationStateResponseStatusEnum = typeof SimulationStateResponseStatusEnum[keyof typeof SimulationStateResponseStatusEnum];
+export const SimulationStateResponseKindEnum = {
+    Standard: 'STANDARD',
+    WhatIfLive: 'WHAT_IF_LIVE',
+    WhatIfSimulation: 'WHAT_IF_SIMULATION'
+} as const;
+
+export type SimulationStateResponseKindEnum = typeof SimulationStateResponseKindEnum[keyof typeof SimulationStateResponseKindEnum];
+export const SimulationStateResponseLiveInputStateEnum = {
+    Active: 'ACTIVE',
+    Frozen: 'FROZEN'
+} as const;
+
+export type SimulationStateResponseLiveInputStateEnum = typeof SimulationStateResponseLiveInputStateEnum[keyof typeof SimulationStateResponseLiveInputStateEnum];
 
 /**
  *
@@ -3295,6 +3338,19 @@ export const UserResponseRoleEnum = {
 
 export type UserResponseRoleEnum = typeof UserResponseRoleEnum[keyof typeof UserResponseRoleEnum];
 
+/**
+ *
+ * @export
+ * @interface WhatIfRequest
+ */
+export interface WhatIfRequest {
+    /**
+     *
+     * @type {string}
+     * @memberof WhatIfRequest
+     */
+    'sourceSimulationId'?: string;
+}
 
 /**
  * AnalyticsControllerApi - axios parameter creator
@@ -6351,10 +6407,11 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
         /**
          *
          * @summary Get the current state of the graph
+         * @param {boolean} [topologyOnly]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getGraphData: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        getGraphData: async (topologyOnly?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/graph`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -6366,6 +6423,10 @@ export const GraphApiAxiosParamCreator = function (configuration?: Configuration
             const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
             const localVarHeaderParameter = {} as any;
             const localVarQueryParameter = {} as any;
+
+            if (topologyOnly !== undefined) {
+                localVarQueryParameter['topologyOnly'] = topologyOnly;
+            }
 
 
 
@@ -6442,11 +6503,12 @@ export const GraphApiFp = function(configuration?: Configuration) {
         /**
          *
          * @summary Get the current state of the graph
+         * @param {boolean} [topologyOnly]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async getGraphData(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GraphData>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.getGraphData(options);
+        async getGraphData(topologyOnly?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GraphData>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getGraphData(topologyOnly, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['GraphApi.getGraphData']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -6484,11 +6546,12 @@ export const GraphApiFactory = function (configuration?: Configuration, basePath
         /**
          *
          * @summary Get the current state of the graph
+         * @param {boolean} [topologyOnly]
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getGraphData(options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
-            return localVarFp.getGraphData(options).then((request) => request(axios, basePath));
+        getGraphData(topologyOnly?: boolean, options?: RawAxiosRequestConfig): AxiosPromise<GraphData> {
+            return localVarFp.getGraphData(topologyOnly, options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -6522,12 +6585,13 @@ export class GraphApi extends BaseAPI {
     /**
      *
      * @summary Get the current state of the graph
+     * @param {boolean} [topologyOnly]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof GraphApi
      */
-    public getGraphData(options?: RawAxiosRequestConfig) {
-        return GraphApiFp(this.configuration).getGraphData(options).then((request) => request(this.axios, this.basePath));
+    public getGraphData(topologyOnly?: boolean, options?: RawAxiosRequestConfig) {
+        return GraphApiFp(this.configuration).getGraphData(topologyOnly, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -9496,6 +9560,40 @@ export const SimulationsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
+         *
+         * @summary Fork a paused what-if scenario from live or an existing simulation
+         * @param {WhatIfRequest} [whatIfRequest]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createWhatIf: async (whatIfRequest?: WhatIfRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/simulations/what-if`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(whatIfRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * Deletes an in-memory simulation and cancels any associated tasks.
          * @summary Destroy a simulation
          * @param {string} simulationId The unique ID of the simulation
@@ -9782,6 +9880,19 @@ export const SimulationsApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         *
+         * @summary Fork a paused what-if scenario from live or an existing simulation
+         * @param {WhatIfRequest} [whatIfRequest]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async createWhatIf(whatIfRequest?: WhatIfRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationStateResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.createWhatIf(whatIfRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SimulationsApi.createWhatIf']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * Deletes an in-memory simulation and cancels any associated tasks.
          * @summary Destroy a simulation
          * @param {string} simulationId The unique ID of the simulation
@@ -9905,6 +10016,16 @@ export const SimulationsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.createSimulation(createSimulationRequest, options).then((request) => request(axios, basePath));
         },
         /**
+         *
+         * @summary Fork a paused what-if scenario from live or an existing simulation
+         * @param {WhatIfRequest} [whatIfRequest]
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createWhatIf(whatIfRequest?: WhatIfRequest, options?: RawAxiosRequestConfig): AxiosPromise<SimulationStateResponse> {
+            return localVarFp.createWhatIf(whatIfRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
          * Deletes an in-memory simulation and cancels any associated tasks.
          * @summary Destroy a simulation
          * @param {string} simulationId The unique ID of the simulation
@@ -10008,6 +10129,18 @@ export class SimulationsApi extends BaseAPI {
      */
     public createSimulation(createSimulationRequest: CreateSimulationRequest, options?: RawAxiosRequestConfig) {
         return SimulationsApiFp(this.configuration).createSimulation(createSimulationRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @summary Fork a paused what-if scenario from live or an existing simulation
+     * @param {WhatIfRequest} [whatIfRequest]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SimulationsApi
+     */
+    public createWhatIf(whatIfRequest?: WhatIfRequest, options?: RawAxiosRequestConfig) {
+        return SimulationsApiFp(this.configuration).createWhatIf(whatIfRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

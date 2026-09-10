@@ -7,6 +7,7 @@ import { ItemEditorData } from "../../editors/item.editor";
 import { LocationTypeEnum } from "../../../api-client";
 import toast from "react-hot-toast";
 import { toastWarning } from "../utils/toastUtils";
+import { useSimulationContext } from "../../../context/simulation.context";
 
 export interface InteractionState {
     setHoverTarget: (t: { nodeId: string; x: number; y: number; attributes: ItemEditorData } | null) => void;
@@ -24,7 +25,8 @@ export const useGraphInteractions = (
     const { locationApi, conveyorsApi, itemApi } = useApi();
 
     const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
-    const isReadOnly = isDemoMode && !simulationId;
+    const { designMode } = useSimulationContext();
+    const isReadOnly = isDemoMode && designMode && !simulationId;
 
     // --- State ---
     const [selectedEdgeData, setSelectedEdgeData] = useState<EdgeEditorData | null>(null);

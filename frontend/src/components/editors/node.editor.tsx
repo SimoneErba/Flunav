@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { PropertiesEditor } from "../properties.editor";
 import { confirmToast } from "../graph/utils/toastUtils";
 import { SharedButtons } from "./shared.buttons";
-import { ItemResponse } from "../../../api-client/api";
+import { ItemResponse } from "../../api-client/api";
+import { useSimulationContext } from "../../context/simulation.context";
 
 const LOCATION_TYPES = [
   { value: "JUNCTION", label: "Junction" },
@@ -39,6 +40,7 @@ interface NodeEditorProps {
 }
 
 export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: NodeEditorProps) => {
+  const { designMode } = useSimulationContext();
   const [name, setName] = useState(data.name || "");
   const [capacity, setCapacity] = useState(data.capacity || 0);
   const [locationType, setLocationType] = useState(data.locationType || "GENERIC");
@@ -167,7 +169,7 @@ export const NodeEditor = React.memo(({ data, onClose, onSubmit, onDelete }: Nod
       </div>
 
       {/* Items in Chute — only shown when type is CHUTE */}
-      {isChute && (
+      {isChute && !designMode && (
         <div className="border-t border-gray-200 dark:border-gray-700 pt-2 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <label className={labelClass}>Items in Chute</label>

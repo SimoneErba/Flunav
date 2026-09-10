@@ -52,8 +52,10 @@ export interface EntityUpdateMessage {
 }
 
 export interface SimulationStatusUpdate {
-    status: string;
+    status: import('../api-client').SimulationStateResponseStatusEnum;
     buildProgress?: number;
+    liveInputState?: 'ACTIVE' | 'FROZEN';
+    message?: string;
 }
 
 export interface SimulationSpeedUpdate {

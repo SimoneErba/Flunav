@@ -1,6 +1,8 @@
 package com.flunav.backend.repositories;
 
 import com.flunav.backend.models.simulation.SimulationStatus;
+import com.flunav.backend.models.simulation.SimulationKind;
+import com.flunav.backend.models.simulation.LiveInputState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -105,7 +107,15 @@ public class LiveSimulationRepository {
     }
 
     public record SimulationMetadata(String simulationId, Instant timestamp, SimulationStatus status,
-            Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor, double buildProgress) {
+            Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor, double buildProgress,
+            SimulationKind kind, String sourceSimulationId, Instant forkTimestamp, Instant liveHandoffTimestamp,
+            LiveInputState liveInputState) {
+
+        public SimulationMetadata(String simulationId, Instant timestamp, SimulationStatus status,
+                Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor, double buildProgress) {
+            this(simulationId, timestamp, status, lastHeartbeatTimestamp, lastProcessedTimestamp, speedFactor,
+                    buildProgress, SimulationKind.STANDARD, null, null, null, LiveInputState.ACTIVE);
+        }
 
         public SimulationMetadata(String simulationId, Instant timestamp, SimulationStatus status,
                 Instant lastHeartbeatTimestamp, Instant lastProcessedTimestamp, double speedFactor) {
@@ -121,6 +131,11 @@ public class LiveSimulationRepository {
             putInstant(map, "lp", lastProcessedTimestamp);
             map.put("sp", String.valueOf(speedFactor));
             map.put("bp", String.valueOf(buildProgress));
+            map.put("kind", kind.name());
+            map.put("source", sourceSimulationId == null ? "" : sourceSimulationId);
+            putInstant(map, "fork", forkTimestamp);
+            putInstant(map, "handoff", liveHandoffTimestamp);
+            map.put("input", liveInputState.name());
             return map;
         }
 
@@ -134,7 +149,11 @@ public class LiveSimulationRepository {
                     raw.containsKey("sp") ? Double.parseDouble(raw.get("sp")) : 1.0,
                     raw.containsKey("bp")
                             ? Double.parseDouble(raw.get("bp"))
-                            : defaultBuildProgress(raw.get("st")));
+                            : defaultBuildProgress(raw.get("st")),
+                    SimulationKind.valueOf(raw.getOrDefault("kind", "STANDARD")),
+                    raw.getOrDefault("source", "").isEmpty() ? null : raw.get("source"),
+                    parseInstant(raw.get("fork")), parseInstant(raw.get("handoff")),
+                    LiveInputState.valueOf(raw.getOrDefault("input", "ACTIVE")));
         }
 
         private static double defaultBuildProgress(String rawStatus) {

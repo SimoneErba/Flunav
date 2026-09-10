@@ -58,7 +58,9 @@ const alignToMinute = (date: Date) => {
 function LiveWorkspace() {
    const { user } = useAuth();
    const navigate = useNavigate();
-   const { activeSimulation, setActiveSimulation } = useSimulationContext();
+   const { activeSimulation, setActiveSimulation, designMode, setDesignMode, isBranching,
+       enterWhatIf, exitWhatIf } = useSimulationContext();
+   const isWhatIf = activeSimulation?.kind === 'WHAT_IF_LIVE' || activeSimulation?.kind === 'WHAT_IF_SIMULATION';
    const canAccessUsers = user?.role === 'SUPERADMIN';
    const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
    const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
@@ -189,6 +191,7 @@ function LiveWorkspace() {
               ...prev,
               status: update.status,
               buildProgress: update.buildProgress ?? prev.buildProgress,
+              liveInputState: update.liveInputState ?? prev.liveInputState,
               lastProcessedTimestamp: new Date(update.timestamp).toISOString()
             };
         });
@@ -215,7 +218,7 @@ function LiveWorkspace() {
   }, [connected, activeSimulation?.id, refetchGraphData, setActiveSimulation, simulationApi, subscribeToSimulationStatus]); 
 
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || designMode) return;
     return subscribeToAnomalies((notification) => {
       const finding = notification.finding;
       const mode = finding?.temporalMode?.replaceAll('_', ' ') ?? (activeSimulation ? 'SIMULATION' : 'LIVE');
@@ -233,7 +236,7 @@ function LiveWorkspace() {
         toast.success(`Advisory cleared on ${notification.componentId}`);
       }
     }, activeSimulation?.id);
-  }, [activeSimulation, connected, subscribeToAnomalies]);
+  }, [activeSimulation, connected, subscribeToAnomalies, designMode]);
 
   useEffect(() => {
     if (!activeSimulation?.id) return;
@@ -244,7 +247,20 @@ function LiveWorkspace() {
     return () => clearInterval(intervalId);
   }, [activeSimulation?.id, simulationApi]); 
 
-  const isLoading = graphLoading || isRestoring;
+  useEffect(() => {
+    const refresh = () => { void refetchGraphData(activeSimulationIdRef.current).catch(console.warn); };
+    window.addEventListener('scenario-mutated', refresh);
+    return () => window.removeEventListener('scenario-mutated', refresh);
+  }, [refetchGraphData]);
+
+  const graphReady = !activeSimulation || !['QUEUED', 'BUILDING', 'FAILED'].includes(activeSimulation.status!);
+  useEffect(() => {
+    if (graphReady) {
+      void refetchGraphData(activeSimulation?.id ?? null).catch(console.warn);
+    }
+  }, [activeSimulation?.id, graphReady, designMode, refetchGraphData]);
+
+  const isLoading = graphLoading || isRestoring || isBranching;
   const restoreProgress = Math.min(100, Math.max(0, activeSimulation?.buildProgress ?? 0));
 
   const handleRetry = () => {
@@ -293,13 +309,13 @@ function LiveWorkspace() {
                     onTogglePlay={handleTogglePlayback}
                     onSetSpeed={handleSetSpeed}
                 />
-                <button onClick={handleChangeSimulationTimeClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
+                {!isWhatIf && <button onClick={handleChangeSimulationTimeClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Change Time
-                </button>
+                </button>}
             </>
         ) : (
-            !isRestoring && (
+            !isRestoring && !designMode && (
                 <button onClick={handleStartSimulationClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Time Travel
@@ -327,7 +343,7 @@ function LiveWorkspace() {
    // 2. left Actions (Exit Sim, navigation)
    const leftActions = (
       <div className="flex items-center gap-2">
-         {activeSimulation && (
+         {activeSimulation && !isWhatIf && (
             <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                Exit Sim
             </button>
@@ -342,7 +358,7 @@ function LiveWorkspace() {
    );
 
    const rightActions = (
-      <GraphImportExport onImportSuccess={() => refetchGraphData(null)} />
+      <GraphImportExport onImportSuccess={() => refetchGraphData(activeSimulation?.id ?? null)} />
    );
 
   return (
@@ -351,11 +367,28 @@ function LiveWorkspace() {
       {/* UNIFIED HEADER */}
       <AppHeader centerContent={centerContent} leftActions={leftActions} rightActions={rightActions} />
 
+      <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" aria-label="Workspace mode">
+        <span className="font-bold" title={isWhatIf
+          ? 'Isolated scenario. Edits affect this branch. Exit discards it.'
+          : activeSimulation ? 'Historical playback with an isolated simulation clock.' : 'Current production system state.'}>
+          {activeSimulation?.kind === 'WHAT_IF_SIMULATION' ? 'WHAT IF SIMULATION' : isWhatIf ? 'WHAT IF' : activeSimulation ? 'SIMULATION' : 'LIVE'}
+        </span>
+        {activeSimulation?.liveInputState === 'FROZEN' && <span title="The simulation entered the future. Live input is permanently frozen." className="rounded bg-amber-100 px-2 py-1 text-amber-900 dark:bg-amber-900 dark:text-amber-100">FUTURE</span>}
+        {designMode ? <>
+          <span title="Changes immediately update production topology.">Design System</span>
+          <button className="rounded bg-blue-600 px-3 py-1 text-white" onClick={() => setDesignMode(false)}>Done</button>
+        </> : <>
+          {!activeSimulation && <button className="rounded border px-3 py-1" onClick={() => setDesignMode(true)}>Design System</button>}
+          {!isWhatIf && <button disabled={isLoading} className="rounded border px-3 py-1 disabled:opacity-40" onClick={() => void enterWhatIf().catch(console.warn)}>What If</button>}
+          {isWhatIf && <button className="rounded border border-red-500 px-3 py-1 text-red-500" onClick={() => void exitWhatIf().catch(() => toast.error('Could not exit What If'))}>Exit What If</button>}
+        </>}
+      </div>
+
       <main className="flex-1 relative overflow-hidden">
-        {isLoading ? (
+        {isLoading && (
           <div className="absolute top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-6 text-center">
             <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 animate-pulse">
-              {isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}
+              {isBranching ? 'Going into What If...' : isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}
             </h3>
             {isRestoring && (
               <div className="mt-5">
@@ -379,17 +412,18 @@ function LiveWorkspace() {
               </div>
             )}
           </div>
-        ) : (
-          <DisplayGraph 
+        )}
+        {graphData && <div className={isLoading ? 'invisible absolute inset-0' : 'absolute inset-0'}>
+          <DisplayGraph
             initialGraphData={graphData} 
             simulationId={activeSimulation?.id}
             simTime={simTime}
             colorOverrides={colorOverrides}
           />
-        )}
+        </div>}
       </main>
       
-       <LiveAnalysisPanel onColorsUpdated={updateColors} />
+       {!designMode && <LiveAnalysisPanel onColorsUpdated={updateColors} />}
     </div>
   );
 }

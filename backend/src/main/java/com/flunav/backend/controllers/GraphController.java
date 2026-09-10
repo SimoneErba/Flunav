@@ -51,8 +51,8 @@ public class GraphController {
 
     @GetMapping
     @Operation(summary = "Get the current state of the graph")
-    public ResponseEntity<GraphData> getGraphData() {
-        return ResponseEntity.ok(graphService.getGraphData());
+    public ResponseEntity<GraphData> getGraphData(@RequestParam(defaultValue = "false") boolean topologyOnly) {
+        return ResponseEntity.ok(topologyOnly ? graphService.getTopologyData() : graphService.getGraphData());
     }
 
     /**

@@ -85,6 +85,7 @@ public class EventProcessor {
     private final OperationalAnalyticsService operationalAnalyticsService;
     private final AnomalyObservationService anomalyObservationService;
     private final AnomalyEngine anomalyEngine;
+    private final SimulationInputService simulationInputService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -123,6 +124,7 @@ public class EventProcessor {
             OperationalAnalyticsService operationalAnalyticsService,
             AnomalyObservationService anomalyObservationService,
             @Lazy AnomalyEngine anomalyEngine,
+            SimulationInputService simulationInputService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -153,6 +155,7 @@ public class EventProcessor {
         this.operationalAnalyticsService = operationalAnalyticsService;
         this.anomalyObservationService = anomalyObservationService;
         this.anomalyEngine = anomalyEngine;
+        this.simulationInputService = simulationInputService;
         this.manageLogic = manageLogic;
     }
 
@@ -162,12 +165,19 @@ public class EventProcessor {
      * single item's history is reduced in timestamp/order arrival sequence.
      */
     public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast) {
+        return process(event, shouldBroadcast, DatabaseContextHolder.getSimulationId() == null
+                ? com.flunav.backend.models.simulation.EventOrigin.EXTERNAL_INGESTION
+                : com.flunav.backend.models.simulation.EventOrigin.SIMULATION_GENERATED);
+    }
+
+    public CompletableFuture<Map<String, Object>> process(DomainEvent event, boolean shouldBroadcast,
+            com.flunav.backend.models.simulation.EventOrigin origin) {
         final String entityId = (event instanceof EntityEvent e) ? e.getEntityId() : null;
         final String simulationId = DatabaseContextHolder.getSimulationId();
         final String senderId = UserContextHolder.getSenderId();
 
         if (entityId == null) {
-            return executeOn(event, shouldBroadcast, executor, simulationId, senderId);
+            return executeOn(event, shouldBroadcast, executor, simulationId, senderId, origin);
         }
 
         String processingKey = (simulationId == null ? "live:" : "sim:" + simulationId + ":") + entityId;
@@ -176,7 +186,7 @@ public class EventProcessor {
 
         processingFutures.compute(processingKey, (id, previousTaskCompletion) -> {
             Supplier<CompletableFuture<Map<String, Object>>> workSupplier = () -> executeOn(event, shouldBroadcast,
-                    executor, simulationId, senderId);
+                    executor, simulationId, senderId, origin);
 
             if (previousTaskCompletion == null || previousTaskCompletion.isDone()) {
                 workSupplier.get().whenComplete((result, error) -> {
@@ -209,18 +219,19 @@ public class EventProcessor {
      * virtual-time state cannot be lost across an executor boundary.
      */
     private CompletableFuture<Map<String, Object>> executeOn(DomainEvent event, boolean shouldBroadcast,
-            Executor executor, String simulationId, String senderId) {
+            Executor executor, String simulationId, String senderId,
+            com.flunav.backend.models.simulation.EventOrigin origin) {
         if (simulationId != null) {
             try {
                 return CompletableFuture
-                        .completedFuture(executeBusinessLogic(event, shouldBroadcast, simulationId, senderId));
+                        .completedFuture(executeBusinessLogic(event, shouldBroadcast, simulationId, senderId, origin));
             } catch (Exception e) {
                 return CompletableFuture.failedFuture(e);
             }
         }
 
         return CompletableFuture.supplyAsync(
-                () -> executeBusinessLogic(event, shouldBroadcast, simulationId, senderId), executor);
+                () -> executeBusinessLogic(event, shouldBroadcast, simulationId, senderId, origin), executor);
     }
 
     /**
@@ -229,7 +240,7 @@ public class EventProcessor {
      * replay needs, while simulation events update only isolated derived stores.
      */
     private Map<String, Object> executeBusinessLogic(DomainEvent event, boolean shouldBroadcast, String simulationId,
-            String senderId) {
+            String senderId, com.flunav.backend.models.simulation.EventOrigin origin) {
         String entityId = event instanceof EntityEvent entityEvent ? entityEvent.getEntityId() : null;
         String mode = simulationId == null ? "LIVE" : "SIMULATION";
         String effectiveSenderId = event.getSenderId() != null ? event.getSenderId() : senderId;
@@ -262,6 +273,7 @@ public class EventProcessor {
                 if (simulationId == null && !(event instanceof PathTraversedEvent)
                         && !(event instanceof AnomalyEvaluationTickEvent)) {
                     clickHouseService.saveEventAsync(event);
+                    simulationInputService.onLiveEvent(event, origin);
                 }
                 logProcessingCompleted(shouldBroadcast, elapsedMillis(startedAt));
                 return resultMap;

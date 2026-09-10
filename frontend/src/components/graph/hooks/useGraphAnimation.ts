@@ -2,12 +2,14 @@ import { useEffect, useRef } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemResponse } from "../../../api-client/api";
 import type { Attributes } from "graphology-types";
+import { useSimulationContext } from "../../../context/simulation.context";
 
 export const useGraphAnimation = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
     simTime: number,
     draggedNodeRef: React.MutableRefObject<string | null>
 ) => {
+    const { designMode } = useSimulationContext();
     const sigma = useSigma();
     const animationFrameId = useRef<number | null>(null);
     const simTimeRef = useRef(simTime);
@@ -19,6 +21,7 @@ export const useGraphAnimation = (
      * event remains authoritative for conveyor transitions, chutes, and exits.
      */
     useEffect(() => {
+        if (designMode) return;
         const animate = () => {
             const graph = sigma.getGraph();
             if (!graph) {
@@ -91,5 +94,5 @@ export const useGraphAnimation = (
 
         animationFrameId.current = requestAnimationFrame(animate);
         return () => { if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current); };
-    }, [activeItemsRef, draggedNodeRef, sigma]);
+    }, [activeItemsRef, draggedNodeRef, sigma, designMode]);
 };

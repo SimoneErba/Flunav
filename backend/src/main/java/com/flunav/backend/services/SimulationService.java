@@ -26,6 +26,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
+import com.flunav.backend.models.simulation.SimulationKind;
+import com.flunav.backend.models.simulation.LiveInputState;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
@@ -67,6 +69,10 @@ public class SimulationService {
     @org.springframework.beans.factory.annotation.Autowired
     private TimeService timeService;
 
+    private final GraphService graphService;
+    private final SimulationInputService simulationInputService;
+    private final LiveSystemScheduler liveSystemScheduler;
+
     private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
     private final Map<String, Future<?>> activePlaybacks = new ConcurrentHashMap<>();
     private final Map<String, PlaybackCancellationReason> playbackCancellationReasons = new ConcurrentHashMap<>();
@@ -87,6 +93,9 @@ public class SimulationService {
             RoutingCoordinator routingCoordinator,
             @Lazy AnomalyEngine anomalyEngine,
             AnomalyObservationRepository anomalyObservationRepository,
+            @Lazy GraphService graphService,
+            SimulationInputService simulationInputService,
+            @Lazy LiveSystemScheduler liveSystemScheduler,
             @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
             @Value("${simulation.capacity.max-building:1}") int maxBuildingSimulations,
             @Value("${simulation.capacity.max-active-items:10000}") long maxActiveItemsPerSimulation,
@@ -105,6 +114,9 @@ public class SimulationService {
         this.routingCoordinator = routingCoordinator;
         this.anomalyEngine = anomalyEngine;
         this.anomalyObservationRepository = anomalyObservationRepository;
+        this.graphService = graphService;
+        this.simulationInputService = simulationInputService;
+        this.liveSystemScheduler = liveSystemScheduler;
         this.maxActiveSimulations = maxActiveSimulations;
         this.maxBuildingSimulations = maxBuildingSimulations;
         this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
@@ -125,7 +137,7 @@ public class SimulationService {
      * Keeping state in Redis as well as memory lets controllers and workers recover
      * progress even when they observe different service instances or threads.
      */
-    public SimulationState createSimulation(String simulationId, Instant timestamp) {
+    public synchronized SimulationState createSimulation(String simulationId, Instant timestamp) {
         enforceSimulationCapacity();
         Instant createdAt = timeService.physicalNow();
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
@@ -138,6 +150,121 @@ public class SimulationService {
         waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
         return state;
+    }
+
+    /** Captures a committed baseline and installs live intake under the same barrier, with no persistence gap. */
+    public synchronized SimulationState createWhatIf(String sourceSimulationId) {
+        enforceSimulationCapacity();
+        if (!hasBuildingCapacity() || !buildPermits.tryAcquire()) {
+            rejectCapacity("A simulation is already being built");
+        }
+        try {
+            if (sourceSimulationId == null || sourceSimulationId.isBlank()) {
+                return eventProcessor.withLiveSnapshotBarrier(() -> forkWhatIf(null));
+            }
+            synchronized (lifecycleLock(sourceSimulationId)) {
+                SimulationState source = getSimulationState(sourceSimulationId);
+                if (source.getKind() != SimulationKind.STANDARD
+                        || (source.getStatus() != SimulationStatus.PLAYING && source.getStatus() != SimulationStatus.READY
+                        && source.getStatus() != SimulationStatus.PAUSED && source.getStatus() != SimulationStatus.STOPPED)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Source simulation is not ready to fork");
+                }
+                synchronized (source.getExecutionLock()) {
+                    if (source.getStatus() == SimulationStatus.PLAYING) pauseSimulation(sourceSimulationId);
+                    source.setStatus(SimulationStatus.PAUSED);
+                    source.setLastHeartbeatTimestamp(timeService.physicalNow());
+                    persistState(source);
+                    return eventProcessor.withLiveSnapshotBarrier(() -> forkWhatIf(source));
+                }
+            }
+        } finally {
+            buildPermits.release();
+            processWaitingQueue();
+        }
+    }
+
+    private SimulationState forkWhatIf(SimulationState source) {
+        clickHouseService.flushAllEventsOrThrow();
+        Instant handoff = timeService.physicalNow();
+        Instant fork = source == null ? handoff : getSimulationClock(source);
+        String id = "sim_" + UUID.randomUUID().toString().replace("-", "");
+        SimulationState state = new SimulationState(id, fork, SimulationStatus.BUILDING, handoff, fork, 1.0, 0.0);
+        state.setKind(source == null ? SimulationKind.WHAT_IF_LIVE : SimulationKind.WHAT_IF_SIMULATION);
+        state.setSourceSimulationId(source == null ? null : source.getId());
+        state.setForkTimestamp(fork);
+        state.setLiveHandoffTimestamp(handoff);
+        simulationCache.put(id, state);
+        persistState(state);
+        try {
+            com.flunav.backend.models.graph.GraphData baseline;
+            try (var context = DatabaseContextHolder.enterSimulationContext(source == null ? null : source.getId())) {
+                baseline = graphService.getGraphData(fork, false);
+            }
+            if (maxActiveItemsPerSimulation > 0 && baseline.getItems().size() > maxActiveItemsPerSimulation) {
+                rejectCapacity("Source item count exceeds simulation limit " + maxActiveItemsPerSimulation);
+            }
+            orientDBService.createInMemoryDatabase(id);
+            try (var context = DatabaseContextHolder.enterSimulationContext(id);
+                    var virtualTime = timeService.enterVirtualTime(fork)) {
+                historicalGraphBuilder.restoreFromSnapshotData(baseline);
+                for (DomainEvent mapping : clickHouseService.getLatestDestinationMappingEventsBefore(fork)) {
+                    eventProcessor.processEventWithoutBroadcast(mapping);
+                }
+                anomalyObservationRepository.initializeForkTimestamp(fork);
+                if (source != null) {
+                    state.getInternalEventQueue().addAll(source.getInternalEventQueue());
+                    state.getScheduledEventsByItem().putAll(source.getScheduledEventsByItem());
+                }
+                recalculateMovementSchedules(id, fork);
+                if (source == null) {
+                    for (var item : liveItemRepository.getAllActiveItems()) {
+                        if (item.getType() == PositionType.LOCATION) {
+                            DomainEvent scheduled = liveSystemScheduler.getScheduledEvent(item.getId());
+                            addInternalEvent(scheduled != null ? scheduled : new flunav.events.ItemPositionChangedEvent(
+                                    item.getId(), item.getPositionId(), 0.0, fork));
+                        }
+                    }
+                }
+            }
+            simulationInputService.register(id, state.getKind());
+            if (fork.isBefore(handoff)) {
+                simulationInputService.addHistory(id, clickHouseService.getEventsBetween(fork, handoff));
+            }
+            if (fork.isAfter(handoff)) freezeLiveInput(state);
+            state.setStatus(SimulationStatus.PAUSED);
+            state.setBuildProgress(100.0);
+            persistState(state);
+            return state;
+        } catch (RuntimeException failure) {
+            destroySimulation(id);
+            throw failure;
+        }
+    }
+
+    /** Registers playback before polling history, so subsequent async ClickHouse writes cannot be missed. */
+    public void ensureLiveHandoff(SimulationState state) {
+        if (simulationInputService.isRegistered(state.getId()) || state.getLiveInputState() == LiveInputState.FROZEN) return;
+        eventProcessor.withLiveSnapshotBarrier(() -> {
+            clickHouseService.flushAllEventsOrThrow();
+            state.setLiveHandoffTimestamp(timeService.physicalNow());
+            simulationInputService.register(state.getId(), state.getKind());
+            persistState(state);
+            return null;
+        });
+    }
+
+    /** Crossing physical now is a permanent cutoff, including after pause or a speed change. */
+    public void freezeLiveInputIfFuture(String simulationId, Instant timestamp) {
+        SimulationState state = getSimulationState(simulationId);
+        if (timestamp.isAfter(timeService.physicalNow())) freezeLiveInput(state);
+    }
+
+    private void freezeLiveInput(SimulationState state) {
+        if (state.getLiveInputState() == LiveInputState.FROZEN) return;
+        state.setLiveInputState(LiveInputState.FROZEN);
+        simulationInputService.unregister(state.getId());
+        persistState(state);
+        webSocketService.broadcastSimulationMode(state);
     }
 
     public SimulationState getOrCreateSimulation(String simulationId, Instant timestamp) {
@@ -158,6 +285,7 @@ public class SimulationService {
      */
     public void startPlayback(String simulationId, double speedFactor) {
         synchronized (lifecycleLock(simulationId)) {
+            requireNoWhatIfChild(simulationId);
             validateSpeedFactor(speedFactor);
             SimulationState state = getSimulationState(simulationId);
             if (state.getStatus() != SimulationStatus.READY && state.getStatus() != SimulationStatus.STOPPED
@@ -178,7 +306,8 @@ public class SimulationService {
         state.setLastProcessedTimestamp(simulationStartTime);
         persistState(state);
         webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
-        var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor);
+        long generation = state.getPlaybackGeneration().incrementAndGet();
+        var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor, generation);
         activePlaybacks.put(simulationId, playbackFuture);
     }
 
@@ -193,8 +322,11 @@ public class SimulationService {
 
             SimulationState state = simulationCache.get(simulationId);
             if (state != null) {
-                state.setStatus(SimulationStatus.STOPPED);
-                persistState(state);
+                synchronized (state.getExecutionLock()) {
+                    state.setStatus(SimulationStatus.STOPPED);
+                    state.getPlaybackGeneration().incrementAndGet();
+                    persistState(state);
+                }
             }
             cancelActivePlayback(simulationId, PlaybackCancellationReason.STOP);
         }
@@ -211,11 +343,14 @@ public class SimulationService {
                 throw new IllegalStateException(
                         "Simulation " + simulationId + " is not playing. Current state: " + state.getStatus());
             }
-            state.setStatus(SimulationStatus.PAUSED);
-            persistState(state);
-            webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
-                    state.getLastProcessedTimestamp());
-            cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
+            synchronized (state.getExecutionLock()) {
+                state.setStatus(SimulationStatus.PAUSED);
+                state.getPlaybackGeneration().incrementAndGet();
+                persistState(state);
+                webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
+                        state.getLastProcessedTimestamp());
+                cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
+            }
         }
     }
 
@@ -236,13 +371,16 @@ public class SimulationService {
                 return;
             }
 
-            Instant restartTimestamp = getSimulationClock(state);
-            cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
-            state.setStatus(SimulationStatus.PLAYING);
-            state.setLastProcessedTimestamp(restartTimestamp);
-            persistState(state);
-            recalculateMovementSchedules(simulationId, restartTimestamp);
-            startPlaybackWorker(simulationId, state, restartTimestamp, newSpeedFactor);
+            synchronized (state.getExecutionLock()) {
+                Instant restartTimestamp = getSimulationClock(state);
+                state.getPlaybackGeneration().incrementAndGet();
+                cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
+                state.setStatus(SimulationStatus.PLAYING);
+                state.setLastProcessedTimestamp(restartTimestamp);
+                persistState(state);
+                recalculateMovementSchedules(simulationId, restartTimestamp);
+                startPlaybackWorker(simulationId, state, restartTimestamp, newSpeedFactor);
+            }
         }
     }
 
@@ -256,6 +394,8 @@ public class SimulationService {
      * later simulation id cannot inherit stale topology or hot item state.
      */
     public void destroySimulation(String simulationId) {
+        requireNoWhatIfChild(simulationId);
+        simulationInputService.unregister(simulationId);
         cancelPlayback(simulationId);
         waitingQueue.removeIf(request -> request.simulationId().equals(simulationId));
         SimulationState state = simulationCache.remove(simulationId);
@@ -305,6 +445,7 @@ public class SimulationService {
         if (state != null) {
             state.setLastHeartbeatTimestamp(now);
             persistState(state);
+            if (state.getSourceSimulationId() != null) updateHeartbeat(state.getSourceSimulationId());
             return;
         }
 
@@ -367,7 +508,8 @@ public class SimulationService {
             return;
         Instant now = timeService.physicalNow();
         for (var heartbeat : liveSimulationRepository.getAllSimulationHeartbeats()) {
-            if (Duration.between(heartbeat.lastHeartbeatTimestamp(), now).toMinutes() > 2) {
+            if (Duration.between(heartbeat.lastHeartbeatTimestamp(), now).toMinutes() > 2
+                    && !hasWhatIfChild(heartbeat.simulationId())) {
                 destroySimulation(heartbeat.simulationId());
             }
         }
@@ -385,6 +527,16 @@ public class SimulationService {
             logger.debug("getCurrentSimulation for id {}: found state? {}", id, (state != null));
         }
         return state;
+    }
+
+    private boolean hasWhatIfChild(String simulationId) {
+        return simulationCache.values().stream().anyMatch(state -> simulationId.equals(state.getSourceSimulationId()));
+    }
+
+    private void requireNoWhatIfChild(String simulationId) {
+        if (hasWhatIfChild(simulationId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Exit the child what-if scenario first");
+        }
     }
 
     public String getCurrentSimulationId() {
@@ -496,6 +648,9 @@ public class SimulationService {
             return;
         }
 
+        if (state.getStatus() != SimulationStatus.BUILDING && state.getStatus() != SimulationStatus.QUEUED) {
+            freezeLiveInputIfFuture(simulationId, targetTime);
+        }
         checkpointAllItems(simulationId, targetTime);
         state.setLastProcessedTimestamp(targetTime);
         persistState(state);
@@ -531,33 +686,20 @@ public class SimulationService {
 
     private SimulationState loadOrRefreshSimulationState(String simulationId) {
         SimulationState cached = simulationCache.get(simulationId);
+        // The owning process holds queues and clock state; a concurrent Redis read must not rewind that clock.
+        if (cached != null) return cached;
         SimulationMetadata metadata = liveSimulationRepository.getState(simulationId).orElse(null);
 
         if (metadata == null) {
             return cached;
         }
 
-        if (cached == null) {
-            SimulationState restored = new SimulationState(
-                    metadata.simulationId(),
-                    metadata.timestamp(),
-                    metadata.status(),
-                    metadata.lastHeartbeatTimestamp(),
-                    metadata.lastProcessedTimestamp(),
-                    metadata.speedFactor(),
-                    metadata.buildProgress());
-            simulationCache.put(simulationId, restored);
-            return restored;
-        }
-
-        cached.setStatus(metadata.status());
-        cached.setLastHeartbeatTimestamp(metadata.lastHeartbeatTimestamp());
-        cached.setLastProcessedTimestamp(metadata.lastProcessedTimestamp());
-        cached.setBuildProgress(metadata.buildProgress());
-        if (Double.compare(cached.getSpeedFactor(), metadata.speedFactor()) != 0) {
-            cached.setSpeedFactor(metadata.speedFactor());
-        }
-        return cached;
+        SimulationState restored = new SimulationState(metadata.simulationId(), metadata.timestamp(), metadata.status(),
+                metadata.lastHeartbeatTimestamp(), metadata.lastProcessedTimestamp(), metadata.speedFactor(),
+                metadata.buildProgress());
+        restoreBranchMetadata(restored, metadata);
+        SimulationState existing = simulationCache.putIfAbsent(simulationId, restored);
+        return existing != null ? existing : restored;
     }
 
     private void persistState(SimulationState state) {
@@ -568,7 +710,16 @@ public class SimulationService {
                 state.getLastHeartbeatTimestamp(),
                 state.getLastProcessedTimestamp(),
                 state.getSpeedFactor(),
-                state.getBuildProgress()));
+                state.getBuildProgress(), state.getKind(), state.getSourceSimulationId(), state.getForkTimestamp(),
+                state.getLiveHandoffTimestamp(), state.getLiveInputState()));
+    }
+
+    private void restoreBranchMetadata(SimulationState state, SimulationMetadata metadata) {
+        state.setKind(metadata.kind());
+        state.setSourceSimulationId(metadata.sourceSimulationId());
+        state.setForkTimestamp(metadata.forkTimestamp());
+        state.setLiveHandoffTimestamp(metadata.liveHandoffTimestamp());
+        state.setLiveInputState(metadata.liveInputState());
     }
 
     /**

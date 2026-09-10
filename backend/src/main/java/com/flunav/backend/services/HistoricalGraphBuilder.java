@@ -45,10 +45,14 @@ public class HistoricalGraphBuilder {
     private final LiveItemRepository liveItemRepository;
     private final TimeService timeService;
     private final PathCacheRepository pathCacheRepository;
+    private final com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository;
+    private final com.flunav.backend.repositories.LiveLocationRepository liveLocationRepository;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
             OrientDBService orientDBService, SimulationService simulationService,
-            LiveItemRepository liveItemRepository, TimeService timeService, PathCacheRepository pathCacheRepository) {
+            LiveItemRepository liveItemRepository, TimeService timeService, PathCacheRepository pathCacheRepository,
+            com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository,
+            com.flunav.backend.repositories.LiveLocationRepository liveLocationRepository) {
         this.clickHouseService = clickHouseService;
         this.eventProcessor = eventProcessor;
         this.orientDBService = orientDBService;
@@ -56,6 +60,8 @@ public class HistoricalGraphBuilder {
         this.liveItemRepository = liveItemRepository;
         this.timeService = timeService;
         this.pathCacheRepository = pathCacheRepository;
+        this.liveConveyorRepository = liveConveyorRepository;
+        this.liveLocationRepository = liveLocationRepository;
     }
 
     /**
@@ -300,6 +306,7 @@ public class HistoricalGraphBuilder {
                         locationVertex.setProperty("latitude", locData.getLatitude());
                         locationVertex.setProperty("longitude", locData.getLongitude());
                         locationVertex.setProperty("capacity", locData.getCapacity());
+                        locationVertex.setProperty("timeToProcessMs", locData.getTimeToProcessMs());
 
                         if (locData.getType() != null) {
                             locationVertex.setProperty("type", locData.getType().name());
@@ -334,6 +341,11 @@ public class HistoricalGraphBuilder {
                             conveyorEdge.setProperty("active", convData.getActive());
                             conveyorEdge.setProperty("type", convData.getType());
                             conveyorEdge.setProperty("mainPath", convData.getMainPath());
+                            conveyorEdge.setProperty("name", convData.getName());
+                            conveyorEdge.setProperty("minDistance", convData.getMinDistance());
+                            conveyorEdge.setProperty("capacity", convData.getCapacity());
+                            conveyorEdge.setProperty("properties", convData.getProperties());
+                            conveyorEdge.setProperty("operatorEnabled", convData.getOperatorEnabled());
 
                             conveyorEdge.save();
                         }
@@ -425,6 +437,13 @@ public class HistoricalGraphBuilder {
                     itemData.getRoutingStatus(),
                     itemData.getRoutingStatusUpdatedAt(),
                     itemData.getPath());
+            if (type == PositionType.CONVEYOR) {
+                // Membership drives accumulation scheduling. Preserve leading-item order even on stopped belts.
+                liveConveyorRepository.addItemToConveyor(positionId, itemData.getId(),
+                        effectiveTimestamp.minusMillis(Math.round(accumulatedDistance * 1000)));
+            } else {
+                liveLocationRepository.addItemToLocation(positionId, itemData.getId());
+            }
         }
     }
 

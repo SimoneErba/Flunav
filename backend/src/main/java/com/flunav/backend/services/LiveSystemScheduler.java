@@ -82,7 +82,7 @@ public class LiveSystemScheduler {
             long delay = Duration.between(now, event.getTimestamp()).toMillis();
 
             if (delay <= 0) {
-                eventProcessor.process(event, true)
+                eventProcessor.process(event, true, com.flunav.backend.models.simulation.EventOrigin.LIVE_SCHEDULED)
                         .whenComplete((result, error) -> logProcessingFailure(event, error));
                 return;
             }
@@ -96,7 +96,7 @@ public class LiveSystemScheduler {
                     }
                 }
                 try {
-                    eventProcessor.process(event, true).join();
+                    eventProcessor.process(event, true, com.flunav.backend.models.simulation.EventOrigin.LIVE_SCHEDULED).join();
                 } catch (Exception e) {
                     logger.error("Error processing scheduled live event: {}", event.getEventType(), e);
                 }
