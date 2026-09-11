@@ -231,9 +231,10 @@ export const updateConveyorSpeed = async (
   session: AuthSession,
   conveyorId: string,
   speed: number,
+  simulationId?: string,
 ) => {
   const response = await request.put(`${baseUrl}/api/conveyors/${encodeURIComponent(conveyorId)}/speed`, {
-    headers: authHeaders(session),
+    headers: authHeaders(session, simulationId),
     data: { speed },
   });
   expect(response.ok()).toBeTruthy();
