@@ -258,7 +258,7 @@ public class OperationalAnalyticsService {
         return new AnalyticsScope(
                 simulationId,
                 restoreTimestamp,
-                restoreTimestamp != null && timestamp.isAfter(restoreTimestamp));
+                restoreTimestamp != null && !timestamp.isBefore(restoreTimestamp));
     }
 
     private record AnalyticsScope(String simulationId, Instant restoreTimestamp, boolean record) {

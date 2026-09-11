@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -102,19 +103,20 @@ public class ItemMovementProcessor {
      */
     public void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         var allItems = liveConveyorRepository.getItemsOrderedByDistance(edgeId);
-        Instant nowInstant = timestamp;
 
         for (var itemId : allItems) {
             var itemData = liveItemRepository.getItemState(itemId);
+            if (itemData == null) {
+                continue;
+            }
             var lastUpdateTime = itemData.getEntryTime();
             Double storedDistance = itemData.getAccumulatedDistance();
 
             if (lastUpdateTime != null) {
-                long timeElapsed = nowInstant.toEpochMilli() - lastUpdateTime.toEpochMilli();
+                long timeElapsed = timestamp.toEpochMilli() - lastUpdateTime.toEpochMilli();
                 double distanceTraveledSinceLastUpdate = (timeElapsed / 1000.0) * oldSpeed;
-                double totalDistance = storedDistance + distanceTraveledSinceLastUpdate;
-                liveItemRepository.checkpointPhysics(itemId, nowInstant, totalDistance);
-                handleItemEntryToConveyor(itemId, edgeId, nowInstant, (totalDistance / oldSpeed) * 100, null);
+                double totalDistance = Objects.requireNonNullElse(storedDistance, 0.0) + distanceTraveledSinceLastUpdate;
+                liveItemRepository.checkpointPhysics(itemId, timestamp, totalDistance);
             }
         }
     }

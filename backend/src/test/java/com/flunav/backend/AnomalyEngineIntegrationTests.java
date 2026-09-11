@@ -8,8 +8,10 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import com.flunav.backend.models.analytics.AnomalyDetectorType;
 import com.flunav.backend.models.analytics.AnomalyProcessingMode;
@@ -30,6 +32,7 @@ import flunav.types.LocationType;
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false",
         "metric-snapshot.enabled=false",
+        "anomaly.live-scheduler.enabled=false",
         "anomaly.cadence.fast-seconds=10"
 })
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
@@ -38,13 +41,21 @@ class AnomalyEngineIntegrationTests extends BaseIntegrationTest {
     private final AnomalyObservationRepository anomalyRepository;
     private final LocationService locationService;
     private final LiveLocationRepository liveLocationRepository;
+    private final StringRedisTemplate redis;
 
     AnomalyEngineIntegrationTests(AnomalyEngine anomalyEngine, AnomalyObservationRepository anomalyRepository,
-            LocationService locationService, LiveLocationRepository liveLocationRepository) {
+            LocationService locationService, LiveLocationRepository liveLocationRepository,
+            StringRedisTemplate redis) {
         this.anomalyEngine = anomalyEngine;
         this.anomalyRepository = anomalyRepository;
         this.locationService = locationService;
         this.liveLocationRepository = liveLocationRepository;
+        this.redis = redis;
+    }
+
+    @BeforeEach
+    void resetAnomalyState() {
+        redis.getConnectionFactory().getConnection().serverCommands().flushDb();
     }
 
     @Test

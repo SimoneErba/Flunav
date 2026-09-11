@@ -15,6 +15,7 @@ import com.flunav.backend.test.SimulationTestHarness;
 
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
+import flunav.events.AnomalyEvaluationTickEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemPathChangedEvent;
 import flunav.events.LocationCreatedEvent;
@@ -380,8 +381,9 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         waitForStatus("sim-future-state", SimulationStatus.READY);
 
         SimulationState state = simulationService.getSimulationState("sim-future-state");
-        assertTrue(state.getInternalEventQueue().isEmpty(),
-                "Build should process generated internal events up to the future restore point");
+        assertTrue(state.getInternalEventQueue().stream()
+                        .allMatch(AnomalyEvaluationTickEvent.class::isInstance),
+                "Build should process generated movement events up to the future restore point");
         assertFalse(state.getScheduledEventsByItem().containsKey("future-state-item"),
                 "Build should not leave stale scheduled movement for an already projected item");
 
@@ -436,6 +438,8 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
                     .getLastProcessedTimestamp();
             return lastProcessed != null && lastProcessed.isAfter(restorePoint.plusSeconds(12));
         }, Duration.ofSeconds(8), "2x playback did not advance simulation into future");
+
+        simulationService.pauseSimulation("sim-present-fastforward");
 
         Instant lastProcessed = simulationService.getSimulationState("sim-present-fastforward")
                 .getLastProcessedTimestamp();

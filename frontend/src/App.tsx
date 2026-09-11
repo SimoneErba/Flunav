@@ -225,12 +225,15 @@ function LiveWorkspace() {
       if (notification.kind === 'FINDING_DETECTED' && finding) {
         toast(`${mode}: ${finding.detector.replaceAll('_', ' ')} on ${finding.componentId}`, {
           icon: '⚠️',
-          id: `finding-${finding.findingId}`,
+          id: `finding-${mode}-${finding.detector}-${finding.componentId}`,
+          duration: 2000,
+          style: { pointerEvents: 'none' },
         });
       } else if (notification.kind === 'INCIDENT_UPDATED' && notification.incident) {
         toast(`Probable root ${notification.incident.probableRootComponentId} · ${notification.incident.confidence.toLowerCase()} confidence`, {
           icon: '🔎',
           id: `incident-${notification.incident.incidentId}`,
+          style: { pointerEvents: 'none' },
         });
       } else if (notification.kind === 'ALARM_CLEARED') {
         toast.success(`Advisory cleared on ${notification.componentId}`);

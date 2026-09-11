@@ -1,6 +1,8 @@
 package com.flunav.backend.config;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.models.simulation.SimulationKind;
+import com.flunav.backend.models.simulation.SimulationStatus;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -29,13 +31,27 @@ public class SimulationIdFilter implements Filter {
             if (request instanceof HttpServletRequest httpRequest) {
                 String simId = httpRequest.getHeader("X-Simulation-ID");
                 if (simId != null && !simId.isBlank()) {
-                    if (!liveSimulationRepository.exists(simId)) {
+                    var metadata = liveSimulationRepository.getState(simId).orElse(null);
+                    if (metadata == null) {
                         HttpServletResponse httpResponse = (HttpServletResponse) response;
                         httpResponse.setStatus(HttpServletResponse.SC_NOT_FOUND);
                         httpResponse.setContentType("application/json");
                         httpResponse.getWriter().write(
                                 "{\"data\":null,\"meta\":{},\"error\":{\"code\":\"SIMULATION_NOT_FOUND\","
                                         + "\"message\":\"Simulation does not exist\"}}");
+                        return;
+                    }
+                    if (isGraphMutation(httpRequest)
+                            && (metadata.kind() == SimulationKind.STANDARD
+                                    || metadata.status() == SimulationStatus.BUILDING
+                                    || metadata.status() == SimulationStatus.QUEUED
+                                    || metadata.status() == SimulationStatus.FAILED)) {
+                        HttpServletResponse httpResponse = (HttpServletResponse) response;
+                        httpResponse.setStatus(HttpServletResponse.SC_CONFLICT);
+                        httpResponse.setContentType("application/json");
+                        httpResponse.getWriter().write(
+                                "{\"data\":null,\"meta\":{},\"error\":{\"code\":\"WHAT_IF_REQUIRED\","
+                                        + "\"message\":\"Graph mutations require a ready what-if simulation\"}}");
                         return;
                     }
                     simulationContext = DatabaseContextHolder.enterSimulationContext(simId);
@@ -47,5 +63,15 @@ public class SimulationIdFilter implements Filter {
                 simulationContext.close();
             }
         }
+    }
+
+    private boolean isGraphMutation(HttpServletRequest request) {
+        String method = request.getMethod();
+        if ("GET".equals(method) || "HEAD".equals(method) || "OPTIONS".equals(method)) {
+            return false;
+        }
+        String path = request.getRequestURI();
+        return path.matches("/api/(items|locations|conveyors|positions)(/.*)?")
+                || path.matches("/api/graph/import(/.*)?");
     }
 }

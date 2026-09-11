@@ -172,10 +172,17 @@ test("simulation throughput websocket stays isolated from live throughput topic"
     data: { timestamp: restoreTimestamp },
   });
   expect(createSimulationResponse.status()).toBe(202);
-  const simulationId = ((await createSimulationResponse.json()) as { id: string }).id;
+  const sourceSimulationId = ((await createSimulationResponse.json()) as { id: string }).id;
+  let simulationId: string | undefined;
 
   try {
-    await waitForSimulationReady(request, backendUrl, session, simulationId);
+    await waitForSimulationReady(request, backendUrl, session, sourceSimulationId);
+    await page.goto("/live");
+    await waitForGraphTestApi(page);
+    const branchResponse = page.waitForResponse(response =>
+      response.url().endsWith("/api/simulations/what-if") && response.ok());
+    await page.getByLabel("Workspace mode").getByRole("button", { name: "What If", exact: true }).click();
+    simulationId = ((await (await branchResponse).json()) as { id: string }).id;
 
     const liveTopic = "/topic/analytics/throughput";
     const simulationTopic = `/topic/simulations/${simulationId}/analytics/throughput`;
@@ -208,7 +215,12 @@ test("simulation throughput websocket stays isolated from live throughput topic"
     });
     expect(liveEnteredEvents, "simulation throughput must not be broadcast on the live topic").toEqual([]);
   } finally {
-    await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+    if (simulationId) {
+      await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+        headers: simulationAuthHeaders(session),
+      });
+    }
+    await request.delete(`${backendUrl}/api/simulations/${sourceSimulationId}`, {
       headers: simulationAuthHeaders(session),
     });
   }
@@ -230,7 +242,12 @@ test("simulation HUD ignores live item creation after restore and only reflects 
   request,
 }) => {
   const id = uniqueE2eId("simulation-hud-isolation");
-  const simulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const sourceSimulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const branchResponse = page.waitForResponse(response =>
+    response.url().endsWith("/api/simulations/what-if") && response.ok());
+  await page.getByLabel("Workspace mode").getByRole("button", { name: "What If", exact: true }).click();
+  const simulationId = ((await (await branchResponse).json()) as { id: string }).id;
+  await expect(page.getByLabel("Workspace mode").getByText("WHAT IF SIMULATION", { exact: true })).toBeVisible();
   const before = await getHudValues(page);
   const simulationLocationId = `${id}-simulation-location`;
   const simulationItemId = `${id}-simulation-item`;
@@ -276,6 +293,9 @@ test("simulation HUD ignores live item creation after restore and only reflects 
     await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
       headers: simulationAuthHeaders(session),
     });
+    await request.delete(`${backendUrl}/api/simulations/${sourceSimulationId}`, {
+      headers: simulationAuthHeaders(session),
+    });
   }
 });
 
@@ -290,7 +310,12 @@ test("simulation analytics panel switches to simulation mode while stop analytic
   const liveSourceId = `${id}-live-source`;
   const liveTargetId = `${id}-live-target`;
   const liveConveyorId = `${id}-live-conveyor`;
-  const simulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const sourceSimulationId = await startSimulationFromUi(page, request, backendUrl, session);
+  const branchResponse = page.waitForResponse(response =>
+    response.url().endsWith("/api/simulations/what-if") && response.ok());
+  await page.getByLabel("Workspace mode").getByRole("button", { name: "What If", exact: true }).click();
+  const simulationId = ((await (await branchResponse).json()) as { id: string }).id;
+  await expect(page.getByLabel("Workspace mode").getByText("WHAT IF SIMULATION", { exact: true })).toBeVisible();
   const from = new Date(Date.now() - 60_000).toISOString();
   const to = new Date(Date.now() + 60_000).toISOString();
 
@@ -364,6 +389,9 @@ test("simulation analytics panel switches to simulation mode while stop analytic
     await expect(page.getByText("Conveyor stops")).toBeVisible();
   } finally {
     await request.delete(`${backendUrl}/api/simulations/${simulationId}`, {
+      headers: simulationAuthHeaders(session),
+    });
+    await request.delete(`${backendUrl}/api/simulations/${sourceSimulationId}`, {
       headers: simulationAuthHeaders(session),
     });
   }

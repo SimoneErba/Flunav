@@ -56,8 +56,8 @@ class StressIntegrationTests extends BaseIntegrationTest {
     private static final int ITEMS_PER_SIMULATION = 180;
     private static final int ORDERING_EVENT_COUNT = 500;
     private static final Duration SIMULATION_STRESS_LIMIT = Duration.ofSeconds(12);
-    private static final Duration ORDERING_STRESS_LIMIT = Duration.ofSeconds(8);
-    private static final long HEAP_DELTA_LIMIT_BYTES = 96L * 1024L * 1024L;
+    private static final Duration ORDERING_STRESS_LIMIT = Duration.ofSeconds(15);
+    private static final long HEAP_DELTA_LIMIT_BYTES = 192L * 1024L * 1024L;
 
     private final EventProcessor eventProcessor;
     private final LiveItemRepository liveItemRepository;

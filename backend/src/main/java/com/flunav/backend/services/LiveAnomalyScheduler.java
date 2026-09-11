@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import com.flunav.backend.context.AnomalyProcessingContext;
 import com.flunav.backend.models.analytics.AnomalyProcessingMode;
@@ -15,6 +16,7 @@ import com.flunav.backend.repositories.AnomalyObservationRepository;
 import flunav.events.AnomalyEvaluationTickEvent;
 
 @Service
+@ConditionalOnProperty(name = "anomaly.live-scheduler.enabled", havingValue = "true", matchIfMissing = true)
 public class LiveAnomalyScheduler {
     private final AnomalyEngine engine;
     private final AnomalyObservationRepository observations;

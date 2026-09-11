@@ -15,7 +15,20 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             capacity Nullable(Int32),
             timeToProcessMs Nullable(Int64),
             properties JSON,
-            customColor Nullable(String)
+            customColor Nullable(String),
+            activeAlarms Array(Tuple(
+                alarmId Nullable(String),
+                conveyorId Nullable(String),
+                componentId Nullable(String),
+                findingId Nullable(String),
+                componentType Nullable(String),
+                severity Nullable(String),
+                typology Nullable(String),
+                source Nullable(String),
+                stopsConveyor Nullable(Bool),
+                stopsComponent Nullable(Bool),
+                raisedAt Nullable(String)
+            ))
         )),
         conveyors Array(Tuple(
             id String,
@@ -30,7 +43,21 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             mainPath Nullable(Bool),
             capacity Nullable(Int32),
             properties JSON,
-            customColor Nullable(String)
+            customColor Nullable(String),
+            operatorEnabled Nullable(Bool),
+            activeAlarms Array(Tuple(
+                alarmId Nullable(String),
+                conveyorId Nullable(String),
+                componentId Nullable(String),
+                findingId Nullable(String),
+                componentType Nullable(String),
+                severity Nullable(String),
+                typology Nullable(String),
+                source Nullable(String),
+                stopsConveyor Nullable(Bool),
+                stopsComponent Nullable(Bool),
+                raisedAt Nullable(String)
+            ))
         )),
         items Array(Tuple(
             id String,
@@ -72,7 +99,20 @@ ALTER TABLE default.snapshots
             capacity Nullable(Int32),
             timeToProcessMs Nullable(Int64),
             properties JSON,
-            customColor Nullable(String)
+            customColor Nullable(String),
+            activeAlarms Array(Tuple(
+                alarmId Nullable(String),
+                conveyorId Nullable(String),
+                componentId Nullable(String),
+                findingId Nullable(String),
+                componentType Nullable(String),
+                severity Nullable(String),
+                typology Nullable(String),
+                source Nullable(String),
+                stopsConveyor Nullable(Bool),
+                stopsComponent Nullable(Bool),
+                raisedAt Nullable(String)
+            ))
         )),
         conveyors Array(Tuple(
             id String,
@@ -87,7 +127,21 @@ ALTER TABLE default.snapshots
             mainPath Nullable(Bool),
             capacity Nullable(Int32),
             properties JSON,
-            customColor Nullable(String)
+            customColor Nullable(String),
+            operatorEnabled Nullable(Bool),
+            activeAlarms Array(Tuple(
+                alarmId Nullable(String),
+                conveyorId Nullable(String),
+                componentId Nullable(String),
+                findingId Nullable(String),
+                componentType Nullable(String),
+                severity Nullable(String),
+                typology Nullable(String),
+                source Nullable(String),
+                stopsConveyor Nullable(Bool),
+                stopsComponent Nullable(Bool),
+                raisedAt Nullable(String)
+            ))
         )),
         items Array(Tuple(
             id String,

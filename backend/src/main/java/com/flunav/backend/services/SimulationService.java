@@ -170,17 +170,41 @@ public class SimulationService {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Source simulation is not ready to fork");
                 }
                 synchronized (source.getExecutionLock()) {
-                    if (source.getStatus() == SimulationStatus.PLAYING) pauseSimulation(sourceSimulationId);
+                    SimulationStatus previousStatus = source.getStatus();
+                    double previousSpeedFactor = source.getSpeedFactor();
+                    if (previousStatus == SimulationStatus.PLAYING) pauseSimulation(sourceSimulationId);
                     source.setStatus(SimulationStatus.PAUSED);
                     source.setLastHeartbeatTimestamp(timeService.physicalNow());
                     persistState(source);
-                    return eventProcessor.withLiveSnapshotBarrier(() -> forkWhatIf(source));
+                    try {
+                        return eventProcessor.withLiveSnapshotBarrier(() -> forkWhatIf(source));
+                    } catch (RuntimeException failure) {
+                        restoreSourceAfterFailedFork(source, previousStatus, previousSpeedFactor);
+                        throw failure;
+                    }
                 }
             }
         } finally {
             buildPermits.release();
             processWaitingQueue();
         }
+    }
+
+    /** Restores the exact source lifecycle when a child could not be constructed. */
+    private void restoreSourceAfterFailedFork(
+            SimulationState source,
+            SimulationStatus previousStatus,
+            double previousSpeedFactor) {
+        Instant restartTimestamp = getSimulationClock(source);
+        if (previousStatus == SimulationStatus.PLAYING) {
+            startPlaybackWorker(source.getId(), source, restartTimestamp, previousSpeedFactor);
+            return;
+        }
+        source.setStatus(previousStatus);
+        source.setSpeedFactor(previousSpeedFactor);
+        source.setLastHeartbeatTimestamp(timeService.physicalNow());
+        persistState(source);
+        webSocketService.broadcastSimulationUpdate(source.getId(), previousStatus, restartTimestamp);
     }
 
     private SimulationState forkWhatIf(SimulationState source) {

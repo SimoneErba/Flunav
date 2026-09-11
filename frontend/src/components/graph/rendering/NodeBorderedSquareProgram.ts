@@ -1,4 +1,4 @@
-import { drawDiscNodeHover, drawDiscNodeLabel, NodeProgram } from "sigma/rendering";
+import { drawDiscNodeHover, drawDiscNodeLabel, NodeProgram, type ProgramInfo } from "sigma/rendering";
 import type { NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
 
@@ -114,7 +114,7 @@ export class NodeBorderedSquareProgram extends NodeProgram<(typeof UNIFORMS)[num
     array[startIndex++] = nodeIndex;
   }
 
-  setUniforms(params: RenderParams, { gl, uniformLocations }: any): void {
+  setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo): void {
     const { u_sizeRatio, u_correctionRatio, u_cameraAngle, u_matrix } = uniformLocations;
     gl.uniform1f(u_sizeRatio, params.sizeRatio);
     gl.uniform1f(u_cameraAngle, params.cameraAngle);

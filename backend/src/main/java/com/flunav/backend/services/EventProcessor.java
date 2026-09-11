@@ -931,9 +931,11 @@ public class EventProcessor {
                         operationalAnalyticsService.recordSimulationConnectionSignal(
                                 e, conveyor.getId(), null, e.getSpeed(),
                                 conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
-                        if (manageLogic && oldSpeed <= 0 && e.getSpeed() > 0) {
+                        if (manageLogic) {
                             itemMovementProcessor.recalculateConveyorAccumulation(e.getEntityId());
-                            itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
+                            if (oldSpeed <= 0 && e.getSpeed() > 0) {
+                                itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
+                            }
                         }
                         if (shouldBroadcast)
                             webSocketService.broadcastConnectionUpdated(
@@ -981,8 +983,12 @@ public class EventProcessor {
 
                 case ConnectionLengthChangedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    checkpointItems(e.getEntityId(), conveyor.getSpeed(), e.getTimestamp());
                     conveyor.setLength(e.getLength());
                     conveyorService.updateConveyor(conveyor);
+                    if (manageLogic) {
+                        itemMovementProcessor.recalculateConveyorAccumulation(e.getEntityId());
+                    }
 
                     if (shouldBroadcast) {
                         webSocketService.broadcastConnectionUpdated(

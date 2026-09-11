@@ -6,6 +6,8 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.domain.Role;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.models.response.ThroughputMetric;
+import com.flunav.backend.models.simulation.LiveInputState;
+import com.flunav.backend.models.simulation.SimulationKind;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
@@ -15,6 +17,7 @@ import com.flunav.backend.services.LocationService;
 import com.flunav.backend.services.LiveSystemScheduler;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.StaleItemCleanupService;
+import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.ThroughputBucketService;
 import com.flunav.backend.services.TimeService;
 import com.flunav.backend.utils.JwtUtils;
@@ -79,6 +82,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     private final LiveSimulationRepository liveSimulationRepository;
     private final LiveSystemScheduler liveSystemScheduler;
     private final StaleItemCleanupService staleItemCleanupService;
+    private final SimulationService simulationService;
     private final JwtUtils jwtUtils;
     private final StringRedisTemplate redisTemplate;
     private final AbstractMessageChannel brokerChannel;
@@ -98,6 +102,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
             LiveSimulationRepository liveSimulationRepository,
             LiveSystemScheduler liveSystemScheduler,
             StaleItemCleanupService staleItemCleanupService,
+            SimulationService simulationService,
             JwtUtils jwtUtils,
             StringRedisTemplate redisTemplate,
             @org.springframework.beans.factory.annotation.Qualifier("brokerChannel")
@@ -114,6 +119,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         this.liveSimulationRepository = liveSimulationRepository;
         this.liveSystemScheduler = liveSystemScheduler;
         this.staleItemCleanupService = staleItemCleanupService;
+        this.simulationService = simulationService;
         this.jwtUtils = jwtUtils;
         this.redisTemplate = redisTemplate;
         this.brokerChannel = brokerChannel;
@@ -321,7 +327,7 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     @Test
     void simulationHttpItemCreationUsesSimulationTimeAndPublishesOnlyToSimulationTopic() throws Exception {
         Instant restoreTimestamp = Instant.parse("2030-04-01T00:00:00Z");
-        saveSimulationState(restoreTimestamp, restoreTimestamp);
+        saveSimulationState(restoreTimestamp, restoreTimestamp, SimulationKind.WHAT_IF_LIVE);
         orientDBService.createInMemoryDatabase(SIMULATION_ID);
 
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
@@ -382,7 +388,8 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
         try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
             liveItemRepository.deleteItem("analytics-sim-idle-item");
         }
-        saveSimulationState(eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS * 2L));
+        simulationService.updateLastProcessedTimestamp(
+                SIMULATION_ID, eventTimestamp.plusSeconds(ThroughputBucketService.BUCKET_SECONDS * 2L));
 
         List<Message<?>> idleMessages = captureBrokerMessages(throughputBucketService::flushCompletedBuckets);
         JsonNode idleMetric = throughputMetricFrom(idleMessages, SIMULATION_ID);
@@ -699,6 +706,10 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
     }
 
     private void saveSimulationState(Instant restoreTimestamp, Instant progress) {
+        saveSimulationState(restoreTimestamp, progress, SimulationKind.STANDARD);
+    }
+
+    private void saveSimulationState(Instant restoreTimestamp, Instant progress, SimulationKind kind) {
         liveSimulationRepository.saveState(new LiveSimulationRepository.SimulationMetadata(
                 SIMULATION_ID,
                 restoreTimestamp,
@@ -706,7 +717,12 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
                 Instant.now(),
                 progress,
                 1.0,
-                100.0));
+                100.0,
+                kind,
+                null,
+                restoreTimestamp,
+                restoreTimestamp,
+                LiveInputState.ACTIVE));
     }
 
     private List<Message<?>> captureBrokerMessages(Runnable action) {
@@ -796,6 +812,12 @@ class AnalyticsThroughputTests extends BaseIntegrationTest {
 
     private void resetState() {
         DatabaseContextHolder.clearSimulation();
+        try {
+            if (liveSimulationRepository.exists(SIMULATION_ID)) {
+                simulationService.destroySimulation(SIMULATION_ID);
+            }
+        } catch (Exception ignored) {
+        }
         throughputBucketService.resetInMemoryState();
         throughputBucketService.cleanupSimulationHistory(SIMULATION_ID);
 

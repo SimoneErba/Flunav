@@ -38,7 +38,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "springwolf.enabled=false", "rabbitmq.routing-key.item-events=1", "stale-item-cleanup.enabled=false",
         "state-recovery.enabled=false", "graph-snapshot.enabled=false", "simulation.manage-logic=true",
-        "simulation.capacity.max-active=3", "simulation.capacity.min-free-memory-bytes=0"
+        "simulation.capacity.max-active=3",
+        "simulation.capacity.min-free-memory-bytes=0"
 })
 @AutoConfigureMockMvc
 class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
@@ -136,7 +137,10 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
         events.process(new ItemPositionChangedEvent("original", "exit", 100.0, later), false).join();
         events.process(new ItemPositionDeletedEvent("original"), false).join();
         events.process(item("scheduled-only", later), false, EventOrigin.LIVE_SCHEDULED).join();
-        intake.addHistory(branch.getId(), List.of(created));
+        history.flushAllEventsOrThrow();
+        intake.addHistory(branch.getId(), history.getEventsBetween(now, later).stream()
+                .filter(event -> event.getEventId().equals(created.getEventId()))
+                .toList());
         player.advanceThrough(branch, later);
         GraphData result = graph(branch);
         assertEquals(2, result.getItems().size());
@@ -230,6 +234,66 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void positiveSpeedChangeRebuildsArrivalUsingTheNewSpeed() {
+        SimulationState branch = simulations.createWhatIf(null);
+        try (var context = DatabaseContextHolder.enterSimulationContext(branch.getId())) {
+            mutations.processAndLogEvent(new ConnectionSpeedChangedEvent("belt", 1.0)).join();
+            assertEquals(now.plusSeconds(75), branch.getScheduledEventsByItem().get("original").getTimestamp());
+
+            mutations.processAndLogEvent(new ConnectionSpeedChangedEvent("belt", 2.0)).join();
+            assertEquals(now.plusMillis(37_500),
+                    branch.getScheduledEventsByItem().get("original").getTimestamp());
+        }
+    }
+
+    @Test
+    void conveyorLengthChangeRebuildsArrivalUsingTheNewLength() {
+        SimulationState branch = simulations.createWhatIf(null);
+        try (var context = DatabaseContextHolder.enterSimulationContext(branch.getId())) {
+            mutations.processAndLogEvent(new ConnectionSpeedChangedEvent("belt", 1.0)).join();
+            mutations.processAndLogEvent(new ConnectionLengthChangedEvent("belt", 200.0)).join();
+            assertEquals(now.plusSeconds(175),
+                    branch.getScheduledEventsByItem().get("original").getTimestamp());
+        }
+    }
+
+    @Test
+    void mutationAtPausedForkTimestampIsRecordedForScenarioAnalytics() {
+        SimulationState branch = simulations.createWhatIf(null);
+        try (var context = DatabaseContextHolder.enterSimulationContext(branch.getId())) {
+            mutations.processAndLogEvent(new ConnectionSpeedChangedEvent("belt", 1.0)).join();
+        }
+
+        assertTrue(history.getSimulationConnectionSignals(branch.getId(), now).stream()
+                .anyMatch(signal -> "belt".equals(signal.conveyorId())
+                        && "CONNECTION_SPEED_CHANGED".equals(signal.eventType())));
+    }
+
+    @Test
+    void graphMutationHttpRequestsRequireAWhatIfSimulation() throws Exception {
+        String token = loginToken();
+        String standardId = "standard-mutation-guard";
+        metadata.saveState(new LiveSimulationRepository.SimulationMetadata(
+                standardId, now, SimulationStatus.PAUSED, now, now, 1.0, 100.0));
+        String locationJson = """
+                {"id":"guarded-location","name":"Guarded","latitude":0,"longitude":0,
+                 "type":"GENERIC","capacity":10,"active":true,"properties":{}}
+                """;
+
+        http.perform(post("/api/locations").header("Authorization", "Bearer " + token)
+                        .header("X-Simulation-ID", standardId)
+                        .contentType(MediaType.APPLICATION_JSON).content(locationJson))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("error.code").value("WHAT_IF_REQUIRED"));
+
+        SimulationState branch = simulations.createWhatIf(null);
+        http.perform(post("/api/locations").header("Authorization", "Bearer " + token)
+                        .header("X-Simulation-ID", branch.getId())
+                        .contentType(MediaType.APPLICATION_JSON).content(locationJson))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void capacityFailureLeavesExistingBranchesAndLiveStateIntact() {
         simulations.createWhatIf(null);
         simulations.createWhatIf(null);
@@ -277,15 +341,19 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
     void whatIfEndpointRequiresAuthenticationAndReturnsBranchMetadata() throws Exception {
         http.perform(post("/api/simulations/what-if").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized());
-        String login = http.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"admin\",\"password\":\"Flun4v!\"}"))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String token = mapper.readTree(login).get("token").asText();
+        String token = loginToken();
         http.perform(post("/api/simulations/what-if").header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("kind").value("WHAT_IF_LIVE"))
                 .andExpect(jsonPath("status").value("PAUSED"))
                 .andExpect(jsonPath("liveInputState").value("ACTIVE"));
+    }
+
+    private String loginToken() throws Exception {
+        String login = http.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"Flun4v!\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return mapper.readTree(login).get("token").asText();
     }
 
     private ItemCreatedEvent item(String id, Instant timestamp) {
