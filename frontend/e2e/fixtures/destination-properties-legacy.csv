@@ -1,0 +1,2 @@
+fieldName,dataType,operator,value,secondOperator,secondValue,destinations,validFrom,validTo
+flight_number,STRING,EQUAL,LEGACY-123,,,"[""legacy-destination""]",2026-01-01T00:00:00Z,2099-01-01T00:00:00Z

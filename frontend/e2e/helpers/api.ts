@@ -24,6 +24,8 @@ export type ConveyorSeed = {
   speed?: number;
   active?: boolean;
   mainPath?: boolean;
+  type?: "BELT" | "ROLLER" | "ACCUMULATION" | "CHUTE" | "STAGING";
+  minDistance?: number;
 };
 
 export type ItemSeed = {
@@ -45,6 +47,7 @@ export type DestinationMappingSeed = {
   value: string;
   destinations: string[];
   validFrom: string;
+  rushAt?: string;
   validTo: string;
 };
 
@@ -101,9 +104,10 @@ export const createConveyor = async (
       name: "E2E Conveyor",
       length: conveyor.length ?? 100,
       speed: conveyor.speed ?? 20,
+      minDistance: conveyor.minDistance,
       mainPath: conveyor.mainPath ?? true,
       isActive: conveyor.active ?? true,
-      type: "BELT",
+      type: conveyor.type ?? "BELT",
       capacity: 10,
       properties: {},
     },

@@ -14,6 +14,7 @@ import flunav.events.ItemPositionChangedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
+import flunav.types.ConveyorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.AmqpTemplate;
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -148,6 +150,12 @@ public class ItemMovementProcessor {
         double speed = conveyor.getSpeed();
         double length = conveyor.getLength();
         Double minDistance = conveyor.getMinDistance();
+
+        if (conveyor.getType() == ConveyorType.STAGING) {
+            cancelScheduledEvent(itemId);
+            liveItemRepository.clearPlannedTransition(itemId);
+            return;
+        }
 
         // 1. Handle Stopped Conveyor
         if (speed <= 0) {
@@ -296,6 +304,9 @@ public class ItemMovementProcessor {
         Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
         if (conveyor == null)
             return;
+        if (conveyor.getType() == ConveyorType.STAGING) {
+            return;
+        }
         for (String itemId : items) {
             var state = liveItemRepository.getItemState(itemId);
             if (state == null)
@@ -303,6 +314,143 @@ public class ItemMovementProcessor {
             handleItemEntryToConveyor(itemId, conveyorId, now,
                     (state.getAccumulatedDistance() / conveyor.getLength()) * 100, null);
         }
+    }
+
+    /**
+     * Schedules the currently staged FIFO batch and records each pending transition
+     * before handing it to the live or simulation scheduler.
+     */
+    public Map<String, Object> releaseStagingConveyor(Conveyor conveyor, Instant timestamp,
+            boolean shouldBroadcast) {
+        List<String> ordered = new java.util.ArrayList<>(
+                liveConveyorRepository.getItemsOrderedByDistance(conveyor.getId()));
+        Map<String, Double> positions = stagingPositions(conveyor, ordered, timestamp);
+        int scheduled = 0;
+        int alreadyScheduled = 0;
+        Instant precedingDeparture = null;
+        double speed = conveyor.getSpeed();
+        double spacing = Math.max(0.0, Objects.requireNonNullElse(conveyor.getMinDistance(), 0.1));
+
+        for (String itemId : ordered) {
+            var state = liveItemRepository.getItemState(itemId);
+            if (state == null || state.getType() != PositionType.CONVEYOR
+                    || !conveyor.getId().equals(state.getPositionId())) {
+                continue;
+            }
+            if (state.getPlannedTransitionTimestamp() != null && state.getPlannedPositionId() != null) {
+                alreadyScheduled++;
+                if (precedingDeparture == null
+                        || state.getPlannedTransitionTimestamp().isAfter(precedingDeparture)) {
+                    precedingDeparture = state.getPlannedTransitionTimestamp();
+                }
+                continue;
+            }
+
+            double distance = positions.getOrDefault(itemId, 0.0);
+            liveItemRepository.checkpointPhysics(itemId, timestamp, distance);
+            if (shouldBroadcast) {
+                double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
+                webSocketService.broadcastPositionUpdate(itemId, conveyor.getId(), timestamp,
+                        PositionType.CONVEYOR, progress);
+            }
+
+            long physicalTravelMillis = (long) Math.ceil(
+                    Math.max(0.0, conveyor.getLength() - distance) / speed * 1000.0);
+            Instant departure = timestamp.plusMillis(physicalTravelMillis);
+            if (precedingDeparture != null) {
+                long spacingMillis = (long) Math.ceil(spacing / speed * 1000.0);
+                Instant spacedDeparture = precedingDeparture.plusMillis(spacingMillis);
+                if (departure.isBefore(spacedDeparture)) {
+                    departure = spacedDeparture;
+                }
+            }
+
+            String nextConveyorId = calculateNextConveyorIgnoringAvailability(
+                    itemId, conveyor.getTargetLocationId());
+            String plannedPositionId = nextConveyorId != null
+                    ? nextConveyorId
+                    : conveyor.getTargetLocationId();
+            PositionType plannedType = nextConveyorId != null ? PositionType.CONVEYOR : PositionType.LOCATION;
+            ItemPositionChangedEvent transition = new ItemPositionChangedEvent(
+                    itemId, plannedPositionId, nextConveyorId != null ? 0.0 : 100.0, departure);
+            liveItemRepository.setPlannedTransition(itemId, plannedPositionId, plannedType, departure);
+            scheduleEvent(transition);
+            precedingDeparture = departure;
+            scheduled++;
+        }
+        return Map.of(
+                "status", "PROCESSED_SUCCESSFULLY",
+                "scheduledCount", scheduled,
+                "alreadyScheduledCount", alreadyScheduled);
+    }
+
+    /** Checkpoints and optionally cancels every staged item at its clamped FIFO position. */
+    public void checkpointStagingItems(Conveyor conveyor, Instant timestamp, boolean cancelPlans,
+            boolean shouldBroadcast) {
+        List<String> ordered = new java.util.ArrayList<>(
+                liveConveyorRepository.getItemsOrderedByDistance(conveyor.getId()));
+        Map<String, Double> positions = stagingPositions(conveyor, ordered, timestamp);
+        for (String itemId : ordered) {
+            Double distance = positions.get(itemId);
+            if (distance == null) {
+                continue;
+            }
+            liveItemRepository.checkpointPhysics(itemId, timestamp, distance);
+            if (cancelPlans) {
+                cancelScheduledEvent(itemId);
+                liveItemRepository.clearPlannedTransition(itemId);
+            }
+            if (shouldBroadcast) {
+                double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
+                webSocketService.broadcastPositionUpdate(itemId, conveyor.getId(), timestamp,
+                        PositionType.CONVEYOR, progress);
+            }
+        }
+    }
+
+    private Map<String, Double> stagingPositions(Conveyor conveyor, List<String> ordered, Instant timestamp) {
+        Map<String, Double> positions = new java.util.LinkedHashMap<>();
+        double length = Math.max(0.0, Objects.requireNonNullElse(conveyor.getLength(), 0.0));
+        double speed = Math.max(0.0, Objects.requireNonNullElse(conveyor.getSpeed(), 0.0));
+        double spacing = Math.max(0.0, Objects.requireNonNullElse(conveyor.getMinDistance(), 0.1));
+        for (int index = 0; index < ordered.size(); index++) {
+            String itemId = ordered.get(index);
+            var state = liveItemRepository.getItemState(itemId);
+            if (state == null || state.getEntryTime() == null) {
+                continue;
+            }
+            long elapsedMillis = Math.max(0L, timestamp.toEpochMilli() - state.getEntryTime().toEpochMilli());
+            double naturalDistance = Math.max(0.0, state.getAccumulatedDistance())
+                    + elapsedMillis / 1000.0 * speed;
+            double slot = Math.max(0.0, length - index * spacing);
+            positions.put(itemId, Math.min(naturalDistance, slot));
+        }
+        return positions;
+    }
+
+    /** Selects release routing without rejecting inactive or capacity-blocked downstream conveyors. */
+    private String calculateNextConveyorIgnoringAvailability(String itemId, String currentLocationId) {
+        var item = itemService.getItemById(itemId);
+        List<Conveyor> outgoing = topologyProvider.getOutgoingConveyors(currentLocationId);
+        if (outgoing.isEmpty()) {
+            return null;
+        }
+        if (item != null && item.getPath() != null) {
+            int currentIndex = item.getPath().indexOf(currentLocationId);
+            if (currentIndex >= 0 && currentIndex < item.getPath().size() - 1) {
+                String nextLocation = item.getPath().get(currentIndex + 1);
+                String matched = outgoing.stream()
+                        .filter(candidate -> nextLocation.equals(candidate.getTargetLocationId()))
+                        .map(Conveyor::getId)
+                        .findFirst()
+                        .orElse(null);
+                if (matched != null) {
+                    return matched;
+                }
+            }
+        }
+        return outgoing.stream().filter(Conveyor::isMainPath).map(Conveyor::getId).findFirst()
+                .orElse(outgoing.get(0).getId());
     }
 
     /**
@@ -428,7 +576,7 @@ public class ItemMovementProcessor {
         RoutingStatus oldRoutingStatus = item.getRoutingStatus();
         List<String> oldPath = item.getPath();
         var decision = routingCoordinator.withRoutingLock(() -> {
-            var selected = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION);
+            var selected = routingDecisionService.selectRoute(item, locationId, PositionType.LOCATION, timestamp);
             itemService.updateItemRouting(item.getId(), item.getDestinations(), selected.selectedExitId(),
                     selected.routingStatus(), timestamp, selected.path());
             return selected;
@@ -450,6 +598,17 @@ public class ItemMovementProcessor {
                     decision.path(),
                     timestamp,
                     publishAssignments);
+        }
+        if (publishAssignments) {
+            DestinationMappingService.RushPriority rush = routingDecisionService.effectivePriority(item, timestamp);
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("selectedExitId", decision.selectedExitId());
+            updates.put("routingStatus", decision.routingStatus());
+            updates.put("routingStatusUpdatedAt", timestamp);
+            updates.put("path", decision.path());
+            updates.put("effectivePriority", rush.effectivePriority());
+            updates.put("rushActive", rush.rushActive());
+            webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), timestamp);
         }
         return item;
     }

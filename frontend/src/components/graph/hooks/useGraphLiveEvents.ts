@@ -26,7 +26,8 @@ export const useGraphLiveEvents = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
     simulationId: string | undefined,
     simTime: number,
-    onHighPriorityCountChange?: (count: number) => void
+    onHighPriorityCountChange?: (count: number) => void,
+    onItemUpdated?: (itemId: string, item: ItemResponse) => void,
 ) => {
     const { designMode } = useSimulationContext();
     const sigma = useSigma();
@@ -266,6 +267,8 @@ export const useGraphLiveEvents = (
                 customBorderColor: item.customBorderColor,
                 customBorderWidth: item.customBorderWidth,
                 priority: item.priority,
+                effectivePriority: item.effectivePriority,
+                rushActive: item.rushActive,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
                 currentEdgeId,
@@ -303,6 +306,8 @@ export const useGraphLiveEvents = (
                 customBorderColor: item.customBorderColor,
                 customBorderWidth: item.customBorderWidth,
                 priority: item.priority,
+                effectivePriority: item.effectivePriority,
+                rushActive: item.rushActive,
                 destinations: item.destinations,
                 selectedExitId: item.selectedExitId,
                 routingStatus: item.routingStatus,
@@ -344,6 +349,7 @@ export const useGraphLiveEvents = (
                 if (currentItem) {
                     const updatedItem = { ...currentItem, ...update.properties };
                     activeItemsRef.current.set(update.id, updatedItem);
+                    onItemUpdated?.(update.id, updatedItem);
                     graph.setNodeAttribute(update.id, "borderColor",
                         updatedItem.customBorderColor || updatedItem.customColor || "#FF0000");
                     graph.setNodeAttribute(update.id, "borderSize", updatedItem.customBorderWidth ?? 0);
@@ -401,7 +407,7 @@ export const useGraphLiveEvents = (
                 const label = data?.name ?? "";
                 const id = data?.id;
                 const customColor = data?.customColor;
-                graph.addEdge(from, to, { id, type: 'arrow', size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor });
+                graph.addEdge(from, to, { id, type: 'arrow', conveyorType: data?.type ?? 'BELT', minDistance: data?.minDistance ?? (data?.type === 'STAGING' ? 0.1 : 0), size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor, properties: data?.properties });
             }
         }, simulationId));
 
@@ -516,7 +522,8 @@ export const useGraphLiveEvents = (
         subscribeToLocationDeleted,
         subscribeToPositionUpdates,
         subscribeToAnomalies,
-        designMode
+        designMode,
+        onItemUpdated
     ]);
 
     return { adjustItemsForSpeedChange };

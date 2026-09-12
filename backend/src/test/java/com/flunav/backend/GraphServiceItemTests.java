@@ -1,5 +1,6 @@
 package com.flunav.backend;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
@@ -32,6 +33,7 @@ import flunav.events.ConnectionActivatedEvent;
 import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ConnectionDeletedEvent;
 import flunav.events.ConnectionLengthChangedEvent;
+import flunav.events.ConnectionTypeChangedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
@@ -40,8 +42,10 @@ import flunav.events.ItemRoutingDecisionRequestedEvent;
 import flunav.events.MapDestinationsEvent;
 import flunav.events.MapDestinationExitsEvent;
 import flunav.events.PathTraversedEvent;
+import flunav.events.ReleaseStagingConveyorEvent;
 import flunav.messages.ItemPathAssignmentMessage;
 import flunav.types.DataType;
+import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 import flunav.types.OperatorType;
 import flunav.types.PositionType;
@@ -614,6 +618,164 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 new MapDestinationsEvent(null, List.of(
                         new DestinationMappingRecord("flight", DataType.STRING, OperatorType.EQUAL, "KL123",
                                 List.of("valid-destination"), now.plusSeconds(3600), now.minusSeconds(60))))));
+    }
+
+    @Test
+    void destinationMappingRushWindowValidationAcceptsBoundariesAndRejectsInvalidTimes() {
+        Instant validFrom = Instant.now().minusSeconds(60);
+        Instant validTo = validFrom.plusSeconds(3600);
+
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                rushMapping("flight", "KL123", "rush-destination", validFrom, validFrom, validTo))));
+        assertEquals(validFrom, destinationMappingService.getDestinationMappings().getFirst().getRushAt());
+
+        assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
+                new MapDestinationsEvent(null, List.of(
+                        rushMapping("flight", "KL123", "rush-destination", validFrom,
+                                validFrom.minusMillis(1), validTo)))));
+        assertThrows(IllegalArgumentException.class, () -> destinationMappingService.saveMapDestinations(
+                new MapDestinationsEvent(null, List.of(
+                        rushMapping("flight", "KL123", "rush-destination", validFrom, validTo, validTo)))));
+    }
+
+    @Test
+    void rushPriorityRequiresRuleAndAssignedDestinationOverlapAndKeepsBasePriority() {
+        Instant validFrom = Instant.now().minusSeconds(120);
+        Instant rushAt = validFrom.plusSeconds(60);
+        Instant validTo = rushAt.plusSeconds(60);
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                rushMapping("flight", "KL123", "rush-destination", validFrom, rushAt, validTo))));
+
+        var item = new com.flunav.backend.domain.Item("rush-item", "Rush Item", true, 0.25,
+                new java.util.HashMap<>(Map.of("flight", "KL123")));
+        item.setDestinations(List.of("rush-destination"));
+
+        assertEquals(0.25, destinationMappingService.evaluateRush(item, rushAt.minusMillis(1)).effectivePriority());
+        assertFalse(destinationMappingService.evaluateRush(item, rushAt.minusMillis(1)).rushActive());
+        assertEquals(1.0, destinationMappingService.evaluateRush(item, rushAt).effectivePriority());
+        assertTrue(destinationMappingService.evaluateRush(item, validTo).rushActive());
+        assertEquals(0.25, destinationMappingService.evaluateRush(item, validTo.plusMillis(1)).effectivePriority());
+        assertEquals(0.25, item.getPriority());
+
+        item.setDestinations(List.of("other-destination"));
+        assertFalse(destinationMappingService.evaluateRush(item, rushAt).rushActive());
+        item.setDestinations(List.of("rush-destination"));
+        item.getProperties().put("flight", "LH456");
+        assertFalse(destinationMappingService.evaluateRush(item, rushAt).rushActive());
+    }
+
+    @Test
+    void rushEvaluationUsesTheActiveSimulationNamespace() {
+        Instant validFrom = Instant.now().minusSeconds(60);
+        Instant rushAt = validFrom.plusSeconds(10);
+        Instant validTo = validFrom.plusSeconds(120);
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                rushMapping("flight", "LIVE", "live-destination", validFrom, rushAt, validTo))));
+
+        var liveItem = new com.flunav.backend.domain.Item("live-rush-item", "Live", true, 0.2,
+                Map.of("flight", "LIVE"));
+        liveItem.setDestinations(List.of("live-destination"));
+        var simulationItem = new com.flunav.backend.domain.Item("simulation-rush-item", "Simulation", true, 0.2,
+                Map.of("flight", "SIM"));
+        simulationItem.setDestinations(List.of("simulation-destination"));
+
+        assertTrue(destinationMappingService.evaluateRush(liveItem, rushAt).rushActive());
+        try (var ignored = DatabaseContextHolder.enterSimulationContext(SIMULATION_ID)) {
+            assertFalse(destinationMappingService.evaluateRush(liveItem, rushAt).rushActive());
+            destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                    rushMapping("flight", "SIM", "simulation-destination", validFrom, rushAt, validTo))));
+            assertTrue(destinationMappingService.evaluateRush(simulationItem, rushAt).rushActive());
+            assertFalse(destinationMappingService.evaluateRush(liveItem, rushAt).rushActive());
+        }
+        assertTrue(destinationMappingService.evaluateRush(liveItem, rushAt).rushActive());
+        assertFalse(destinationMappingService.evaluateRush(simulationItem, rushAt).rushActive());
+    }
+
+    @Test
+    void routingUsesEffectiveRushPriorityOnlyInsideTheWindow() {
+        Instant validFrom = Instant.now().minusSeconds(60);
+        Instant rushAt = validFrom.plusSeconds(20);
+        Instant validTo = validFrom.plusSeconds(40);
+        createLocation("rush-route-start", "Start", LocationType.DECISION_POINT, 0);
+        createLocation("rush-route-short", "Short", LocationType.CHUTE, 10);
+        createLocation("rush-route-open", "Open", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("rush-route-short-edge", "rush-route-start", "rush-route-short",
+                "Short", 2.0, 1.0, 0.0, false, true);
+        conveyorService.createConveyor("rush-route-open-edge", "rush-route-start", "rush-route-open",
+                "Open", 20.0, 1.0, 0.0, false, true);
+        for (int index = 0; index < 9; index++) {
+            liveLocationRepository.addItemToLocation("rush-route-short", "rush-route-occupant-" + index);
+        }
+        destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord("rush-logical", List.of("rush-route-short", "rush-route-open")))));
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                rushMapping("flight", "KL123", "rush-logical", validFrom, rushAt, validTo))));
+
+        var item = new com.flunav.backend.domain.Item("rush-route-item", "Rush Route", true, 0.0,
+                Map.of("flight", "KL123"));
+        item.setDestinations(List.of("rush-logical"));
+
+        assertEquals("rush-route-open", routingDecisionService.selectRoute(
+                item, "rush-route-start", PositionType.LOCATION, rushAt.minusMillis(1)).selectedExitId());
+        assertEquals("rush-route-short", routingDecisionService.selectRoute(
+                item, "rush-route-start", PositionType.LOCATION, rushAt).selectedExitId());
+        assertEquals("rush-route-open", routingDecisionService.selectRoute(
+                item, "rush-route-start", PositionType.LOCATION, validTo.plusMillis(1)).selectedExitId());
+        for (int index = 0; index < 10; index++) {
+            liveLocationRepository.addItemToLocation("rush-route-open", "rush-route-open-occupant-" + index);
+        }
+        liveLocationRepository.addItemToLocation("rush-route-short", "rush-route-occupant-9");
+        assertEquals(RoutingStatus.UNROUTED, routingDecisionService.selectRoute(
+                item, "rush-route-start", PositionType.LOCATION, rushAt.minusMillis(1)).routingStatus());
+        assertEquals(RoutingStatus.WAITING_FOR_CAPACITY, routingDecisionService.selectRoute(
+                item, "rush-route-start", PositionType.LOCATION, rushAt).routingStatus());
+        assertEquals(0.0, item.getPriority());
+    }
+
+    @Test
+    void graphSnapshotDerivesRushFieldsAtTheRequestedTimestamp() {
+        Instant validFrom = Instant.now().minusSeconds(60);
+        Instant rushAt = validFrom.plusSeconds(20);
+        Instant validTo = validFrom.plusSeconds(40);
+        createLocation("rush-graph-start", "Start");
+        createItem("rush-graph-item", "Rush Graph", "rush-graph-start", validFrom, 0.3,
+                Map.of("flight", "KL123"));
+        liveItemRepository.updateRouting("rush-graph-item", List.of("rush-graph-destination"), null, null);
+        destinationMappingService.saveMapDestinations(new MapDestinationsEvent(null, List.of(
+                rushMapping("flight", "KL123", "rush-graph-destination", validFrom, rushAt, validTo))));
+
+        ItemResponse before = graphService.getGraphData(rushAt.minusMillis(1), false).getItems().stream()
+                .filter(item -> "rush-graph-item".equals(item.getId()))
+                .findFirst()
+                .orElseThrow();
+        ItemResponse active = graphService.getGraphData(rushAt, false).getItems().stream()
+                .filter(item -> "rush-graph-item".equals(item.getId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(0.3, before.getPriority());
+        assertEquals(0.3, before.getEffectivePriority());
+        assertFalse(before.getRushActive());
+        assertEquals(0.3, active.getPriority());
+        assertEquals(1.0, active.getEffectivePriority());
+        assertTrue(active.getRushActive());
+    }
+
+    @Test
+    void destinationMappingJsonRemainsBackwardCompatibleAndRoundTripsRushAt() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        String legacyJson = "{\"fieldName\":\"flight\",\"dataType\":\"STRING\",\"operator\":\"EQUAL\","
+                + "\"value\":\"KL123\",\"destinations\":[\"D1\"],\"validFrom\":\"2026-01-01T00:00:00Z\","
+                + "\"validTo\":\"2026-01-02T00:00:00Z\"}";
+        DestinationMappingRecord legacy = mapper.readValue(legacyJson, DestinationMappingRecord.class);
+        assertNull(legacy.getRushAt());
+
+        DestinationMappingRecord rush = rushMapping("flight", "KL123", "D1",
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T12:00:00Z"),
+                Instant.parse("2026-01-02T00:00:00Z"));
+        DestinationMappingRecord roundTrip = mapper.readValue(mapper.writeValueAsString(rush),
+                DestinationMappingRecord.class);
+        assertEquals(rush.getRushAt(), roundTrip.getRushAt());
     }
 
     @Test
@@ -1578,6 +1740,74 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertTrue(redisTemplate.hasKey("sim:" + otherSimulationId + ":pathcache:v1:available"));
     }
 
+    @Test
+    void stagingReleaseSchedulesOneFifoBatchAndIsIdempotent() {
+        createLocation("staging-source", "Source");
+        createLocation("staging-junction", "Junction");
+        createLocation("staging-target", "Target");
+        conveyorService.createConveyor("staging", "staging-source", "staging-junction", "Staging",
+                10.0, 1.0, null, true, true, ConveyorType.STAGING, 1, Map.of("lane", "A"));
+        conveyorService.createConveyor("blocked-downstream", "staging-junction", "staging-target", "Downstream",
+                10.0, 1.0, 0.0, true, false);
+
+        Instant entry = timeService.physicalNow().plusMillis(100);
+        eventProcessor.processEvent(new ItemCreatedEvent(
+                "staged-head", "Head", 1.0, true, "staging", PositionType.CONVEYOR, 0.0, Map.of(), entry), false);
+        eventProcessor.processEvent(new ItemCreatedEvent(
+                "staged-tail", "Tail", 1.0, true, "staging", PositionType.CONVEYOR, 0.0, Map.of(),
+                entry.plusMillis(10)), false);
+
+        assertNull(itemMovementProcessor.getScheduledEvent("staged-head"));
+        assertNull(itemMovementProcessor.getScheduledEvent("staged-tail"));
+        assertEquals(ConveyorType.STAGING, conveyorService.getConveyorById("staging").getType());
+        assertEquals(0.1, conveyorService.getConveyorById("staging").getMinDistance());
+        assertEquals(Map.of("lane", "A"), conveyorService.getConveyorById("staging").getProperties());
+
+        Instant releaseAt = entry.plusMillis(20);
+        Map<String, Object> released = eventProcessor.processEvent(
+                new ReleaseStagingConveyorEvent("staging", releaseAt), false);
+        var headPlan = liveItemRepository.getItemState("staged-head");
+        var tailPlan = liveItemRepository.getItemState("staged-tail");
+
+        assertEquals(2, released.get("scheduledCount"));
+        assertEquals(0, released.get("alreadyScheduledCount"));
+        assertEquals("blocked-downstream", headPlan.getPlannedPositionId());
+        assertEquals(PositionType.CONVEYOR, headPlan.getPlannedPositionType());
+        assertEquals(headPlan.getPlannedTransitionTimestamp().plusMillis(100),
+                tailPlan.getPlannedTransitionTimestamp());
+
+        Map<String, Object> repeated = eventProcessor.processEvent(
+                new ReleaseStagingConveyorEvent("staging", releaseAt.plusMillis(1)), false);
+        assertEquals(0, repeated.get("scheduledCount"));
+        assertEquals(2, repeated.get("alreadyScheduledCount"));
+    }
+
+    @Test
+    void populatedConveyorTypeChangesCancelAndRebuildMovementSchedules() {
+        createLocation("type-source", "Source");
+        createLocation("type-junction", "Junction");
+        createLocation("type-target", "Target");
+        conveyorService.createConveyor("type-conveyor", "type-source", "type-junction", "Type Conveyor",
+                100.0, 1.0, 0.5, true, true);
+        conveyorService.createConveyor("type-downstream", "type-junction", "type-target", "Downstream",
+                100.0, 1.0, 0.5, true, true);
+        Instant entry = timeService.physicalNow().plusMillis(100);
+        eventProcessor.processEvent(new ItemCreatedEvent(
+                "type-item", "Item", 1.0, true, "type-conveyor", PositionType.CONVEYOR, 0.0, Map.of(), entry),
+                false);
+        assertNotNull(itemMovementProcessor.getScheduledEvent("type-item"));
+
+        eventProcessor.processEvent(new ConnectionTypeChangedEvent(
+                "type-conveyor", ConveyorType.STAGING, entry.plusSeconds(1)), false);
+        assertNull(itemMovementProcessor.getScheduledEvent("type-item"));
+        assertEquals(ConveyorType.STAGING, conveyorService.getConveyorById("type-conveyor").getType());
+
+        eventProcessor.processEvent(new ConnectionTypeChangedEvent(
+                "type-conveyor", ConveyorType.BELT, entry.plusSeconds(2)), false);
+        assertNotNull(itemMovementProcessor.getScheduledEvent("type-item"));
+        assertEquals(ConveyorType.BELT, conveyorService.getConveyorById("type-conveyor").getType());
+    }
+
     private void createLocation(String id, String name) {
         createLocation(id, name, LocationType.GENERIC, 100);
     }
@@ -1638,6 +1868,12 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         return new DestinationMappingRecord(fieldName, dataType, operator, value, List.of(destination),
                 now.minusSeconds(60),
                 now.plusSeconds(3600));
+    }
+
+    private DestinationMappingRecord rushMapping(String fieldName, String value, String destination,
+            Instant validFrom, Instant rushAt, Instant validTo) {
+        return new DestinationMappingRecord(fieldName, DataType.STRING, OperatorType.EQUAL, value, null, null,
+                List.of(destination), validFrom, rushAt, validTo);
     }
 
     private void drainCommandsQueue() {

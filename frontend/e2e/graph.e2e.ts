@@ -27,6 +27,7 @@ import {
   waitForItemToMoveFrom,
   waitForNode,
 } from "./helpers/graph";
+import { getHudValues, waitForHudValue } from "./helpers/metrics";
 
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://127.0.0.1:18080";
 let session: AuthSession;
@@ -104,6 +105,7 @@ test("websocket-created mapped item exposes destination and path without reload"
 
   await page.goto("/live");
   await waitForGraphTestApi(page);
+  const beforePriorityCount = (await getHudValues(page)).Priority;
 
   await createLocation(request, backendUrl, session, {
     id: sourceId,
@@ -138,6 +140,7 @@ test("websocket-created mapped item exposes destination and path without reload"
       value: flightNumber,
       destinations: [logicalDestination],
       validFrom: new Date(now - 60_000).toISOString(),
+      rushAt: new Date(now - 30_000).toISOString(),
       validTo: new Date(now + 3_600_000).toISOString(),
     },
   ]);
@@ -164,6 +167,15 @@ test("websocket-created mapped item exposes destination and path without reload"
     destinationId,
     [sourceId, destinationId],
   );
+  await expect.poll(() => page.evaluate((id) => {
+    const attributes = window.__graphTestApi?.getNode(id)?.attributes;
+    return attributes && {
+      priority: attributes.priority,
+      effectivePriority: attributes.effectivePriority,
+      rushActive: attributes.rushActive,
+    };
+  }, itemId)).toEqual({ priority: 0, effectivePriority: 1, rushActive: true });
+  await waitForHudValue(page, "priority", beforePriorityCount + 1);
 });
 
 test("admin imports and persists destination exit JSON-array CSV", async ({ page, request }) => {
@@ -172,6 +184,7 @@ test("admin imports and persists destination exit JSON-array CSV", async ({ page
 
   await page.goto("/admin/destination-mappings");
   const section = page.getByRole("heading", { name: "Destinations To Exits" }).locator("xpath=ancestor::section");
+  await expect(section.getByRole("button", { name: "Import CSV" })).toBeEnabled();
   await section.locator('input[type="file"]').setInputFiles("e2e/fixtures/destination-exits.csv");
   await section.getByRole("button", { name: "Save" }).click();
 
@@ -181,6 +194,33 @@ test("admin imports and persists destination exit JSON-array CSV", async ({ page
     });
     return response.json();
   }).toEqual([{ destination, exits }]);
+});
+
+test("admin accepts legacy and rush destination-mapping CSV files", async ({ page, request }) => {
+  await page.goto("/admin/destination-mappings");
+  const section = page.getByRole("heading", { name: "Property To Destinations" }).locator("xpath=ancestor::section");
+
+  await expect(section.getByRole("button", { name: "Import CSV" })).toBeEnabled();
+  await section.locator('input[type="file"]').setInputFiles("e2e/fixtures/destination-properties-legacy.csv");
+  await expect(section.locator("tbody tr").first().locator("input").nth(1)).toHaveValue("LEGACY-123");
+  await section.getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/destination-mappings`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    return response.json();
+  }).toEqual([expect.objectContaining({ value: "LEGACY-123", rushAt: null })]);
+
+  await expect(section.getByRole("button", { name: "Import CSV" })).toBeEnabled();
+  await section.locator('input[type="file"]').setInputFiles("e2e/fixtures/destination-properties-rush.csv");
+  await expect(section.locator("tbody tr").first().locator("input").nth(1)).toHaveValue("RUSH-123");
+  await section.getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/destination-mappings`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    return response.json();
+  }).toEqual([expect.objectContaining({ value: "RUSH-123", rushAt: "2098-01-01T00:00:00Z" })]);
 });
 
 test("stop condition freezes moving item", async ({ page, request }) => {
@@ -250,4 +290,67 @@ test("chute empty websocket clears items in chute", async ({ page, request }) =>
 
   await emptyChute(request, backendUrl, session, chuteId);
   await waitForChuteItemCount(page, chuteId, 0);
+});
+
+test("admin releases one staged FIFO batch into sequential websocket departures", async ({ page, request }) => {
+  const id = uniqueE2eId("staging-release");
+  const sourceId = `${id}-source`;
+  const junctionId = `${id}-junction`;
+  const targetId = `${id}-target`;
+  const stagingId = `${id}-staging`;
+  const downstreamId = `${id}-downstream`;
+  const headId = `${id}-head`;
+  const tailId = `${id}-tail`;
+
+  await createLocation(request, backendUrl, session, {
+    id: sourceId, name: "Staging Source", latitude: 0, longitude: 0,
+  });
+  await createLocation(request, backendUrl, session, {
+    id: junctionId, name: "Staging Junction", latitude: 100, longitude: 0,
+  });
+  await createLocation(request, backendUrl, session, {
+    id: targetId, name: "Staging Target", latitude: 200, longitude: 0,
+  });
+  await createConveyor(request, backendUrl, session, {
+    id: stagingId, sourceId, targetId: junctionId, length: 4, speed: 1,
+    minDistance: 2, type: "STAGING",
+  });
+  await createConveyor(request, backendUrl, session, {
+    id: downstreamId, sourceId: junctionId, targetId, length: 100, speed: 1,
+  });
+  await createItem(request, backendUrl, session, {
+    id: headId, name: "Staged Head", locationId: stagingId, positionType: "CONVEYOR",
+  });
+  await createItem(request, backendUrl, session, {
+    id: tailId, name: "Staged Tail", locationId: stagingId, positionType: "CONVEYOR",
+  });
+
+  await page.goto("/live");
+  await waitForGraphTestApi(page);
+  await waitForItem(page, headId);
+  await waitForItem(page, tailId);
+  await page.waitForTimeout(4_500);
+
+  await page.getByRole("button", { name: /Live interactions/ }).click();
+  await page.getByRole("button", { name: "Commands", exact: true }).click();
+  const commands = page.getByRole("heading", { name: "Commands" }).locator("xpath=ancestor::div[form]");
+  await commands.getByRole("combobox").selectOption("RELEASE_STAGING");
+  await commands.getByPlaceholder("e.g. conveyor-01").fill(stagingId);
+  const release = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/conveyors/${stagingId}/release`) && response.status() === 202);
+  await commands.getByRole("button", { name: "Send Command" }).click();
+  await release;
+
+  await expect.poll(async () => page.evaluate(
+    ({ itemId }) => window.__graphTestApi!.getItem(itemId).activeItem?.currentEdgeId,
+    { itemId: headId },
+  )).toBe(downstreamId);
+  expect(await page.evaluate(
+    ({ itemId }) => window.__graphTestApi!.getItem(itemId).activeItem?.currentEdgeId,
+    { itemId: tailId },
+  )).toBe(stagingId);
+  await expect.poll(async () => page.evaluate(
+    ({ itemId }) => window.__graphTestApi!.getItem(itemId).activeItem?.currentEdgeId,
+    { itemId: tailId },
+  )).toBe(downstreamId);
 });

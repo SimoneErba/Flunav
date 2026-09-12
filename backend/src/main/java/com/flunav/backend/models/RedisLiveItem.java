@@ -36,6 +36,9 @@ public class RedisLiveItem {
     private Instant routingStatusUpdatedAt; // Redis key: "rst"
     private String name; // Redis key: "n"
     private List<String> path; // Redis key: "p"
+    private String plannedPositionId; // Redis key: "pe"
+    private PositionType plannedPositionType; // Redis key: "pty"
+    private Instant plannedTransitionTimestamp; // Redis key: "pt"
 
     /**
      * Converts the object to a Map for Redis Hash storage.
@@ -76,6 +79,12 @@ public class RedisLiveItem {
                 logger.warn("Failed to serialize path for item {}: {}", id, path);
             }
         }
+        if (plannedPositionId != null)
+            data.put("pe", plannedPositionId);
+        if (plannedPositionType != null)
+            data.put("pty", plannedPositionType.name());
+        if (plannedTransitionTimestamp != null)
+            data.put("pt", String.valueOf(plannedTransitionTimestamp.toEpochMilli()));
         return data;
     }
 
@@ -167,6 +176,24 @@ public class RedisLiveItem {
                 builder.path(pathList);
             } catch (Exception e) {
                 logger.warn("Failed to parse path JSON for item {}: {}", id, pathStr);
+            }
+        }
+
+        if (hash.containsKey("pe"))
+            builder.plannedPositionId(hash.get("pe"));
+        String plannedType = hash.get("pty");
+        if (plannedType != null) {
+            try {
+                builder.plannedPositionType(PositionType.valueOf(plannedType));
+            } catch (IllegalArgumentException ignored) {
+                builder.plannedPositionType(null);
+            }
+        }
+        String plannedTimestamp = hash.get("pt");
+        if (plannedTimestamp != null) {
+            try {
+                builder.plannedTransitionTimestamp(Instant.ofEpochMilli(Long.parseLong(plannedTimestamp)));
+            } catch (NumberFormatException ignored) {
             }
         }
 

@@ -6,6 +6,7 @@ import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
 import flunav.types.PositionType;
+import flunav.events.ItemPositionChangedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -120,6 +121,13 @@ public class LiveMovementRecoveryService {
         Conveyor conveyor = topologyProvider.getConveyorById(item.getPositionId());
         if (conveyor == null || conveyor.getLength() == null || conveyor.getLength() <= 0) {
             return false;
+        }
+
+        if (item.getPlannedPositionId() != null && item.getPlannedTransitionTimestamp() != null) {
+            double progress = item.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
+            itemMovementProcessor.scheduleEvent(new ItemPositionChangedEvent(
+                    item.getId(), item.getPlannedPositionId(), progress, item.getPlannedTransitionTimestamp()));
+            return true;
         }
 
         double storedDistance = Math.max(0.0, item.getAccumulatedDistance());

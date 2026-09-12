@@ -11,6 +11,7 @@ export interface EdgeEditorData {
   speed: number;
   length: number;
   mainPath?: boolean;
+  conveyorType?: "BELT" | "ROLLER" | "ACCUMULATION" | "CHUTE" | "STAGING";
   properties?: Record<string, unknown>;
 }
 
@@ -18,7 +19,7 @@ interface EdgeEditorProps {
   data: EdgeEditorData;
   onClose: () => void;
   // Unified submission handler
-  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; properties: Record<string, unknown> }) => void;
+  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; conveyorType: EdgeEditorData["conveyorType"]; properties: Record<string, unknown> }) => void;
   onDelete: (edgeId: string, sourceId: string, targetId: string) => void;
 }
 
@@ -27,6 +28,7 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
   const [speed, setSpeed] = useState(data.speed);
   const [length, setLength] = useState(data.length);
   const [mainPath, setmainPath] = useState(data.mainPath || false);
+  const [conveyorType, setConveyorType] = useState(data.conveyorType || "BELT");
   const [properties, setProperties] = useState(data.properties || {});
 
   // Sync state if selected edge changes
@@ -34,6 +36,7 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
     setSpeed(data.speed);
     setLength(data.length);
     setmainPath(data.mainPath || false);
+    setConveyorType(data.conveyorType || "BELT");
     setProperties(data.properties || {});
   }, [data]);
 
@@ -42,6 +45,7 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
       speed: Number(speed), 
       length: Number(length), 
       mainPath,
+      conveyorType,
       properties: properties
     });
     onClose();
@@ -123,6 +127,24 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
             />
           </div>
           
+          {/* Main Path Checkbox */}
+          <div>
+            <label className="block mb-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              Conveyor type
+            </label>
+            <select
+              value={conveyorType}
+              onChange={(event) => setConveyorType(event.target.value as EdgeEditorData["conveyorType"])}
+              className="w-full p-2 rounded border text-sm bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="BELT">Belt</option>
+              <option value="ROLLER">Roller</option>
+              <option value="ACCUMULATION">Accumulation</option>
+              <option value="CHUTE">Chute</option>
+              <option value="STAGING">Staging</option>
+            </select>
+          </div>
+
           {/* Main Path Checkbox */}
           <div className="flex items-center gap-2 py-1">
             <input 

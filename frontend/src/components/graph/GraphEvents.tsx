@@ -22,7 +22,7 @@ interface GraphEventsProps {
   hoverTarget: HoverTarget | null;
   setHoverTarget: (t: HoverTarget | null) => void;
   selectedItemData: ItemEditorData | null;
-  setSelectedItemData: (d: ItemEditorData | null) => void;
+  setSelectedItemData: React.Dispatch<React.SetStateAction<ItemEditorData | null>>;
   colorOverrides?: DisplayRuleColorResult | null;
 }
 
@@ -128,6 +128,11 @@ export const GraphEvents = ({
     setSelectedItemData(null);
   }, [simulationId, designMode, setHoverTarget, setSelectedItemData]);
   const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
+  const updateSelectedItem = useCallback((itemId: string, item: ItemResponse) => {
+    setSelectedItemData(current => current?.id === itemId
+      ? { ...current, ...item, label: item.name ?? current.label }
+      : current);
+  }, [setSelectedItemData]);
   
   // 1. Load Data
   useGraphLoader(initialGraphData, activeItemsRef, undefined, colorOverrides);
@@ -136,7 +141,9 @@ export const GraphEvents = ({
   const { adjustItemsForSpeedChange } = useGraphLiveEvents(
     activeItemsRef,
     simulationId,
-    simTime
+    simTime,
+    undefined,
+    updateSelectedItem,
   );
 
   // 3. Handle Interactions (Drag, Drop, Edit)

@@ -8,11 +8,13 @@ import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import flunav.types.DisplayRule;
+import flunav.types.ConveyorType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
@@ -33,6 +35,7 @@ public class GraphService {
 
     private final OrientDBService orientDBService;
     private final LiveItemRepository redisRepository;
+    private final LiveConveyorRepository liveConveyorRepository;
     private final PathfindingService pathfindingService;
     private final DisplayRulesService displayRulesService;
     private final SimulationService simulationService;
@@ -40,18 +43,22 @@ public class GraphService {
     private final org.modelmapper.ModelMapper modelMapper;
     private final TopologyProvider topologyProvider;
     private final StopwatchService stopwatchService;
+    private final DestinationMappingService destinationMappingService;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
+            LiveConveyorRepository liveConveyorRepository,
             PathfindingService pathfindingService,
             DisplayRulesService displayRulesService,
             @Lazy SimulationService simulationService,
             TimeService timeService,
             org.modelmapper.ModelMapper modelMapper,
             TopologyProvider topologyProvider,
-            StopwatchService stopwatchService) {
+            StopwatchService stopwatchService,
+            DestinationMappingService destinationMappingService) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
+        this.liveConveyorRepository = liveConveyorRepository;
         this.pathfindingService = pathfindingService;
         this.displayRulesService = displayRulesService;
         this.simulationService = simulationService;
@@ -59,6 +66,7 @@ public class GraphService {
         this.modelMapper = modelMapper;
         this.topologyProvider = topologyProvider;
         this.stopwatchService = stopwatchService;
+        this.destinationMappingService = destinationMappingService;
     }
 
     public GraphData getGraphData() {
@@ -160,6 +168,8 @@ public class GraphService {
         Map<String, Double> itemPriorities = fetchItemPriorities();
 
         List<RedisLiveItem> liveRawItems = redisRepository.getAllActiveItems();
+        Map<String, Integer> stagingOrders = new HashMap<>();
+        Map<String, Double> stagedDistances = calculateStagedDistances(liveRawItems, topology, now, stagingOrders);
 
         List<ItemResponse> activeItems = new ArrayList<>();
         List<String> itemsToRemove = new ArrayList<>();
@@ -198,8 +208,15 @@ public class GraphService {
                     }
                 }
 
-                ItemResponse simulatedItem = calculateCurrentState(
-                        id, positionId, type, entryTime, path, topology, now, accDist);
+                ItemResponse simulatedItem;
+                if (stagedDistances.containsKey(id)) {
+                    ConveyorResponse staging = topology.conveyorMap.get(positionId);
+                    simulatedItem = createItemResponse(id, positionId, null, entryTime,
+                            stagedDistances.get(id) / staging.getLength());
+                } else {
+                    simulatedItem = calculateCurrentState(
+                            id, positionId, type, entryTime, path, topology, now, accDist);
+                }
 
                 if (simulatedItem != null) {
                     simulatedItem.setName(rawItem.getName());
@@ -210,6 +227,11 @@ public class GraphService {
                     simulatedItem.setRoutingStatus(routingStatus);
                     simulatedItem.setRoutingStatusUpdatedAt(routingStatusUpdatedAt);
                     simulatedItem.setPath(path);
+                    applyRushPriority(simulatedItem, now);
+                    simulatedItem.setPlannedPositionId(rawItem.getPlannedPositionId());
+                    simulatedItem.setPlannedPositionType(rawItem.getPlannedPositionType());
+                    simulatedItem.setPlannedTransitionTimestamp(rawItem.getPlannedTransitionTimestamp());
+                    simulatedItem.setStagingOrder(stagingOrders.get(id));
                     activeItems.add(simulatedItem);
                 } else {
                     if (includeFinished) {
@@ -221,6 +243,8 @@ public class GraphService {
                         finished.setProgress(1.0);
                         finished.setCurrentEdgeId(positionId);
                         finished.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
+                        finished.setEffectivePriority(finished.getPriority());
+                        finished.setRushActive(false);
                         finished.setRoutingStatus(RoutingStatus.COMPLETED);
                         finished.setRoutingStatusUpdatedAt(now);
                         activeItems.add(finished);
@@ -241,6 +265,51 @@ public class GraphService {
             redisRepository.deleteItems(itemsToRemove);
         }
         return activeItems;
+    }
+
+    /**
+     * Projects staging queues from their physical checkpoints while clamping every
+     * follower behind the item ahead. Items beyond physical capacity overlap only
+     * at the conveyor entrance and retain FIFO order in Redis.
+     */
+    private Map<String, Double> calculateStagedDistances(List<RedisLiveItem> items, Topology topology, Instant now,
+            Map<String, Integer> stagingOrders) {
+        Map<String, List<RedisLiveItem>> byConveyor = items.stream()
+                .filter(item -> item.getType() == PositionType.CONVEYOR)
+                .filter(item -> item.getPositionId() != null && item.getEntryTime() != null)
+                .filter(item -> {
+                    ConveyorResponse conveyor = topology.conveyorMap.get(item.getPositionId());
+                    return conveyor != null && conveyor.getType() == ConveyorType.STAGING;
+                })
+                .collect(Collectors.groupingBy(RedisLiveItem::getPositionId));
+        Map<String, Double> result = new HashMap<>();
+        byConveyor.forEach((conveyorId, stagedItems) -> {
+            ConveyorResponse conveyor = topology.conveyorMap.get(conveyorId);
+            double length = Math.max(0.0, Objects.requireNonNullElse(conveyor.getLength(), 0.0));
+            double speed = Math.max(0.0, Objects.requireNonNullElse(conveyor.getSpeed(), 0.0));
+            double spacing = Math.max(0.0, Objects.requireNonNullElse(conveyor.getMinDistance(), 0.1));
+            Map<String, RedisLiveItem> byId = stagedItems.stream()
+                    .collect(Collectors.toMap(RedisLiveItem::getId, item -> item));
+            List<RedisLiveItem> orderedItems = liveConveyorRepository.getItemsOrderedByDistance(conveyorId).stream()
+                    .map(byId::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(ArrayList::new));
+            if (orderedItems.size() != stagedItems.size()) {
+                stagedItems.stream().filter(item -> !orderedItems.contains(item))
+                        .sorted(Comparator.comparing(RedisLiveItem::getEntryTime).thenComparing(RedisLiveItem::getId))
+                        .forEach(orderedItems::add);
+            }
+            for (int index = 0; index < orderedItems.size(); index++) {
+                RedisLiveItem item = orderedItems.get(index);
+                long elapsedMillis = Math.max(0L, Duration.between(item.getEntryTime(), now).toMillis());
+                double naturalDistance = Math.max(0.0, item.getAccumulatedDistance())
+                        + elapsedMillis / 1000.0 * speed;
+                double slot = Math.max(0.0, length - index * spacing);
+                result.put(item.getId(), Math.min(naturalDistance, slot));
+                stagingOrders.put(item.getId(), index);
+            }
+        });
+        return result;
     }
 
     /**
@@ -488,6 +557,14 @@ public class GraphService {
         return item;
     }
 
+    private void applyRushPriority(ItemResponse response, Instant timestamp) {
+        DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(
+                itemRootFields(response), response.getProperties(), response.getDestinations(), response.getPriority(),
+                timestamp);
+        response.setEffectivePriority(rush.effectivePriority());
+        response.setRushActive(rush.rushActive());
+    }
+
     /**
      * Loads durable item priorities from OrientDB for routing and styling display.
      * Redis keeps the live position state, but priority is metadata persisted with
@@ -525,11 +602,16 @@ public class GraphService {
         fields.put("name", item.getName());
         fields.put("active", item.getActive());
         fields.put("priority", item.getPriority());
+        fields.put("effectivePriority", item.getEffectivePriority());
+        fields.put("rushActive", item.getRushActive());
         fields.put("locationId", item.getLocationId());
         fields.put("currentEdgeId", item.getCurrentEdgeId());
         fields.put("entryTimestamp", item.getEntryTimestamp());
         fields.put("progress", item.getProgress());
+        fields.put("destinations", item.getDestinations());
+        fields.put("selectedExitId", item.getSelectedExitId());
         fields.put("routingStatus", item.getRoutingStatus());
+        fields.put("path", item.getPath());
         return fields;
     }
 

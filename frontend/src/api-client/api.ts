@@ -736,7 +736,8 @@ export const ConveyorTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
     Accumulation: 'ACCUMULATION',
-    Chute: 'CHUTE'
+    Chute: 'CHUTE',
+    Staging: 'STAGING'
 } as const;
 
 export type ConveyorTypeEnum = typeof ConveyorTypeEnum[keyof typeof ConveyorTypeEnum];
@@ -892,7 +893,8 @@ export const ConveyorResponseTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
     Accumulation: 'ACCUMULATION',
-    Chute: 'CHUTE'
+    Chute: 'CHUTE',
+    Staging: 'STAGING'
 } as const;
 
 export type ConveyorResponseTypeEnum = typeof ConveyorResponseTypeEnum[keyof typeof ConveyorResponseTypeEnum];
@@ -952,6 +954,30 @@ export interface ConveyorStopMetric {
      */
     'stopStartedAt'?: string;
 }
+/**
+ *
+ * @export
+ * @interface ConveyorTypeUpdateRequest
+ */
+export interface ConveyorTypeUpdateRequest {
+    /**
+     *
+     * @type {string}
+     * @memberof ConveyorTypeUpdateRequest
+     */
+    'type'?: ConveyorTypeUpdateRequestTypeEnum;
+}
+
+export const ConveyorTypeUpdateRequestTypeEnum = {
+    Belt: 'BELT',
+    Roller: 'ROLLER',
+    Accumulation: 'ACCUMULATION',
+    Chute: 'CHUTE',
+    Staging: 'STAGING'
+} as const;
+
+export type ConveyorTypeUpdateRequestTypeEnum = typeof ConveyorTypeUpdateRequestTypeEnum[keyof typeof ConveyorTypeUpdateRequestTypeEnum];
+
 /**
  *
  * @export
@@ -1086,7 +1112,8 @@ export const CreateConveyorInputTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
     Accumulation: 'ACCUMULATION',
-    Chute: 'CHUTE'
+    Chute: 'CHUTE',
+    Staging: 'STAGING'
 } as const;
 
 export type CreateConveyorInputTypeEnum = typeof CreateConveyorInputTypeEnum[keyof typeof CreateConveyorInputTypeEnum];
@@ -1230,6 +1257,12 @@ export interface DestinationMappingRecord {
      * @memberof DestinationMappingRecord
      */
     'validFrom'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof DestinationMappingRecord
+     */
+    'rushAt'?: string;
     /**
      *
      * @type {string}
@@ -2252,6 +2285,18 @@ export interface ItemResponse {
     'priority'?: number;
     /**
      *
+     * @type {number}
+     * @memberof ItemResponse
+     */
+    'effectivePriority'?: number;
+    /**
+     *
+     * @type {boolean}
+     * @memberof ItemResponse
+     */
+    'rushActive'?: boolean;
+    /**
+     *
      * @type {{ [key: string]: object; }}
      * @memberof ItemResponse
      */
@@ -2328,6 +2373,30 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'customBorderWidth'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'plannedPositionId'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'plannedPositionType'?: ItemResponsePlannedPositionTypeEnum;
+    /**
+     *
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'plannedTransitionTimestamp'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof ItemResponse
+     */
+    'stagingOrder'?: number;
 }
 
 export const ItemResponseRoutingStatusEnum = {
@@ -2339,6 +2408,12 @@ export const ItemResponseRoutingStatusEnum = {
 } as const;
 
 export type ItemResponseRoutingStatusEnum = typeof ItemResponseRoutingStatusEnum[keyof typeof ItemResponseRoutingStatusEnum];
+export const ItemResponsePlannedPositionTypeEnum = {
+    Location: 'LOCATION',
+    Conveyor: 'CONVEYOR'
+} as const;
+
+export type ItemResponsePlannedPositionTypeEnum = typeof ItemResponsePlannedPositionTypeEnum[keyof typeof ItemResponsePlannedPositionTypeEnum];
 
 /**
  *
@@ -5248,6 +5323,40 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
         },
         /**
          *
+         * @summary Release the current staging conveyor batch
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        releaseStagingConveyor: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('releaseStagingConveyor', 'id', id)
+            const localVarPath = `/api/conveyors/{id}/release`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
          * @summary Batch update conveyor properties
          * @param {string} id
          * @param {{ [key: string]: object; }} requestBody
@@ -5360,6 +5469,46 @@ export const ConveyorsApiAxiosParamCreator = function (configuration?: Configura
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
             localVarRequestOptions.data = serializeDataIfNeeded(speedUpdateRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @summary Update conveyor type
+         * @param {string} id
+         * @param {ConveyorTypeUpdateRequest} conveyorTypeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorType: async (id: string, conveyorTypeUpdateRequest: ConveyorTypeUpdateRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('updateConveyorType', 'id', id)
+            // verify required parameter 'conveyorTypeUpdateRequest' is not null or undefined
+            assertParamExists('updateConveyorType', 'conveyorTypeUpdateRequest', conveyorTypeUpdateRequest)
+            const localVarPath = `/api/conveyors/{id}/type`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(conveyorTypeUpdateRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -5524,6 +5673,19 @@ export const ConveyorsApiFp = function(configuration?: Configuration) {
         },
         /**
          *
+         * @summary Release the current staging conveyor batch
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async releaseStagingConveyor(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.releaseStagingConveyor(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.releaseStagingConveyor']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
          * @summary Batch update conveyor properties
          * @param {string} id
          * @param {{ [key: string]: object; }} requestBody
@@ -5562,6 +5724,20 @@ export const ConveyorsApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorSpeed(id, speedUpdateRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorSpeed']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @summary Update conveyor type
+         * @param {string} id
+         * @param {ConveyorTypeUpdateRequest} conveyorTypeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateConveyorType(id: string, conveyorTypeUpdateRequest: ConveyorTypeUpdateRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<{ [key: string]: object; }>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateConveyorType(id, conveyorTypeUpdateRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConveyorsApi.updateConveyorType']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -5672,6 +5848,16 @@ export const ConveyorsApiFactory = function (configuration?: Configuration, base
         },
         /**
          *
+         * @summary Release the current staging conveyor batch
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        releaseStagingConveyor(id: string, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.releaseStagingConveyor(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
          * @summary Batch update conveyor properties
          * @param {string} id
          * @param {{ [key: string]: object; }} requestBody
@@ -5702,6 +5888,17 @@ export const ConveyorsApiFactory = function (configuration?: Configuration, base
          */
         updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
             return localVarFp.updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @summary Update conveyor type
+         * @param {string} id
+         * @param {ConveyorTypeUpdateRequest} conveyorTypeUpdateRequest
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateConveyorType(id: string, conveyorTypeUpdateRequest: ConveyorTypeUpdateRequest, options?: RawAxiosRequestConfig): AxiosPromise<{ [key: string]: object; }> {
+            return localVarFp.updateConveyorType(id, conveyorTypeUpdateRequest, options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -5824,6 +6021,18 @@ export class ConveyorsApi extends BaseAPI {
 
     /**
      *
+     * @summary Release the current staging conveyor batch
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public releaseStagingConveyor(id: string, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).releaseStagingConveyor(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
      * @summary Batch update conveyor properties
      * @param {string} id
      * @param {{ [key: string]: object; }} requestBody
@@ -5859,6 +6068,19 @@ export class ConveyorsApi extends BaseAPI {
      */
     public updateConveyorSpeed(id: string, speedUpdateRequest: SpeedUpdateRequest, options?: RawAxiosRequestConfig) {
         return ConveyorsApiFp(this.configuration).updateConveyorSpeed(id, speedUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @summary Update conveyor type
+     * @param {string} id
+     * @param {ConveyorTypeUpdateRequest} conveyorTypeUpdateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ConveyorsApi
+     */
+    public updateConveyorType(id: string, conveyorTypeUpdateRequest: ConveyorTypeUpdateRequest, options?: RawAxiosRequestConfig) {
+        return ConveyorsApiFp(this.configuration).updateConveyorType(id, conveyorTypeUpdateRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

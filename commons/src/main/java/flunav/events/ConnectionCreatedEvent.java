@@ -52,8 +52,9 @@ public class ConnectionCreatedEvent extends EntityEvent {
         this.name = (name != null) ? name : "";
         this.isActive = (isActive != null) ? isActive : true;
         this.capacity = capacity;
-        this.type = type;
-        this.properties = properties;
-        this.minDistance = minDistance;
+        this.type = type != null ? type : ConveyorType.BELT;
+        this.properties = properties != null ? properties : Map.of();
+        this.minDistance = minDistance != null ? minDistance
+                : this.type == ConveyorType.STAGING ? 0.1 : null;
     }
 }

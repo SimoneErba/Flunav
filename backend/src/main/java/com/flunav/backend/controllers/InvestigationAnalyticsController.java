@@ -363,7 +363,7 @@ public class InvestigationAnalyticsController {
             return null;
         }
         var decision = routingDecisionService.selectRouteToExit(
-                item, state.getPositionId(), state.getType(), state.getSelectedExitId());
+                item, state.getPositionId(), state.getType(), state.getSelectedExitId(), timeService.now());
         if (decision.nextConveyorId() == null || decision.path() == null) {
             return null;
         }

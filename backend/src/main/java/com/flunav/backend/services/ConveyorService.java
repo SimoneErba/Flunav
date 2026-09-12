@@ -81,6 +81,13 @@ public class ConveyorService {
      */
     public Conveyor createConveyor(String connectionId, String sourceId, String targetId, String name,
             Double length, Double speed, Double minDistance, Boolean mainPath, Boolean isActive) {
+        return createConveyor(connectionId, sourceId, targetId, name, length, speed, minDistance, mainPath, isActive,
+                ConveyorType.BELT, null, Map.of());
+    }
+
+    public Conveyor createConveyor(String connectionId, String sourceId, String targetId, String name,
+            Double length, Double speed, Double minDistance, Boolean mainPath, Boolean isActive,
+            ConveyorType type, Integer capacity, Map<String, Object> properties) {
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
 
@@ -109,14 +116,21 @@ public class ConveyorService {
             // Set Physics & Properties from params (with safety defaults)
             edge.setProperty("length", length != null ? length : 10.0);
             edge.setProperty("speed", speed != null ? speed : 1.0);
-            edge.setProperty("minDistance", minDistance);
+            ConveyorType effectiveType = type != null ? type : ConveyorType.BELT;
+            Double effectiveMinDistance = minDistance != null
+                    ? minDistance
+                    : effectiveType == ConveyorType.STAGING ? 0.1 : null;
+            edge.setProperty("minDistance", effectiveMinDistance);
             edge.setProperty("active", isActive != null ? isActive : true);
             edge.setProperty("operatorEnabled", isActive != null ? isActive : true);
             edge.setProperty("activeAlarms", List.of());
             edge.setProperty("mainPath", mainPath != null ? mainPath : false);
 
-            // Static default
-            edge.setProperty("type", ConveyorType.BELT.name());
+            edge.setProperty("type", effectiveType.name());
+            if (capacity != null) {
+                edge.setProperty("capacity", capacity);
+            }
+            edge.setProperty("properties", properties != null ? properties : Map.of());
 
             edge.save();
             db.commit();
@@ -145,6 +159,8 @@ public class ConveyorService {
                         edge.setProperty("operatorEnabled", conveyor.isOperatorEnabled());
                         edge.setProperty("activeAlarms", serializeAlarms(conveyor.getActiveAlarms()));
                         edge.setProperty("mainPath", conveyor.isMainPath());
+                        edge.setProperty("type", conveyor.getType().name());
+                        edge.setProperty("minDistance", conveyor.getMinDistance());
                         edge.setProperty("properties", conveyor.getProperties());
                         if (conveyor.getCapacity() != null) {
                             edge.setProperty("capacity", conveyor.getCapacity());

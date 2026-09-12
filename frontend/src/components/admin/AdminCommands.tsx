@@ -7,11 +7,12 @@ import { LocationTypeEnum } from "../../api-client";
 import { axiosInstance } from "../../api/axiosInstance";
 import { useSimulationContext } from "../../context/simulation.context";
 
-type CommandAction = "START_CONVEYOR" | "STOP_CONVEYOR" | "EMPTY_CHUTE";
+type CommandAction = "START_CONVEYOR" | "STOP_CONVEYOR" | "RELEASE_STAGING" | "EMPTY_CHUTE";
 
 const COMMAND_OPTIONS: Array<{ value: CommandAction; label: string }> = [
   { value: "START_CONVEYOR", label: "Start conveyor" },
   { value: "STOP_CONVEYOR", label: "Stop conveyor" },
+  { value: "RELEASE_STAGING", label: "Release staging conveyor" },
   { value: "EMPTY_CHUTE", label: "Empty chute" },
 ];
 
@@ -83,8 +84,12 @@ export const AdminCommands = ({
           await axiosInstance.put(`/api/conveyors/${encodeURIComponent(conveyor.id)}/activate`, undefined, {
             headers: requestHeaders,
           });
-        } else {
+        } else if (action === "STOP_CONVEYOR") {
           await axiosInstance.put(`/api/conveyors/${encodeURIComponent(conveyor.id)}/deactivate`, undefined, {
+            headers: requestHeaders,
+          });
+        } else {
+          await conveyorsApi.releaseStagingConveyor(conveyor.id, {
             headers: requestHeaders,
           });
         }

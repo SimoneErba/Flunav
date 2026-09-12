@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import flunav.types.RoutingStatus;
+import flunav.types.PositionType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -17,6 +18,8 @@ public class ItemResponse {
     private String name;
     private Boolean active;
     private Double priority;
+    private Double effectivePriority;
+    private Boolean rushActive;
     private Map<String, Object> properties;
 
     // --- POSITIONING (Physics) ---
@@ -37,12 +40,29 @@ public class ItemResponse {
     private String customColor;
     private String customBorderColor;
     private Double customBorderWidth;
+    private String plannedPositionId;
+    private PositionType plannedPositionType;
+    private Instant plannedTransitionTimestamp;
+    private Integer stagingOrder;
+
+    public ItemResponse(String id, String name, Boolean active, Double priority, Map<String, Object> properties,
+            String locationId, String currentEdgeId, Instant entryTimestamp, Double progress,
+            List<String> destinations, String selectedExitId, RoutingStatus routingStatus,
+            Instant routingStatusUpdatedAt, List<String> path, String customColor, String customBorderColor,
+            Double customBorderWidth, String plannedPositionId, PositionType plannedPositionType,
+            Instant plannedTransitionTimestamp, Integer stagingOrder) {
+        this(id, name, active, priority, priority, false, properties, locationId, currentEdgeId, entryTimestamp,
+                progress, destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor,
+                customBorderColor, customBorderWidth, plannedPositionId, plannedPositionType, plannedTransitionTimestamp,
+                stagingOrder);
+    }
 
     public ItemResponse(String id, String name, Boolean active, Map<String, Object> properties,
             String locationId, String currentEdgeId, Instant entryTimestamp, Double progress,
             List<String> destinations, String selectedExitId, RoutingStatus routingStatus,
             Instant routingStatusUpdatedAt, List<String> path, String customColor) {
-        this(id, name, active, 0.0, properties, locationId, currentEdgeId, entryTimestamp, progress,
-                destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor, null, null);
+        this(id, name, active, 0.0, 0.0, false, properties, locationId, currentEdgeId, entryTimestamp, progress,
+                destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor, null, null,
+                null, null, null, null);
     }
 }

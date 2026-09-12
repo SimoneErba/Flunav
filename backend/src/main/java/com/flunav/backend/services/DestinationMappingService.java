@@ -66,6 +66,7 @@ public class DestinationMappingService {
                         trimToNull(record.getSecondValue()),
                         record.getDestinations(),
                         record.getValidFrom(),
+                        record.getRushAt(),
                         record.getValidTo(),
                         event.getEventId(),
                         updatedAt))
@@ -107,6 +108,7 @@ public class DestinationMappingService {
                         value.secondValue(),
                         value.destinations(),
                         value.validFrom(),
+                        value.rushAt(),
                         value.validTo()))
                 .toList();
     }
@@ -162,6 +164,36 @@ public class DestinationMappingService {
     }
 
     /**
+     * Computes the routing priority at a domain timestamp without changing the
+     * item's durable base priority.
+     */
+    public RushPriority evaluateRush(com.flunav.backend.domain.Item item, Instant decisionTime) {
+        if (item == null) {
+            return new RushPriority(0.0, false);
+        }
+        return evaluateRush(itemRootFields(item), item.getProperties(), item.getDestinations(), item.getPriority(),
+                decisionTime);
+    }
+
+    public RushPriority evaluateRush(Map<String, Object> rootFields, Map<String, Object> properties,
+            List<String> destinations, Double basePriority, Instant decisionTime) {
+        double priority = basePriority == null ? 0.0 : basePriority;
+        if (destinations == null || destinations.isEmpty()) {
+            return new RushPriority(priority, false);
+        }
+
+        Instant effectiveTime = decisionTime != null ? decisionTime : Instant.now();
+        Set<String> assignedDestinations = new HashSet<>(destinations);
+        boolean active = getStoredMappings().stream()
+                .filter(mapping -> mapping.rushAt() != null)
+                .filter(mapping -> !effectiveTime.isBefore(mapping.rushAt())
+                        && !effectiveTime.isAfter(mapping.validTo()))
+                .filter(mapping -> mapping.destinations().stream().anyMatch(assignedDestinations::contains))
+                .anyMatch(mapping -> applies(rootFields, properties, mapping));
+        return new RushPriority(active ? 1.0 : priority, active);
+    }
+
+    /**
      * Normalizes mapping records before they are persisted in Redis.
      * Defaults from the legacy event shape are applied here, and duplicate logical
      * rows are rejected so replaying a mapping event stays deterministic.
@@ -195,6 +227,11 @@ public class DestinationMappingService {
             if (!record.getValidTo().isAfter(record.getValidFrom())) {
                 throw new IllegalArgumentException("mapping validTo must be after validFrom");
             }
+            if (record.getRushAt() != null
+                    && (record.getRushAt().isBefore(record.getValidFrom())
+                            || !record.getRushAt().isBefore(record.getValidTo()))) {
+                throw new IllegalArgumentException("mapping rushAt must be on or after validFrom and before validTo");
+            }
             validateOperator(dataType, operator);
             validateComparableValue(dataType, record.getValue());
             DisplayRulesService.validateRange(dataType, operator, record.getSecondOperator(), record.getSecondValue());
@@ -210,6 +247,7 @@ public class DestinationMappingService {
                     record.getSecondOperator() == null ? "" : record.getSecondOperator().name(),
                     trimToNull(record.getSecondValue()) == null ? "" : trimToNull(record.getSecondValue()),
                     record.getValidFrom().toString(),
+                    record.getRushAt() == null ? "" : record.getRushAt().toString(),
                     record.getValidTo().toString());
             if (!logicalRows.add(logicalRow)) {
                 throw new IllegalArgumentException("duplicate destination mapping row");
@@ -223,6 +261,7 @@ public class DestinationMappingService {
                     trimToNull(record.getSecondValue()),
                     destinations,
                     record.getValidFrom(),
+                    record.getRushAt(),
                     record.getValidTo()));
         }
         return normalized;
@@ -272,6 +311,22 @@ public class DestinationMappingService {
         return first && (mapping.secondOperator() == null
                 || RuleActivationEvaluator.isActive(rootFields, properties, mapping.fieldName(),
                         mapping.dataType(), mapping.secondOperator(), mapping.secondValue()));
+    }
+
+    private Map<String, Object> itemRootFields(com.flunav.backend.domain.Item item) {
+        Map<String, Object> fields = new java.util.HashMap<>();
+        fields.put("id", item.getId());
+        fields.put("name", item.getName());
+        fields.put("active", item.isActive());
+        fields.put("priority", item.getPriority());
+        fields.put("positionId", item.getPositionId());
+        fields.put("locationId", item.getPositionId());
+        fields.put("positionType", item.getPositionType());
+        fields.put("entryTimestamp", item.getEntryTimestamp());
+        fields.put("destinations", item.getDestinations());
+        fields.put("selectedExitId", item.getSelectedExitId());
+        fields.put("routingStatus", item.getRoutingStatus());
+        return fields;
     }
 
     /**
@@ -376,6 +431,7 @@ public class DestinationMappingService {
             String secondValue,
             List<String> destinations,
             Instant validFrom,
+            Instant rushAt,
             Instant validTo,
             String sourceEventId,
             Instant updatedAt) {
@@ -389,6 +445,7 @@ public class DestinationMappingService {
                 @JsonProperty("secondValue") String secondValue,
                 @JsonProperty("destinations") List<String> destinations,
                 @JsonProperty("validFrom") Instant validFrom,
+                @JsonProperty("rushAt") Instant rushAt,
                 @JsonProperty("validTo") Instant validTo,
                 @JsonProperty("sourceEventId") String sourceEventId,
                 @JsonProperty("updatedAt") Instant updatedAt) {
@@ -400,9 +457,13 @@ public class DestinationMappingService {
             this.secondValue = secondValue;
             this.destinations = destinations;
             this.validFrom = validFrom;
+            this.rushAt = rushAt;
             this.validTo = validTo;
             this.sourceEventId = sourceEventId;
             this.updatedAt = updatedAt;
         }
+    }
+
+    public record RushPriority(double effectivePriority, boolean rushActive) {
     }
 }

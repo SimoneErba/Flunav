@@ -68,6 +68,9 @@ public class ConnectionController {
     public record LengthUpdateRequest(Double length) {
     }
 
+    public record ConveyorTypeUpdateRequest(ConveyorType type) {
+    }
+
     public record mainPathUpdateRequest(Boolean mainPath) {
     }
 
@@ -306,6 +309,33 @@ public class ConnectionController {
         var event = new ConnectionLengthChangedEvent(id, request.length());
         return eventProcessorHelper.processAndLogEvent(event)
                 .thenApply(ResponseEntity::ok);
+    }
+
+    @BlockInDemo
+    @PutMapping("/{id}/type")
+    @Operation(summary = "Update conveyor type")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> updateConveyorType(
+            @PathVariable String id, @RequestBody ConveyorTypeUpdateRequest request) {
+        requireConveyor(id);
+        if (request == null || request.type() == null) {
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+        }
+        return eventProcessorHelper.processAndLogEvent(new ConnectionTypeChangedEvent(id, request.type()))
+                .thenApply(ResponseEntity::ok);
+    }
+
+    @BlockInDemo
+    @PostMapping("/{id}/release")
+    @Operation(summary = "Release the current staging conveyor batch")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> releaseStagingConveyor(@PathVariable String id) {
+        Conveyor conveyor = requireConveyor(id);
+        if (conveyor.getType() != ConveyorType.STAGING || !conveyor.isActive()
+                || conveyor.getSpeed() == null || conveyor.getSpeed() <= 0.0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Release requires an active staging conveyor with positive speed");
+        }
+        return eventProcessorHelper.processAndLogEvent(new ReleaseStagingConveyorEvent(id))
+                .thenApply(result -> ResponseEntity.status(HttpStatus.ACCEPTED).body(result));
     }
 
     @BlockInDemo

@@ -108,6 +108,21 @@ const normalizeDate = (value: string) => {
   return Number.isNaN(date.getTime()) ? value.trim() : date.toISOString();
 };
 
+const csvCell = (value: unknown) => {
+  const text = value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+};
+
+const downloadCsv = (filename: string, rows: unknown[][]) => {
+  const blob = new Blob([rows.map(row => row.map(csvCell).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
+
 const newPropertyRow = (): PropertyRow => {
   const now = new Date();
   return {
@@ -192,6 +207,7 @@ export const DestinationMappingManagement = () => {
         secondValue: row.secondValue?.trim() || undefined,
         destinations: parseStringArray(row.destinationsText, "Destinations"),
         validFrom: row.validFrom,
+        rushAt: row.rushAt || undefined,
         validTo: row.validTo,
       }));
       await destinationMappingApi.updateDestinationMappings(payload);
@@ -227,9 +243,13 @@ export const DestinationMappingManagement = () => {
     const reader = new FileReader();
     reader.onload = () => {
       const [header, ...rows] = parseCsv(String(reader.result || ""));
-      const expected = ["fieldName", "dataType", "operator", "value", "secondOperator", "secondValue", "destinations", "validFrom", "validTo"];
-      if (!header || expected.some((column, index) => header[index]?.trim() !== column)) {
-        toast.error(`CSV header must be ${expected.join(",")}`);
+      const legacyHeader = ["fieldName", "dataType", "operator", "value", "secondOperator", "secondValue", "destinations", "validFrom", "validTo"];
+      const rushHeader = [...legacyHeader.slice(0, 8), "rushAt", "validTo"];
+      const columns = header?.map(column => column.trim()) ?? [];
+      const legacy = columns.length === legacyHeader.length && legacyHeader.every((column, index) => columns[index] === column);
+      const withRush = columns.length === rushHeader.length && rushHeader.every((column, index) => columns[index] === column);
+      if (!legacy && !withRush) {
+        toast.error(`CSV header must be ${rushHeader.join(",")} (legacy nine-column files are also accepted)`);
         return;
       }
       try {
@@ -244,7 +264,8 @@ export const DestinationMappingManagement = () => {
           destinations: parseStringArray(cells[6] || "", "Destinations"),
           destinationsText: cells[6]?.trim() || "[]",
           validFrom: normalizeDate(cells[7] || ""),
-          validTo: normalizeDate(cells[8] || ""),
+          rushAt: withRush && cells[8]?.trim() ? normalizeDate(cells[8]) : undefined,
+          validTo: normalizeDate(cells[withRush ? 9 : 8] || ""),
         })));
         toast.success("Property CSV imported. Review and save to persist.");
       } catch (error) {
@@ -253,6 +274,14 @@ export const DestinationMappingManagement = () => {
     };
     reader.readAsText(file);
   };
+
+  const exportProperties = () => downloadCsv("destination-mappings.csv", [
+    ["fieldName", "dataType", "operator", "value", "secondOperator", "secondValue", "destinations", "validFrom", "rushAt", "validTo"],
+    ...propertyRows.map(row => [
+      row.fieldName, row.dataType, row.operator, row.value, row.secondOperator, row.secondValue,
+      row.destinationsText, row.validFrom, row.rushAt, row.validTo,
+    ]),
+  ]);
 
   const importExits = (file: File) => {
     const reader = new FileReader();
@@ -293,14 +322,15 @@ export const DestinationMappingManagement = () => {
         onAdd={() => setPropertyRows(rows => [...rows, newPropertyRow()])}
         onReload={fetchMappings}
         onImport={() => propertyFileRef.current?.click()}
+        onExport={exportProperties}
         onSave={saveProperties}
         fileRef={propertyFileRef}
         onFile={importProperties}
       >
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm min-w-[1650px]">
+          <table className="w-full table-fixed text-sm min-w-[1800px]">
             <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700/50">
-              <tr>{["Field", "Type", "Op", "Value", "Second Op", "Second Value", "Destinations JSON", "Valid From", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
+              <tr>{["Field", "Type", "Op", "Value", "Second Op", "Second Value", "Destinations JSON", "Valid From", "Rush At", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {propertyRows.map(row => (
@@ -313,11 +343,12 @@ export const DestinationMappingManagement = () => {
                   <td className="p-3"><Cell value={row.secondValue} onChange={secondValue => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, secondValue } : item))} /></td>
                   <td className="p-3"><Cell value={row.destinationsText} onChange={destinationsText => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, destinationsText } : item))} list="logical-destinations" /></td>
                   <td className="p-3"><DateCell value={row.validFrom} onChange={validFrom => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validFrom } : item))} /></td>
+                  <td className="p-3"><DateCell value={row.rushAt} onChange={rushAt => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, rushAt } : item))} /></td>
                   <td className="p-3"><DateCell value={row.validTo} onChange={validTo => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validTo } : item))} /></td>
                   <td className="p-3"><DeleteButton onClick={() => setPropertyRows(rows => rows.filter(item => item._localId !== row._localId))} /></td>
                 </tr>
               ))}
-              {!propertyRows.length && <EmptyRow columns={10} loading={loading} />}
+              {!propertyRows.length && <EmptyRow columns={11} loading={loading} />}
             </tbody>
           </table>
         </div>
@@ -381,6 +412,7 @@ const MappingSection = ({
   onAdd,
   onReload,
   onImport,
+  onExport,
   onSave,
   fileRef,
   onFile,
@@ -392,6 +424,7 @@ const MappingSection = ({
   onAdd: () => void;
   onReload: () => void;
   onImport: () => void;
+  onExport?: () => void;
   onSave: () => void;
   fileRef: React.RefObject<HTMLInputElement>;
   onFile: (file: File) => void;
@@ -404,6 +437,7 @@ const MappingSection = ({
         <button onClick={onAdd} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-sm">Add Row</button>
         <button onClick={onReload} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Reload</button>
         <button onClick={onImport} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Import CSV</button>
+        {onExport && <button onClick={onExport} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Export CSV</button>}
         <button onClick={onSave} disabled={saving} className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-semibold text-sm disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={event => {
           const file = event.target.files?.[0];

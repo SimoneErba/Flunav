@@ -437,10 +437,23 @@ public class HistoricalGraphBuilder {
                     itemData.getRoutingStatus(),
                     itemData.getRoutingStatusUpdatedAt(),
                     itemData.getPath());
+            if (itemData.getPlannedPositionId() != null
+                    && itemData.getPlannedPositionType() != null
+                    && itemData.getPlannedTransitionTimestamp() != null) {
+                liveItemRepository.setPlannedTransition(
+                        itemData.getId(), itemData.getPlannedPositionId(), itemData.getPlannedPositionType(),
+                        itemData.getPlannedTransitionTimestamp());
+                double progress = itemData.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
+                simulationService.addInternalEvent(new flunav.events.ItemPositionChangedEvent(
+                        itemData.getId(), itemData.getPlannedPositionId(), progress,
+                        itemData.getPlannedTransitionTimestamp()));
+            }
             if (type == PositionType.CONVEYOR) {
                 // Membership drives accumulation scheduling. Preserve leading-item order even on stopped belts.
                 liveConveyorRepository.addItemToConveyor(positionId, itemData.getId(),
-                        effectiveTimestamp.minusMillis(Math.round(accumulatedDistance * 1000)));
+                        itemData.getStagingOrder() != null
+                                ? effectiveTimestamp.plusMillis(itemData.getStagingOrder())
+                                : effectiveTimestamp.minusMillis(Math.round(accumulatedDistance * 1000)));
             } else {
                 liveLocationRepository.addItemToLocation(positionId, itemData.getId());
             }

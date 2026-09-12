@@ -27,8 +27,13 @@ export const useSimulationContext = () => {
 const isWhatIf = (simulation: SimulationStateResponse | null) =>
     simulation?.kind === 'WHAT_IF_LIVE' || simulation?.kind === 'WHAT_IF_SIMULATION';
 
+const isOperationalCommand = (url?: string) =>
+    /\/api\/conveyors\/[^/?]+\/(activate|deactivate|release)(?:\?|$)/.test(url ?? '') ||
+    /\/api\/locations\/[^/?]+\/empty(?:\?|$)/.test(url ?? '');
+
 const isGraphMutation = (method?: string, url?: string) =>
     !['get', 'head', 'options'].includes((method ?? 'get').toLowerCase()) &&
+    !isOperationalCommand(url) &&
     /\/api\/(items|locations|conveyors|positions|graph\/import)(\/|$|\?)/.test(url ?? '');
 
 /** One shared transition guards every graph mutation, including edits from controls outside the graph. */

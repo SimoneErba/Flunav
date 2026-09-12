@@ -1,0 +1,2 @@
+fieldName,dataType,operator,value,secondOperator,secondValue,destinations,validFrom,rushAt,validTo
+flight_number,STRING,EQUAL,RUSH-123,,,"[""rush-destination""]",2026-01-01T00:00:00Z,2098-01-01T00:00:00Z,2099-01-01T00:00:00Z

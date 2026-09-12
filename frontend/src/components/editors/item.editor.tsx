@@ -8,6 +8,8 @@ export interface ItemEditorData {
   label?: string;
   isActive?: boolean;
   priority?: number;
+  effectivePriority?: number;
+  rushActive?: boolean;
   properties?: Record<string, unknown>;
   path?: string[];
   locationId?: string | null;
@@ -90,7 +92,7 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
 
       <div>
         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-          Priority
+          Base Priority
         </label>
         <input
           type="number"
@@ -102,6 +104,23 @@ export const ItemEditor = ({ data, onClose, onSubmit, onDelete }: ItemEditorProp
           onChange={(event) => setPriority(Math.min(1, Math.max(0, Number(event.target.value))))}
           className="w-full p-2 rounded border text-sm bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
         />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+          Effective Priority
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            readOnly
+            value={data.effectivePriority ?? data.priority ?? 0}
+            className="w-full p-2 rounded border text-sm bg-gray-100 dark:bg-gray-950 border-gray-300 dark:border-gray-700"
+          />
+          {data.rushActive && (
+            <span className="shrink-0 rounded bg-red-600 px-2 py-1 text-xs font-bold text-white">RUSH ACTIVE</span>
+          )}
+        </div>
       </div>
 
       {/* Status (Read Only) */}

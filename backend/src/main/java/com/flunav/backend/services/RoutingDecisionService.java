@@ -35,6 +35,7 @@ public class RoutingDecisionService {
     private final LiveLocationRepository liveLocationRepository;
     private final ItemService itemService;
     private final PathCacheRepository pathCacheRepository;
+    private final DestinationMappingService destinationMappingService;
 
     public RoutingDecisionService(
             TopologyProvider topologyProvider,
@@ -42,13 +43,15 @@ public class RoutingDecisionService {
             LiveItemRepository liveItemRepository,
             LiveLocationRepository liveLocationRepository,
             ItemService itemService,
-            PathCacheRepository pathCacheRepository) {
+            PathCacheRepository pathCacheRepository,
+            DestinationMappingService destinationMappingService) {
         this.topologyProvider = topologyProvider;
         this.destinationExitMappingService = destinationExitMappingService;
         this.liveItemRepository = liveItemRepository;
         this.liveLocationRepository = liveLocationRepository;
         this.itemService = itemService;
         this.pathCacheRepository = pathCacheRepository;
+        this.destinationMappingService = destinationMappingService;
     }
 
     /**
@@ -58,6 +61,10 @@ public class RoutingDecisionService {
      * low utilization and shortest travel time.
      */
     public RoutingDecision selectRoute(Item item, String sourceId, PositionType sourceType) {
+        return selectRoute(item, sourceId, sourceType, Instant.now());
+    }
+
+    public RoutingDecision selectRoute(Item item, String sourceId, PositionType sourceType, Instant decisionTime) {
         if (item == null || sourceId == null) {
             return RoutingDecision.none();
         }
@@ -67,8 +74,8 @@ public class RoutingDecisionService {
             return RoutingDecision.none();
         }
 
-        double priorityScore = priorityScore(item);
-        Map<String, Integer> pendingReservations = allocatePendingReservations(item.getId());
+        double priorityScore = priorityScore(item, decisionTime);
+        Map<String, Integer> pendingReservations = allocatePendingReservations(item.getId(), decisionTime);
         List<RouteCandidate> candidates = new ArrayList<>();
         boolean capacityBlocked = false;
         Set<String> candidateExits = resolveCandidateExits(item.getDestinations());
@@ -138,6 +145,15 @@ public class RoutingDecisionService {
             String sourceId,
             PositionType sourceType,
             String exitId) {
+        return selectRouteToExit(item, sourceId, sourceType, exitId, Instant.now());
+    }
+
+    public RoutingDecision selectRouteToExit(
+            Item item,
+            String sourceId,
+            PositionType sourceType,
+            String exitId,
+            Instant decisionTime) {
         if (item == null || exitId == null) {
             return RoutingDecision.none();
         }
@@ -147,8 +163,8 @@ public class RoutingDecisionService {
         if (sourceLocationId == null || exit == null) {
             return sourceLocationId == null ? RoutingDecision.none() : failedDecision();
         }
-        double priorityScore = priorityScore(item);
-        CapacityState capacity = capacityState(exit, item.getId(), allocatePendingReservations(item.getId()));
+        double priorityScore = priorityScore(item, decisionTime);
+        CapacityState capacity = capacityState(exit, item.getId(), allocatePendingReservations(item.getId(), decisionTime));
         if (!capacity.canAccept(priorityScore)) {
             RoutingDecision fallback = fallbackDecision(sourceLocationId);
             return new RoutingDecision(
@@ -450,14 +466,14 @@ public class RoutingDecisionService {
      * Reservations are allocated before evaluating the current item so normal items
      * cannot consume all near-future capacity while urgent items are waiting.
      */
-    private Map<String, Integer> allocatePendingReservations(String excludedItemId) {
+    private Map<String, Integer> allocatePendingReservations(String excludedItemId, Instant decisionTime) {
         List<PendingRoutingDemand> pendingDemands = liveItemRepository.getAllActiveItems().stream()
                 .filter(item -> item != null)
                 .filter(item -> excludedItemId == null || !excludedItemId.equals(item.getId()))
                 .filter(item -> item.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY)
                 .map(item -> {
                     Item domainItem = itemService.getItemById(item.getId());
-                    double priorityScore = domainItem == null ? 0.0 : priorityScore(domainItem);
+                    double priorityScore = domainItem == null ? 0.0 : priorityScore(domainItem, decisionTime);
                     if (!canWaitForCapacity(priorityScore)) {
                         return null;
                     }
@@ -571,8 +587,12 @@ public class RoutingDecisionService {
      * Missing priority behaves as normal priority so old items continue to use
      * capacity-protecting routing.
      */
-    private double priorityScore(Item item) {
-        return item == null || item.getPriority() == null ? 0.0 : item.getPriority();
+    private double priorityScore(Item item, Instant decisionTime) {
+        return destinationMappingService.evaluateRush(item, decisionTime).effectivePriority();
+    }
+
+    public DestinationMappingService.RushPriority effectivePriority(Item item, Instant decisionTime) {
+        return destinationMappingService.evaluateRush(item, decisionTime);
     }
 
     /**

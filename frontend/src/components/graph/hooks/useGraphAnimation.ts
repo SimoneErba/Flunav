@@ -31,6 +31,31 @@ export const useGraphAnimation = (
 
             let needsRefresh = false;
 
+            const stagingIndexes = new Map<string, number>();
+            const stagedByEdge = new Map<string, Array<[string, ItemResponse]>>();
+            activeItemsRef.current.forEach((item, itemId) => {
+                if (!item.currentEdgeId) return;
+                const edge = graph.hasEdge(item.currentEdgeId)
+                    ? item.currentEdgeId
+                    : graph.findEdge((_key, attrs) => attrs.id === item.currentEdgeId);
+                if (!edge || graph.getEdgeAttribute(edge, "conveyorType") !== "STAGING") return;
+                const staged = stagedByEdge.get(item.currentEdgeId) ?? [];
+                staged.push([itemId, item]);
+                stagedByEdge.set(item.currentEdgeId, staged);
+            });
+            stagedByEdge.forEach((staged) => {
+                staged.sort(([leftId, left], [rightId, right]) => {
+                    if (left.stagingOrder !== undefined && right.stagingOrder !== undefined) {
+                        return left.stagingOrder - right.stagingOrder;
+                    }
+                    const timeDifference = new Date(left.entryTimestamp ?? 0).getTime()
+                        - new Date(right.entryTimestamp ?? 0).getTime();
+                    return timeDifference || (right.progress ?? 0) - (left.progress ?? 0)
+                        || leftId.localeCompare(rightId);
+                });
+                staged.forEach(([itemId], index) => stagingIndexes.set(itemId, index));
+            });
+
             activeItemsRef.current.forEach((item, itemId) => {
                 if (itemId === draggedNodeRef.current) return;
                 if (!graph.hasNode(itemId)) return;
@@ -54,14 +79,21 @@ export const useGraphAnimation = (
                         const sourceNode = graph.getNodeAttributes(sourceId);
                         const targetNode = graph.getNodeAttributes(targetId);
 
-                        const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
+                        const length = Number(edgeAttrs.length);
+                        const speed = Number(edgeAttrs.speed);
+                        const totalDuration = (length / speed) * 1000;
                         const entryTime = new Date(item.entryTimestamp).getTime();
                         const timeElapsed = simTimeRef.current - entryTime;
 
                         if (timeElapsed < 0) {
                             graph.setNodeAttribute(itemId, "hidden", true);
                         } else {
-                            const progress = Math.min(1, timeElapsed / totalDuration);
+                            let progress = Math.min(1, Math.max(0, timeElapsed / totalDuration));
+                            if (edgeAttrs.conveyorType === "STAGING") {
+                                const spacing = Number(edgeAttrs.minDistance ?? 0.1);
+                                const index = stagingIndexes.get(itemId) ?? 0;
+                                progress = Math.min(progress, Math.max(0, 1 - index * spacing / length));
+                            }
                             graph.setNodeAttribute(itemId, "hidden", false);
                             const x = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
                             const y = sourceNode.y + (targetNode.y - sourceNode.y) * progress;

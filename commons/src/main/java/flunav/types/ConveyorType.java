@@ -1,5 +1,5 @@
 package flunav.types;
 
 public enum ConveyorType {
-    BELT, ROLLER, ACCUMULATION, CHUTE
+    BELT, ROLLER, ACCUMULATION, CHUTE, STAGING
 }

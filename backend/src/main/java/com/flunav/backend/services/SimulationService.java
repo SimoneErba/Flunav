@@ -894,6 +894,9 @@ public class SimulationService {
             if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
                 var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
                 if (conveyor != null) {
+                    if (conveyor.getType() == flunav.types.ConveyorType.STAGING) {
+                        continue;
+                    }
                     long elapsed = now.toEpochMilli() - lastTs.toEpochMilli();
                     if (elapsed > 0) {
                         double moved = (elapsed / 1000.0) * conveyor.getSpeed();

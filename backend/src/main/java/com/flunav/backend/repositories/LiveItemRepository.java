@@ -116,7 +116,23 @@ public class LiveItemRepository {
         String activeSetKey = getNamespacedKey("active_items");
 
         redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
+        redis.opsForHash().delete(itemKey, "pe", "pty", "pt");
         redis.opsForSet().add(activeSetKey, itemId);
+    }
+
+    /** Stores the exact transition that a staging release has scheduled. */
+    public void setPlannedTransition(String itemId, String positionId, PositionType type, Instant timestamp) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        Map<String, String> updates = new HashMap<>();
+        updates.put("pe", positionId);
+        updates.put("pty", type.name());
+        updates.put("pt", String.valueOf(timestamp.toEpochMilli()));
+        redis.opsForHash().putAll(itemKey, updates);
+    }
+
+    /** Clears a stale or cancelled staging transition without changing item physics. */
+    public void clearPlannedTransition(String itemId) {
+        redis.opsForHash().delete(getNamespacedKey("item:" + itemId), "pe", "pty", "pt");
     }
 
     /**

@@ -299,7 +299,10 @@ public class EventProcessor {
      * enter a location or conveyor between the hot-state sweep and graph removal.
      */
     private boolean isDestructiveTopologyEvent(DomainEvent event) {
-        return event instanceof LocationDeletedEvent || event instanceof ConnectionDeletedEvent;
+        return event instanceof LocationDeletedEvent
+                || event instanceof ConnectionDeletedEvent
+                || event instanceof ReleaseStagingConveyorEvent
+                || event instanceof ConnectionTypeChangedEvent;
     }
 
     /**
@@ -434,6 +437,11 @@ public class EventProcessor {
 
                         if (shouldBroadcast) {
                             ItemResponse response = modelMapper.map(item, ItemResponse.class);
+                            DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(
+                                    itemRootFields(item), item.getProperties(), item.getDestinations(),
+                                    item.getPriority(), e.getTimestamp());
+                            response.setEffectivePriority(rush.effectivePriority());
+                            response.setRushActive(rush.rushActive());
                             DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
                                     itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
                             if (style != null) {
@@ -547,9 +555,14 @@ public class EventProcessor {
                 case ItemRenamedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("name", e.getNewName())));
-                    if (shouldBroadcast)
+                    item.setName(e.getNewName());
+                    if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("name", e.getNewName());
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(
-                                new UpdateModel(item.getId(), Map.of("name", e.getNewName())), e.getTimestamp());
+                                new UpdateModel(item.getId(), updates), e.getTimestamp());
+                    }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -567,10 +580,14 @@ public class EventProcessor {
                 case ItemDeactivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", false)));
+                    item.stop();
                     itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("active", false);
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(
-                                new UpdateModel(item.getId(), Map.of("active", false)), e.getTimestamp());
+                                new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -578,9 +595,13 @@ public class EventProcessor {
                 case ItemActivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", true)));
+                    item.resume();
                     if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("active", true);
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(
-                                new UpdateModel(item.getId(), Map.of("active", true)), e.getTimestamp());
+                                new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
@@ -599,6 +620,7 @@ public class EventProcessor {
                         map.put("customColor", style != null ? style.getFillColor() : null);
                         map.put("customBorderColor", style != null ? style.getBorderColor() : null);
                         map.put("customBorderWidth", style != null ? style.getBorderWidth() : null);
+                        addRushFields(map, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(updateModel, e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -611,8 +633,8 @@ public class EventProcessor {
                         throw new IllegalArgumentException("Item does not exist: " + e.getEntityId());
                     }
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("priority", e.getPriority())));
+                    item.setPriority(e.getPriority());
                     if (shouldBroadcast) {
-                        item.setPriority(e.getPriority());
                         DisplayRuleVisualStyle style = displayRulesService.applyDisplayRules(
                                 itemRootFields(item), item.getProperties(), displayRulesService.getDisplayRules());
                         Map<String, Object> updates = new HashMap<>();
@@ -620,6 +642,7 @@ public class EventProcessor {
                         updates.put("customColor", style != null ? style.getFillColor() : null);
                         updates.put("customBorderColor", style != null ? style.getBorderColor() : null);
                         updates.put("customBorderWidth", style != null ? style.getBorderWidth() : null);
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -663,7 +686,8 @@ public class EventProcessor {
                                                 item.getPositionId(),
                                                 item.getPositionType() != null ? item.getPositionType()
                                                         : PositionType.LOCATION,
-                                                e.getLocationId());
+                                                e.getLocationId(),
+                                                e.getTimestamp());
                                 item.setSelectedExitId(selected.selectedExitId());
                                 item.setRoutingStatus(selected.routingStatus());
                                 item.setRoutingStatusUpdatedAt(e.getTimestamp());
@@ -691,6 +715,7 @@ public class EventProcessor {
                         updates.put("routingStatus", decision.routingStatus());
                         updates.put("routingStatusUpdatedAt", e.getTimestamp());
                         updates.put("path", decision.path());
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -708,7 +733,7 @@ public class EventProcessor {
                     List<String> previousPath = item.getPath();
                     RoutingDecisionService.RoutingDecision decision = routingCoordinator.withRoutingLock(() -> {
                         RoutingDecisionService.RoutingDecision selected = routingDecisionService.selectRoute(
-                                item, e.getDecisionPointId(), PositionType.LOCATION);
+                                item, e.getDecisionPointId(), PositionType.LOCATION, e.getTimestamp());
                         itemService.updateItemRouting(
                                 item.getId(), item.getDestinations(), selected.selectedExitId(),
                                 selected.routingStatus(), e.getTimestamp(), selected.path());
@@ -730,6 +755,7 @@ public class EventProcessor {
                         updates.put("routingStatus", decision.routingStatus());
                         updates.put("routingStatusUpdatedAt", e.getTimestamp());
                         updates.put("path", decision.path());
+                        addRushFields(updates, item, e.getTimestamp());
                         webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), e.getTimestamp());
                     }
 
@@ -903,7 +929,10 @@ public class EventProcessor {
                             e.getSpeed(),
                             e.getMinDistance(),
                             e.getMainPath(),
-                            e.getIsActive());
+                            e.getIsActive(),
+                            e.getType(),
+                            e.getCapacity(),
+                            e.getProperties());
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, e.getConnectionId(), e.getIsActive(), e.getSpeed(), e.getSourceId(), e.getTargetId());
                     if (shouldBroadcast) {
@@ -1128,6 +1157,54 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case ReleaseStagingConveyorEvent e -> {
+                    Conveyor conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    if (conveyor.getType() != flunav.types.ConveyorType.STAGING) {
+                        throw new IllegalStateException("Conveyor is not a staging conveyor: " + e.getEntityId());
+                    }
+                    if (!conveyor.isActive()) {
+                        throw new IllegalStateException("Staging conveyor is inactive: " + e.getEntityId());
+                    }
+                    if (conveyor.getSpeed() == null || conveyor.getSpeed() <= 0.0) {
+                        throw new IllegalStateException("Staging conveyor speed must be positive: " + e.getEntityId());
+                    }
+                    yield itemMovementProcessor.releaseStagingConveyor(conveyor, e.getTimestamp(), shouldBroadcast);
+                }
+
+                case ConnectionTypeChangedEvent e -> {
+                    Conveyor conveyor = conveyorService.getConveyorById(e.getEntityId());
+                    flunav.types.ConveyorType oldType = conveyor.getType();
+                    if (oldType == e.getConveyorType()) {
+                        yield Map.of("status", "IGNORED_DUPLICATE");
+                    }
+                    if (oldType == flunav.types.ConveyorType.STAGING) {
+                        itemMovementProcessor.checkpointStagingItems(conveyor, e.getTimestamp(), true,
+                                shouldBroadcast);
+                    } else {
+                        checkpointItems(conveyor.getId(), conveyor.getSpeed(), e.getTimestamp());
+                    }
+                    conveyor.setType(e.getConveyorType());
+                    if (e.getConveyorType() == flunav.types.ConveyorType.STAGING
+                            && conveyor.getMinDistance() == null) {
+                        conveyor.setMinDistance(0.1);
+                    }
+                    conveyorService.updateConveyor(conveyor);
+                    if (e.getConveyorType() == flunav.types.ConveyorType.STAGING) {
+                        itemMovementProcessor.checkpointStagingItems(conveyor, e.getTimestamp(), true,
+                                shouldBroadcast);
+                    } else if (manageLogic) {
+                        itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
+                    }
+                    if (shouldBroadcast) {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("conveyorType", conveyor.getType());
+                        updates.put("minDistance", conveyor.getMinDistance());
+                        webSocketService.broadcastConnectionUpdated(
+                                new UpdateModel(conveyor.getId(), updates), e.getTimestamp());
+                    }
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case LocationAddToMainPath e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     conveyor.setMainPath(true);
@@ -1281,6 +1358,7 @@ public class EventProcessor {
                 || event instanceof ConnectionDeletedEvent
                 || event instanceof ConnectionSpeedChangedEvent
                 || event instanceof ConnectionLengthChangedEvent
+                || event instanceof ConnectionTypeChangedEvent
                 || event instanceof LocationAddToMainPath
                 || event instanceof ConnectionRemoveFromMainPath
                 || event instanceof LocationCreatedEvent
@@ -1487,12 +1565,14 @@ public class EventProcessor {
         }
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
+        DestinationMappingService.RushPriority initialRush = destinationMappingService.evaluateRush(
+                itemRootFields(item), item.getProperties(), destinations, item.getPriority(), timestamp);
         com.flunav.backend.domain.Item routingItem = new com.flunav.backend.domain.Item(
-                item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), item.getPriority(),
+                item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), initialRush.effectivePriority(),
                 item.getProperties());
         routingItem.setDestinations(destinations);
         RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
-                routingItem, item.getLocationId(), positionType);
+                routingItem, item.getLocationId(), positionType, timestamp);
         item.setSelectedExitId(decision.selectedExitId());
         item.setRoutingStatus(decision.routingStatus());
         item.setRoutingStatusUpdatedAt(timestamp);
@@ -1543,14 +1623,15 @@ public class EventProcessor {
                             .thenComparing(com.flunav.backend.models.RedisLiveItem::getId))
                     .forEach(waitingState -> {
                         var item = itemService.getItemById(waitingState.getId());
-                        if (item == null || item.getPriority() == null || item.getPriority() <= 0.0) {
+                        if (item == null
+                                || destinationMappingService.evaluateRush(item, timestamp).effectivePriority() <= 0.0) {
                             return;
                         }
                         PositionType positionType = item.getPositionType() != null
                                 ? item.getPositionType()
                                 : PositionType.LOCATION;
                         RoutingDecisionService.RoutingDecision decision = routingDecisionService.selectRoute(
-                                item, item.getPositionId(), positionType);
+                                item, item.getPositionId(), positionType, timestamp);
 
                         boolean changed = !Objects.equals(waitingState.getSelectedExitId(), decision.selectedExitId())
                                 || !Objects.equals(waitingState.getPath(), decision.path())
@@ -1578,6 +1659,7 @@ public class EventProcessor {
                             updates.put("routingStatus", decision.routingStatus());
                             updates.put("routingStatusUpdatedAt", timestamp);
                             updates.put("path", decision.path());
+                            addRushFields(updates, item, timestamp);
                             webSocketService.broadcastItemUpdated(new UpdateModel(item.getId(), updates), timestamp);
                         }
                     });
@@ -1666,6 +1748,12 @@ public class EventProcessor {
         fields.put("entryTimestamp", item.getEntryTimestamp());
         fields.put("routingStatus", item.getRoutingStatus());
         return fields;
+    }
+
+    private void addRushFields(Map<String, Object> updates, com.flunav.backend.domain.Item item, Instant timestamp) {
+        DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(item, timestamp);
+        updates.put("effectivePriority", rush.effectivePriority());
+        updates.put("rushActive", rush.rushActive());
     }
 
     /**

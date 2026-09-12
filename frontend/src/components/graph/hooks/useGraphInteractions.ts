@@ -93,11 +93,13 @@ export const useGraphInteractions = (
         speed,
         length,
         mainPath,
+        conveyorType,
         properties
     }: {
         speed: number;
         length: number;
         mainPath: boolean;
+        conveyorType: EdgeEditorData["conveyorType"];
         properties: Record<string, unknown>;
     }) => {
         const { isReadOnly, conveyorsApi, adjustItemsForSpeedChange } = stateRef.current;
@@ -112,11 +114,17 @@ export const useGraphInteractions = (
             graph.setEdgeAttribute(edgeId, 'speed', Number(speed));
             graph.setEdgeAttribute(edgeId, 'length', Number(length));
             graph.setEdgeAttribute(edgeId, 'mainPath', mainPath);
+            graph.setEdgeAttribute(edgeId, 'conveyorType', conveyorType);
             graph.setEdgeAttribute(edgeId, 'size', mainPath ? 6 : 3);
             graph.setEdgeAttribute(edgeId, 'properties', properties);
 
             if (conveyorId) {
                 await conveyorsApi.updateConveyor(conveyorId, { speed: Number(speed), length: Number(length), mainPath, properties });
+                if (conveyorType && conveyorType !== selectedEdgeData.conveyorType) {
+                    await conveyorsApi.updateConveyorType(conveyorId, {
+                        type: conveyorType,
+                    });
+                }
                 toast.success("Conveyor updated");
             }
             sigma.refresh();
@@ -431,7 +439,7 @@ export const useGraphInteractions = (
                     const graph = sigma.getGraph();
                     if (!graph.hasEdge(source, target)) {
                         const id = `temp_${source}_${target}`;
-                        graph.addEdge(source, target, { id, type: 'arrow', size: 3, speed: 1, length: 10 });
+                        graph.addEdge(source, target, { id, type: 'arrow', conveyorType: 'BELT', size: 3, speed: 1, length: 10 });
                         
                         try {
                             await conveyorsApi.createConveyor({ sourceId: source, targetId: target, name: "New", speed: 1, length: 10, active: true, mainPath: false });
@@ -450,7 +458,7 @@ export const useGraphInteractions = (
                 const graph = sigma.getGraph();
                 const attrs = graph.getEdgeAttributes(edge);
 
-                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, mainPath: attrs.mainPath, properties: attrs.properties });
+                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, mainPath: attrs.mainPath, conveyorType: attrs.conveyorType, properties: attrs.properties });
             },
             clickNode: ({ node }) => {
                 if (didMoveRef.current) return;
