@@ -16,7 +16,13 @@ import com.flunav.backend.models.simulation.EventOrigin;
 import com.flunav.backend.models.simulation.SimulationKind;
 import flunav.events.*;
 
-/** Transfers committed live reductions to registered simulations before the live barrier is released. */
+/**
+ * Transfers committed live reductions to simulations registered at a handoff.
+ *
+ * Each intake deduplicates by event id and preserves timestamp plus arrival order.
+ * Standard simulations accept all history; what-if branches accept only external
+ * item commands that may legitimately alter the branch after its fork.
+ */
 @Service
 public class SimulationInputService {
     private final Map<String, Intake> intakes = new ConcurrentHashMap<>();

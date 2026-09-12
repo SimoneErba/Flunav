@@ -21,6 +21,13 @@ import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import flunav.events.DomainEvent;
 
+/**
+ * Advances a ready simulation by merging external input and internal projections.
+ *
+ * External events win equal-timestamp ties. Once virtual time passes physical
+ * time, live input is permanently frozen and only simulation-generated events can
+ * advance the branch. Playback speed changes wall-clock delay, never event time.
+ */
 @Service
 public class HistoricalEventPlayer {
     private static final Logger logger = LoggerFactory.getLogger(HistoricalEventPlayer.class);

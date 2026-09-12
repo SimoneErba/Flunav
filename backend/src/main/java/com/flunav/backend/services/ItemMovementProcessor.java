@@ -29,6 +29,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * Applies item physics and schedules the next movement-domain event.
+ *
+ * This service deliberately uses the same code in live and simulation contexts.
+ * {@link #scheduleEvent(DomainEvent)} is the boundary that selects the live system
+ * scheduler or the current simulation's internal queue. Routing is recalculated
+ * only at decision points or when an assignment becomes unusable.
+ */
 @Service
 public class ItemMovementProcessor {
     private static final Logger logger = LoggerFactory.getLogger(ItemMovementProcessor.class);

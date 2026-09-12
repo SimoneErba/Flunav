@@ -2,7 +2,7 @@ package com.flunav.backend.repositories;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -123,12 +123,11 @@ public class PathCacheRepository {
     }
 
     private String currentKey(String baseKey) {
-        String simulationId = DatabaseContextHolder.getSimulationId();
-        return simulationId != null ? simulationKey(simulationId, baseKey) : baseKey;
+        return RedisKeyNamespace.current(baseKey);
     }
 
     private String simulationKey(String simulationId, String baseKey) {
-        return "sim:" + simulationId + ":" + baseKey;
+        return RedisKeyNamespace.simulation(simulationId, baseKey);
     }
 
     private String cacheField(Object... parts) {

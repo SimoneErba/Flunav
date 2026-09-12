@@ -1,6 +1,6 @@
 package com.flunav.backend.repositories;
 
-import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -152,7 +152,7 @@ public class LiveConveyorRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
-        String pattern = "sim:" + simulationId + ":conv:*";
+        String pattern = RedisKeyNamespace.simulation(simulationId, "conv:*");
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {
             redis.delete(keys);
@@ -165,17 +165,12 @@ public class LiveConveyorRepository {
      * state or movement recovery will mix live and simulation queues.
      */
     private String getNamespacedKey(String baseKey) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        if (simId != null) {
-            return "sim:" + simId + ":conv:" + baseKey;
-        }
-        return "conv:" + baseKey;
+        return RedisKeyNamespace.current("conv:" + baseKey);
     }
 
     public void printAllData() {
         // Construct the search pattern based on whether we are in a simulation or not
-        String simId = DatabaseContextHolder.getSimulationId();
-        String pattern = (simId != null) ? "sim:" + simId + ":conv:*:items" : "conv:*:items";
+        String pattern = RedisKeyNamespace.current("conv:*:items");
 
         Set<String> keys = redis.keys(pattern);
 

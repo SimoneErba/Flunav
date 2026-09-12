@@ -20,6 +20,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * Calculates topology-only shortest paths in OrientDB.
+ *
+ * This service is used when connectivity and static shortest paths are needed.
+ * Capacity-aware route assignment uses {@link RoutingDecisionService}, which also
+ * excludes inactive and stopped conveyors.
+ */
 @Service
 public class PathfindingService {
 
@@ -45,20 +52,19 @@ public class PathfindingService {
             return cached.get();
         }
 
-        // 1. Determine the Source Vertex Sub-Query
+        // Conveyor positions start at the already-committed segment's target;
+        // location positions start at the location itself.
         String sourceLetClause;
         if (type == PositionType.CONVEYOR) {
-            // If on a conveyor, start from its target node (in)
             sourceLetClause = "$src = (SELECT expand(in) FROM Conveyor WHERE customId.toLowerCase() = :source)";
         } else {
-            // If at a location, start from that location
             sourceLetClause = "$src = (SELECT FROM Location WHERE customId.toLowerCase() = :source)";
         }
 
-        // 2. Define the Destination LET clause
         String destLetClause = "$dst = (SELECT FROM Location WHERE customId.toLowerCase() = :dest)";
 
-        // 2. Define the Weight Function (JavaScript)
+        // OrientDB evaluates this function per edge. Cost is transit time plus the
+        // target timed-node delay, matching the cost used by routing decisions.
         String weightFunction = "function(edge) {" +
                 "  var cost = 0.1;" +
                 "  var fixedTime = edge.getProperty('fixedTransitTime');" +
@@ -81,8 +87,6 @@ public class PathfindingService {
                 "  return cost;" +
                 "}";
 
-        // 3. Execute Dijkstra
-        // We inject the sourceSubQuery determined above
         String query = "SELECT $path.customId as path " +
                 "LET " + sourceLetClause + ", " + destLetClause + ", $path = dijkstra($src, $dst, :weightFunc, 'OUT')";
 

@@ -4,7 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.services.routing.MappingValueNormalizer;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.MapDestinationsEvent;
 import flunav.types.DataType;
@@ -24,6 +25,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * Stores and evaluates rules that translate item fields into logical destinations.
+ *
+ * This is the first mapping stage. {@link DestinationExitMappingService} performs
+ * the second stage from logical destinations to physical exit locations. Rules are
+ * evaluated against domain time and the active Redis namespace, so the same event
+ * produces the same result in live processing, replay, and isolated simulation.
+ */
 @Service
 public class DestinationMappingService {
     private static final Logger logger = LoggerFactory.getLogger(DestinationMappingService.class);
@@ -220,7 +229,8 @@ public class DestinationMappingService {
             if (isBlank(record.getValue())) {
                 throw new IllegalArgumentException("mapping value is required");
             }
-            List<String> destinations = normalizeOrderedValues(record.getDestinations(), "mapping destinations");
+            List<String> destinations = MappingValueNormalizer.requiredOrderedValues(
+                    record.getDestinations(), "mapping destinations");
             if (record.getValidFrom() == null || record.getValidTo() == null) {
                 throw new IllegalArgumentException("mapping validFrom and validTo are required");
             }
@@ -391,8 +401,7 @@ public class DestinationMappingService {
      * simulations because they affect future route assignment.
      */
     private String namespaced(String key) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        return (simId != null) ? "sim:" + simId + ":" + key : key;
+        return RedisKeyNamespace.current(key);
     }
 
     private boolean isBlank(String value) {
@@ -401,25 +410,6 @@ public class DestinationMappingService {
 
     private String trimToNull(String value) {
         return isBlank(value) ? null : value.trim();
-    }
-
-    /**
-     * Normalizes ordered list values while removing duplicates.
-     * LinkedHashSet preserves user/event order, which routing later uses when
-     * candidate destinations are expanded.
-     */
-    private List<String> normalizeOrderedValues(List<String> values, String fieldName) {
-        if (values == null || values.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " are required");
-        }
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String value : values) {
-            if (isBlank(value)) {
-                throw new IllegalArgumentException(fieldName + " must contain nonblank values");
-            }
-            normalized.add(value.trim());
-        }
-        return List.copyOf(normalized);
     }
 
     public record DestinationMappingValue(

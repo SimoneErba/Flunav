@@ -51,6 +51,9 @@ The core purpose is to transform discrete sensor data into a continuous, underst
 
 Flunav's architecture is designed for resilience, scalability, and data fidelity by separating concerns and using specialized data stores.
 
+For a code-oriented map of event reduction, simulations, destination mappings,
+priority routing, and item movement, see [Backend Core Flows](docs/backend-core-flows.md).
+
 ### 1. Event Sourcing
 The system's source of truth is not the current state, but an immutable log of all domain events (`ItemCreated`, `PositionChanged`, etc.). This provides a complete audit trail and enables all historical features.
 

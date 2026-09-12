@@ -3,6 +3,7 @@ package com.flunav.backend.repositories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.RedisLiveItem;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
 
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -28,15 +29,13 @@ public class LiveItemRepository {
         this.objectMapper = objectMapper;
     }
 
-    // --- MULTI-TENANCY HELPER ---
     /**
      * Routes every hot-state key through the active simulation context.
      * This keeps live Redis data and simulation Redis data isolated while allowing
      * service code to use the same repository methods in both modes.
      */
     private String getNamespacedKey(String baseKey) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        return (simId != null) ? "sim:" + simId + ":" + baseKey : baseKey;
+        return RedisKeyNamespace.current(baseKey);
     }
 
     // --- WRITE OPERATIONS ---
@@ -69,7 +68,6 @@ public class LiveItemRepository {
             double accumulatedDistance, String name, List<String> destinations, String selectedExitId,
             RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path, Instant createdAt) {
 
-        // Create the object
         RedisLiveItem item = RedisLiveItem.builder()
                 .id(itemId)
                 .positionId(positionId)
@@ -88,7 +86,6 @@ public class LiveItemRepository {
         String itemKey = getNamespacedKey("item:" + itemId);
         String setKey = getNamespacedKey("active_items");
 
-        // Convert to Map and Save
         redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
         redis.opsForSet().add(setKey, itemId);
     }
@@ -286,29 +283,22 @@ public class LiveItemRepository {
      * remove state from a namespace without relying on the current ThreadLocal.
      */
     public void deleteItem(String itemId, String simulationId) {
-        // 1. Get state to find where the item is
         RedisLiveItem item = getItemState(itemId, simulationId);
 
         if (item != null && item.getPositionId() != null) {
             if (item.getType() == PositionType.CONVEYOR) {
-                // Remove from Conveyor Set
-                String convItemsKey = (simulationId != null)
-                        ? "sim:" + simulationId + ":conv:" + item.getPositionId() + ":items"
-                        : "conv:" + item.getPositionId() + ":items";
+                String convItemsKey = RedisKeyNamespace.simulation(
+                        simulationId, "conv:" + item.getPositionId() + ":items");
                 redis.opsForZSet().remove(convItemsKey, itemId);
             } else {
-                // Remove from Location ZSet (New Logic)
-                // Assumes any type other than CONVEYOR is a Node (Location, Chute, etc.)
-                String locItemsKey = (simulationId != null)
-                        ? "sim:" + simulationId + ":loc:" + item.getPositionId() + ":items"
-                        : "loc:" + item.getPositionId() + ":items";
+                String locItemsKey = RedisKeyNamespace.simulation(
+                        simulationId, "loc:" + item.getPositionId() + ":items");
                 redis.opsForZSet().remove(locItemsKey, itemId);
             }
         }
 
-        // 2. Delete the Item Hash and remove from Global Index
-        String itemKey = (simulationId != null) ? "sim:" + simulationId + ":item:" + itemId : "item:" + itemId;
-        String setKey = (simulationId != null) ? "sim:" + simulationId + ":active_items" : "active_items";
+        String itemKey = RedisKeyNamespace.simulation(simulationId, "item:" + itemId);
+        String setKey = RedisKeyNamespace.simulation(simulationId, "active_items");
 
         redis.delete(itemKey);
         redis.opsForSet().remove(setKey, itemId);
@@ -326,10 +316,8 @@ public class LiveItemRepository {
      * without depending on the current ThreadLocal context.
      */
     public RedisLiveItem getItemState(String itemId, String simulationId) {
-        String itemKey = (simulationId != null) ? "sim:" + simulationId + ":item:" + itemId : "item:" + itemId;
+        String itemKey = RedisKeyNamespace.simulation(simulationId, "item:" + itemId);
         Map<String, String> hash = redis.<String, String>opsForHash().entries(itemKey);
-
-        // ONE LINE PARSING
         return RedisLiveItem.fromRedisMap(itemId, hash, objectMapper);
     }
 
@@ -402,7 +390,7 @@ public class LiveItemRepository {
      * outside that simulation context.
      */
     public long countActiveItems(String simulationId) {
-        String setKey = (simulationId != null) ? "sim:" + simulationId + ":active_items" : "active_items";
+        String setKey = RedisKeyNamespace.simulation(simulationId, "active_items");
         Long size = redis.opsForSet().size(setKey);
         return size != null ? size : 0;
     }
@@ -477,7 +465,7 @@ public class LiveItemRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
-        String prefix = "sim:" + simulationId + ":*";
+        String prefix = RedisKeyNamespace.simulation(simulationId, "*");
         List<String> batch = new ArrayList<>();
         long deleted = 0;
 

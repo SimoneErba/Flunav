@@ -17,7 +17,7 @@ import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
-import com.flunav.backend.repositories.LiveLocationRepository; // 1. IMPORT
+import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import flunav.context.UserContextHolder;
@@ -51,6 +51,21 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import com.flunav.backend.context.DatabaseContextHolder;
 
+/**
+ * Central reducer for every domain event.
+ *
+ * The public asynchronous entry point preserves per-entity order, restores the
+ * caller's live or simulation context, and acquires the appropriate topology
+ * barrier. {@link #processEvent(DomainEvent, boolean)} then applies the event to
+ * derived state. Only the outer path in live context appends events to ClickHouse;
+ * historical builds use the non-broadcast reducer, while simulation playback may
+ * broadcast without persisting simulation events as live history.
+ *
+ * Keep orchestration here and movement calculations in
+ * {@link ItemMovementProcessor}. Routing choices belong in
+ * {@link RoutingDecisionService}; destination interpretation belongs in the two
+ * destination mapping services.
+ */
 @Service
 public class EventProcessor {
     private static final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
@@ -62,7 +77,7 @@ public class EventProcessor {
     private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
     private final LiveConveyorRepository liveConveyorRepository;
-    private final LiveLocationRepository liveLocationRepository; // 2. INJECT
+    private final LiveLocationRepository liveLocationRepository;
     private final SimulationService simulationService;
     private final LiveSystemScheduler liveSystemScheduler;
     private final DisplayRulesService displayRulesService;
@@ -102,7 +117,7 @@ public class EventProcessor {
             PathfindingService pathfindingService,
             LiveItemRepository liveItemRepository,
             LiveConveyorRepository liveConveyorRepository,
-            LiveLocationRepository liveLocationRepository, // 3. INJECT
+            LiveLocationRepository liveLocationRepository,
             @Lazy SimulationService simulationService,
             LiveSystemScheduler liveSystemScheduler,
             DisplayRulesService displayRulesService,
@@ -133,7 +148,7 @@ public class EventProcessor {
         this.pathfindingService = pathfindingService;
         this.liveItemRepository = liveItemRepository;
         this.liveConveyorRepository = liveConveyorRepository;
-        this.liveLocationRepository = liveLocationRepository; // 4. INJECT
+        this.liveLocationRepository = liveLocationRepository;
         this.simulationService = simulationService;
         this.locationService = locationService;
         this.liveSystemScheduler = liveSystemScheduler;

@@ -24,6 +24,15 @@ import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+/**
+ * Selects an available route from an item's logical destinations.
+ *
+ * Route selection is a four-stage pipeline: expand destinations into physical
+ * exits, find paths using currently usable conveyors, account for occupancy and
+ * pending reservations, then rank acceptable candidates by priority. The service
+ * reads context-aware topology and Redis repositories, so callers must establish
+ * the correct simulation context before entering it.
+ */
 @Service
 public class RoutingDecisionService {
     private static final double NORMAL_PRIORITY_CAPACITY_LIMIT = 0.90;

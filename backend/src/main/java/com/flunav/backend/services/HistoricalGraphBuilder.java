@@ -32,6 +32,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
 
+/**
+ * Rebuilds isolated graph and hot state from a snapshot plus ordered event replay.
+ *
+ * The builder is the simulation bootstrap path, not a second event reducer. It
+ * restores a baseline, merges observed ClickHouse history with projected internal
+ * events, and delegates every state transition back to {@link EventProcessor}.
+ */
 @Service
 public class HistoricalGraphBuilder {
 
@@ -78,7 +85,8 @@ public class HistoricalGraphBuilder {
             Instant physicalNow = timeService.physicalNow();
             Instant realEventReplayEnd = restorePoint.isAfter(physicalNow) ? physicalNow : restorePoint;
 
-            // 1. Restore from Snapshot (The Baseline)
+            // A snapshot is the baseline; mapping events are restored separately
+            // because they are Redis configuration and are not embedded in GraphData.
             Optional<Snapshot> snapshotOpt = clickHouseService.getMostRecentSnapshotBefore(realEventReplayEnd);
             Instant eventsAfterTimestamp = Instant.EPOCH;
 
@@ -94,7 +102,8 @@ public class HistoricalGraphBuilder {
                 restoreFromSnapshotData(snapshot.graphData());
             }
 
-            // 2. Replay Events (The Delta)
+            // Events after the snapshot form the delta and are merged with internal
+            // projections below rather than replayed as an independent batch.
             ClickHouseService.EventPage firstEventPage = eventsAfterTimestamp.isBefore(realEventReplayEnd)
                     ? clickHouseService.getEventsBetweenPage(eventsAfterTimestamp, realEventReplayEnd, null,
                             REPLAY_PAGE_SIZE)

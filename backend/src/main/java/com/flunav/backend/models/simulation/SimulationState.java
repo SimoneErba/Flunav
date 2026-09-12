@@ -3,6 +3,7 @@ package com.flunav.backend.models.simulation;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
 
@@ -10,6 +11,14 @@ import flunav.events.DomainEvent;
 import flunav.events.AnomalyEvaluationTickEvent;
 import lombok.Data;
 
+/**
+ * In-process runtime state for one simulation.
+ *
+ * Lifecycle metadata is persisted to Redis by SimulationService. The event queue,
+ * scheduled-event index, locks, and playback generation exist only in the owning
+ * backend process and must never be replaced by a metadata refresh. Equal-time
+ * movement events run before anomaly ticks; tick cadence then defines stable order.
+ */
 @Data
 public class SimulationState {
 
@@ -26,7 +35,7 @@ public class SimulationState {
     private Instant liveHandoffTimestamp;
     private volatile LiveInputState liveInputState = LiveInputState.ACTIVE;
     private final Object executionLock = new Object();
-    private final java.util.concurrent.atomic.AtomicLong playbackGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private final AtomicLong playbackGeneration = new AtomicLong();
     private final Object timingLock = new Object();
     private final PriorityBlockingQueue<DomainEvent> internalEventQueue = new PriorityBlockingQueue<>(11,
             Comparator.comparing(DomainEvent::getTimestamp)
@@ -57,7 +66,8 @@ public class SimulationState {
 
     public synchronized void setSpeedFactor(double speedFactor) {
         this.speedFactor = speedFactor;
-        // Wake up the player thread in case it's sleeping
+        // Playback waits on timingLock between clock steps; wake it so a new speed
+        // takes effect without waiting for the previous delay.
         synchronized (this.timingLock) {
             this.timingLock.notifyAll();
         }

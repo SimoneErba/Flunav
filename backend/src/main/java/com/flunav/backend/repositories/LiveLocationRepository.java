@@ -1,6 +1,6 @@
 package com.flunav.backend.repositories;
 
-import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -115,7 +115,7 @@ public class LiveLocationRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
-        String pattern = "sim:" + simulationId + ":loc:*";
+        String pattern = RedisKeyNamespace.simulation(simulationId, "loc:*");
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {
             logger.info("Cleaning up {} Location keys for simulation {}", keys.size(), simulationId);
@@ -131,17 +131,12 @@ public class LiveLocationRepository {
      * occupants that belong to the active mode.
      */
     private String getNamespacedKey(String locationId) {
-        String simId = DatabaseContextHolder.getSimulationId();
-        if (simId != null) {
-            return "sim:" + simId + ":loc:" + locationId + ":items";
-        }
-        return "loc:" + locationId + ":items";
+        return RedisKeyNamespace.current("loc:" + locationId + ":items");
     }
 
     public void printAllData() {
         // Construct pattern
-        String simId = DatabaseContextHolder.getSimulationId();
-        String pattern = (simId != null) ? "sim:" + simId + ":loc:*:items" : "loc:*:items";
+        String pattern = RedisKeyNamespace.current("loc:*:items");
 
         Set<String> keys = redis.keys(pattern);
 

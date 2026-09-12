@@ -2,7 +2,8 @@ package com.flunav.backend.services;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.services.routing.MappingValueNormalizer;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.MapDestinationExitsEvent;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -10,10 +11,14 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Stores the second routing-mapping stage from logical destinations to physical
+ * exit locations. Table replacement is atomic at the Redis-value level, and key
+ * selection follows the current live or simulation context.
+ */
 @Service
 public class DestinationExitMappingService {
     private static final String TABLE_KEY = "destination_exit_map:records";
@@ -97,17 +102,8 @@ public class DestinationExitMappingService {
             if (!destinations.add(destination)) {
                 throw new IllegalArgumentException("duplicate destination mapping row");
             }
-            if (mapping.getExits() == null || mapping.getExits().isEmpty()) {
-                throw new IllegalArgumentException("exits are required");
-            }
-            LinkedHashSet<String> exits = new LinkedHashSet<>();
-            for (String exit : mapping.getExits()) {
-                if (exit == null || exit.isBlank()) {
-                    throw new IllegalArgumentException("exits must contain nonblank values");
-                }
-                exits.add(exit.trim());
-            }
-            normalized.add(new DestinationExitMappingRecord(destination, List.copyOf(exits)));
+            List<String> exits = MappingValueNormalizer.requiredOrderedValues(mapping.getExits(), "exits");
+            normalized.add(new DestinationExitMappingRecord(destination, exits));
         }
         return normalized;
     }
@@ -118,7 +114,6 @@ public class DestinationExitMappingService {
      * determine which chutes can be selected.
      */
     private String tableKey() {
-        String simulationId = DatabaseContextHolder.getSimulationId();
-        return simulationId == null ? TABLE_KEY : "sim:" + simulationId + ":" + TABLE_KEY;
+        return RedisKeyNamespace.current(TABLE_KEY);
     }
 }

@@ -38,6 +38,16 @@ import flunav.events.AnomalyEvaluationTickEvent;
 import flunav.events.DomainEvent;
 import flunav.types.PositionType;
 
+/**
+ * Owns simulation lifecycle, virtual clock state, and projected internal events.
+ *
+ * Redis holds recoverable lifecycle metadata, while the in-process
+ * {@link SimulationState} also owns queues, locks, and playback generations that
+ * cannot be reconstructed by a concurrent Redis read. Every operation that touches
+ * simulated topology or hot state must re-enter {@link DatabaseContextHolder}.
+ * Historical reconstruction itself is delegated to {@link HistoricalGraphBuilder}
+ * and timed playback to {@link HistoricalEventPlayer}.
+ */
 @Service
 public class SimulationService {
 
@@ -152,7 +162,11 @@ public class SimulationService {
         return state;
     }
 
-    /** Captures a committed baseline and installs live intake under the same barrier, with no persistence gap. */
+    /**
+     * Forks live state or a paused historical simulation into an isolated what-if
+     * branch. The source snapshot and live-input registration share the event
+     * processor barrier so no committed live event can fall into a handoff gap.
+     */
     public synchronized SimulationState createWhatIf(String sourceSimulationId) {
         enforceSimulationCapacity();
         if (!hasBuildingCapacity() || !buildPermits.tryAcquire()) {
@@ -190,7 +204,7 @@ public class SimulationService {
         }
     }
 
-    /** Restores the exact source lifecycle when a child could not be constructed. */
+    /** Restores the source lifecycle when construction of its child branch fails. */
     private void restoreSourceAfterFailedFork(
             SimulationState source,
             SimulationStatus previousStatus,
@@ -265,7 +279,11 @@ public class SimulationService {
         }
     }
 
-    /** Registers playback before polling history, so subsequent async ClickHouse writes cannot be missed. */
+    /**
+     * Registers a simulation for direct live intake after flushing persisted
+     * history. Registration happens under the live snapshot barrier so later
+     * asynchronous ClickHouse writes cannot create an input gap.
+     */
     public void ensureLiveHandoff(SimulationState state) {
         if (simulationInputService.isRegistered(state.getId()) || state.getLiveInputState() == LiveInputState.FROZEN) return;
         eventProcessor.withLiveSnapshotBarrier(() -> {
@@ -277,7 +295,10 @@ public class SimulationService {
         });
     }
 
-    /** Crossing physical now is a permanent cutoff, including after pause or a speed change. */
+    /**
+     * Permanently freezes live input when virtual time crosses physical now. The
+     * cutoff survives pause, resume, and playback-speed changes.
+     */
     public void freezeLiveInputIfFuture(String simulationId, Instant timestamp) {
         SimulationState state = getSimulationState(simulationId);
         if (timestamp.isAfter(timeService.physicalNow())) freezeLiveInput(state);
@@ -586,8 +607,8 @@ public class SimulationService {
     public void addInternalEvent(flunav.events.DomainEvent event) {
         SimulationState state = getCurrentSimulation();
         if (state != null && event instanceof flunav.events.EntityEvent ee) {
-            // Remove existing event for this entity if it's the same type (or just remove
-            // any scheduled for same entity to be safe)
+            // An item has one projected transition. A newer projection replaces the
+            // previous event regardless of its concrete movement-event type.
             state.getInternalEventQueue().removeIf(
                     e -> e instanceof flunav.events.EntityEvent e2 && e2.getEntityId().equals(ee.getEntityId()));
             state.getInternalEventQueue().add(event);
@@ -710,8 +731,11 @@ public class SimulationService {
 
     private SimulationState loadOrRefreshSimulationState(String simulationId) {
         SimulationState cached = simulationCache.get(simulationId);
-        // The owning process holds queues and clock state; a concurrent Redis read must not rewind that clock.
-        if (cached != null) return cached;
+        // Redis contains lifecycle metadata, not the in-memory event queue. Once this
+        // process owns a state, refreshing it would discard work or rewind its clock.
+        if (cached != null) {
+            return cached;
+        }
         SimulationMetadata metadata = liveSimulationRepository.getState(simulationId).orElse(null);
 
         if (metadata == null) {
