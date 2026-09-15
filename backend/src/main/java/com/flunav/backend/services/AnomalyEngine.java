@@ -46,6 +46,7 @@ import flunav.events.ComponentAlarmRaisedEvent;
 import flunav.types.AlarmSeverity;
 import flunav.types.AlarmSource;
 import flunav.types.ComponentType;
+import flunav.types.LocationType;
 import flunav.types.PositionType;
 
 @Service
@@ -160,10 +161,17 @@ public class AnomalyEngine {
                     departedConveyors.contains(conveyor.getId()), boundary, mode, findings);
         }
         for (Location location : topology.getAllLocations()) {
+            if (!usesCapacity(location.getType())) {
+                continue;
+            }
             long occupancy = locations.getItemCount(location.getId());
             evaluateOccupancyComponent(location.getId(), ComponentType.LOCATION, location.getCapacity(), occupancy,
                     departedLocations.contains(location.getId()), boundary, mode, findings);
         }
+    }
+
+    private boolean usesCapacity(LocationType locationType) {
+        return locationType == LocationType.CHUTE || locationType == LocationType.ACCUMULATION;
     }
 
     private void evaluateOccupancyComponent(String componentId, ComponentType componentType, Integer capacity,

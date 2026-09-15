@@ -110,6 +110,20 @@ class AnomalyEngineIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void locationsWithoutFiniteCapacityAreNotReportedAsAnomalies() {
+        String suffix = UUID.randomUUID().toString();
+        String locationId = "anomaly-junction-" + suffix;
+        locationService.createLocation(new LocationInput(locationId, locationId, 0.0, 0.0,
+                null, null, LocationType.JUNCTION, 0, true, false, Map.of()));
+
+        var findings = anomalyEngine.evaluate(new AnomalyEvaluationTickEvent(
+                AnomalyEvaluationTickEvent.Cadence.FAST, nextTick(AnomalyEvaluationTickEvent.Cadence.FAST)),
+                AnomalyProcessingMode.HISTORICAL_BUILD);
+
+        assertTrue(findings.stream().noneMatch(finding -> locationId.equals(finding.componentId())));
+    }
+
+    @Test
     void transitDetectionRequiresThirtySamplesAndBothScores() {
         String suffix = UUID.randomUUID().toString();
         Instant boundary = nextTick(AnomalyEvaluationTickEvent.Cadence.MINUTE);

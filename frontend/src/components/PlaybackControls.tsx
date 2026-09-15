@@ -2,11 +2,7 @@ import React from 'react';
 import { SimulationStateResponse, SimulationStateResponseStatusEnum } from '../api-client/api';
 
 interface PlaybackControlsProps {
-  simulation: (SimulationStateResponse & {
-    nextFastTick?: string | null;
-    nextMinuteTick?: string | null;
-    nextBaselineTick?: string | null;
-  }) | null;
+  simulation: SimulationStateResponse | null;
   simTime: number;
   onTogglePlay?: () => void;
   onSetSpeed?: (speed: number) => void;
@@ -90,11 +86,6 @@ export const PlaybackControls = ({
             <option value={10}>10x</option>
             <option value={50}>50x</option>
           </select>
-          <div className="hidden xl:flex flex-col border-l border-gray-200 pl-3 text-[10px] leading-4 text-gray-500 dark:border-gray-700 dark:text-gray-400" title="Next scheduled virtual detector boundaries">
-            <span>10s {simulation.nextFastTick ? new Date(simulation.nextFastTick).toLocaleTimeString() : '—'}</span>
-            <span>1m {simulation.nextMinuteTick ? new Date(simulation.nextMinuteTick).toLocaleTimeString() : '—'}</span>
-            <span>5m {simulation.nextBaselineTick ? new Date(simulation.nextBaselineTick).toLocaleTimeString() : '—'}</span>
-          </div>
         </>
       )}
     </div>

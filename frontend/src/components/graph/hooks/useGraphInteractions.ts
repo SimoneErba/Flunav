@@ -148,7 +148,7 @@ export const useGraphInteractions = (
         timeToProcessMs
     }: {
         name: string;
-        capacity: number;
+        capacity?: number;
         locationType: string;
         timeToProcessMs?: number;
         properties: Record<string, unknown>;
@@ -161,12 +161,20 @@ export const useGraphInteractions = (
         
         try {
             graph.setNodeAttribute(nodeId, 'label', name);
-            graph.setNodeAttribute(nodeId, 'capacity', capacity);
+            if (capacity !== undefined) {
+                graph.setNodeAttribute(nodeId, 'capacity', capacity);
+            }
             graph.setNodeAttribute(nodeId, 'locationType', locationType);
             graph.setNodeAttribute(nodeId, 'timeToProcessMs', timeToProcessMs);
             graph.setNodeAttribute(nodeId, 'properties', properties);
             sigma.refresh();
-            await locationApi.updateLocation(nodeId, { name, capacity, type: locationType, timeToProcessMs, properties });
+            await locationApi.updateLocation(nodeId, {
+                name,
+                ...(capacity !== undefined ? { capacity } : {}),
+                type: locationType,
+                timeToProcessMs,
+                properties
+            });
             toast.success("Location updated");
         } catch (error) { 
             console.error(error);
@@ -362,7 +370,6 @@ export const useGraphInteractions = (
                         longitude: pos.y, 
                         latitude: pos.x, 
                         active: true, 
-                        capacity: 10, 
                         type: LocationTypeEnum.Generic 
                     }).catch(() => {
                         toast.error("Failed to create location");

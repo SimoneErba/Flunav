@@ -294,9 +294,9 @@ function LiveWorkspace() {
 
   const restoreConfirmLabel = activeSimulation ? 'Change' : 'Start';
 
-  // 1. Center Content (Playback or Time Travel)
+  // 1. Center Content (Playback, time travel, and scenario controls)
   const centerContent = (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-2">
         {isSelectingDate ? (
             <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700 animate-pop-in">
                 <input type="datetime-local" value={dateTimeLocal} onChange={handleDateChange} className="p-1.5 border rounded text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:[color-scheme:dark]" />
@@ -324,6 +324,33 @@ function LiveWorkspace() {
                     Time Travel
                 </button>
             )
+        )}
+        {!designMode && !isWhatIf && (
+          <button
+            disabled={isLoading}
+            className="rounded-lg border border-gray-300 px-4 py-2 font-bold transition-colors hover:bg-gray-100 disabled:opacity-40 dark:border-gray-600 dark:hover:bg-gray-800"
+            onClick={() => void enterWhatIf().catch(() => toast.error('Could not start What If'))}
+          >
+            What If
+          </button>
+        )}
+        {isWhatIf && (
+          <button
+            className="rounded-lg border border-red-500 px-4 py-2 font-bold text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+            onClick={() => void exitWhatIf().catch(() => toast.error('Could not exit What If'))}
+          >
+            Exit What If
+          </button>
+        )}
+        {!activeSimulation && (
+          <button
+            className={designMode
+              ? 'rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 font-bold text-white transition-colors hover:bg-blue-700'
+              : 'rounded-lg border border-gray-300 px-4 py-2 font-bold transition-colors hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800'}
+            onClick={() => setDesignMode(!designMode)}
+          >
+            {designMode ? 'Done' : 'Design System'}
+          </button>
         )}
     </div>
   );
@@ -369,23 +396,6 @@ function LiveWorkspace() {
       
       {/* UNIFIED HEADER */}
       <AppHeader centerContent={centerContent} leftActions={leftActions} rightActions={rightActions} />
-
-      <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" aria-label="Workspace mode">
-        <span className="font-bold" title={isWhatIf
-          ? 'Isolated scenario. Edits affect this branch. Exit discards it.'
-          : activeSimulation ? 'Historical playback with an isolated simulation clock.' : 'Current production system state.'}>
-          {activeSimulation?.kind === 'WHAT_IF_SIMULATION' ? 'WHAT IF SIMULATION' : isWhatIf ? 'WHAT IF' : activeSimulation ? 'SIMULATION' : 'LIVE'}
-        </span>
-        {activeSimulation?.liveInputState === 'FROZEN' && <span title="The simulation entered the future. Live input is permanently frozen." className="rounded bg-amber-100 px-2 py-1 text-amber-900 dark:bg-amber-900 dark:text-amber-100">FUTURE</span>}
-        {designMode ? <>
-          <span title="Changes immediately update production topology.">Design System</span>
-          <button className="rounded bg-blue-600 px-3 py-1 text-white" onClick={() => setDesignMode(false)}>Done</button>
-        </> : <>
-          {!activeSimulation && <button className="rounded border px-3 py-1" onClick={() => setDesignMode(true)}>Design System</button>}
-          {!isWhatIf && <button disabled={isLoading} className="rounded border px-3 py-1 disabled:opacity-40" onClick={() => void enterWhatIf().catch(console.warn)}>What If</button>}
-          {isWhatIf && <button className="rounded border border-red-500 px-3 py-1 text-red-500" onClick={() => void exitWhatIf().catch(() => toast.error('Could not exit What If'))}>Exit What If</button>}
-        </>}
-      </div>
 
       <main className="flex-1 relative overflow-hidden">
         {isLoading && (
