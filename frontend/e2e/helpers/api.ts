@@ -56,6 +56,12 @@ export type DestinationExitMappingSeed = {
   exits: string[];
 };
 
+export type SensorMappingSeed = {
+  sensorName: string;
+  conveyorId: string;
+  progress: number;
+};
+
 export type SeededMovingItemGraph = {
   sourceId: string;
   targetId: string;
@@ -160,6 +166,19 @@ export const updateDestinationExitMappings = async (
   mappings: DestinationExitMappingSeed[],
 ) => {
   const response = await request.put(`${baseUrl}/api/destination-exit-mappings`, {
+    headers: authHeaders(session),
+    data: mappings,
+  });
+  expect(response.ok()).toBeTruthy();
+};
+
+export const updateSensorMappings = async (
+  request: APIRequestContext,
+  baseUrl: string,
+  session: AuthSession,
+  mappings: SensorMappingSeed[],
+) => {
+  const response = await request.put(`${baseUrl}/api/sensor-mappings`, {
     headers: authHeaders(session),
     data: mappings,
   });

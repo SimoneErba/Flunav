@@ -11,6 +11,7 @@ interface SimulationContextType {
     designMode: boolean;
     setDesignMode: (enabled: boolean) => void;
     isBranching: boolean;
+    isExitingWhatIf: boolean;
     enterWhatIf: () => Promise<SimulationStateResponse>;
     exitWhatIf: () => Promise<void>;
 }
@@ -41,6 +42,7 @@ export const SimulationProvider = ({ children }: { children: ReactNode }) => {
     const [activeSimulation, updateActiveSimulation] = useState<SimulationStateResponse | null>(null);
     const [designMode, updateDesignMode] = useState(false);
     const [isBranching, setIsBranching] = useState(false);
+    const [isExitingWhatIf, setIsExitingWhatIf] = useState(false);
     const activeRef = useRef(activeSimulation);
     const designRef = useRef(false);
     const pendingFork = useRef<Promise<SimulationStateResponse> | null>(null);
@@ -93,10 +95,15 @@ export const SimulationProvider = ({ children }: { children: ReactNode }) => {
     const exitWhatIf = useCallback(async () => {
         const branch = activeRef.current;
         if (!isWhatIf(branch)) return;
-        await simulationApi.destroySimulation(branch!.id!);
-        const source = branch!.sourceSimulationId
-            ? (await simulationApi.getSimulationStatus(branch!.sourceSimulationId)).data : null;
-        setActiveSimulation(source);
+        setIsExitingWhatIf(true);
+        try {
+            await simulationApi.destroySimulation(branch!.id!);
+            const source = branch!.sourceSimulationId
+                ? (await simulationApi.getSimulationStatus(branch!.sourceSimulationId)).data : null;
+            setActiveSimulation(source);
+        } finally {
+            setIsExitingWhatIf(false);
+        }
     }, [setActiveSimulation]);
 
     useEffect(() => {
@@ -126,7 +133,7 @@ export const SimulationProvider = ({ children }: { children: ReactNode }) => {
 
     return (
         <SimulationContext.Provider value={{ activeSimulation, setActiveSimulation, designMode, setDesignMode,
-            isBranching, enterWhatIf, exitWhatIf }}>
+            isBranching, isExitingWhatIf, enterWhatIf, exitWhatIf }}>
             {children}
         </SimulationContext.Provider>
     );

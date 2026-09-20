@@ -92,6 +92,7 @@ public class EventProcessor {
     private final ItemMovementProcessor itemMovementProcessor;
     private final DestinationMappingService destinationMappingService;
     private final DestinationExitMappingService destinationExitMappingService;
+    private final SensorMappingService sensorMappingService;
     private final RoutingDecisionService routingDecisionService;
     private final RoutingCoordinator routingCoordinator;
     private final PathAssignmentPublisher pathAssignmentPublisher;
@@ -131,6 +132,7 @@ public class EventProcessor {
             ItemMovementProcessor itemMovementProcessor,
             DestinationMappingService destinationMappingService,
             DestinationExitMappingService destinationExitMappingService,
+            SensorMappingService sensorMappingService,
             RoutingDecisionService routingDecisionService,
             RoutingCoordinator routingCoordinator,
             PathAssignmentPublisher pathAssignmentPublisher,
@@ -162,6 +164,7 @@ public class EventProcessor {
         this.itemMovementProcessor = itemMovementProcessor;
         this.destinationMappingService = destinationMappingService;
         this.destinationExitMappingService = destinationExitMappingService;
+        this.sensorMappingService = sensorMappingService;
         this.routingDecisionService = routingDecisionService;
         this.routingCoordinator = routingCoordinator;
         this.pathAssignmentPublisher = pathAssignmentPublisher;
@@ -485,6 +488,11 @@ public class EventProcessor {
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
+                case MapSensorMappingsEvent e -> {
+                    sensorMappingService.saveMappings(e);
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
                 case MapDisplayRulesEvent e -> {
                     displayRulesService.updateDisplayRules(e.getRules());
                     DisplayRuleColorResult styles = graphService.computeColors(e.getRules());
@@ -492,7 +500,12 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
-                    var positionType = topologyProvider.getPositionType(e.getLocationId());
+                    ResolvedPosition resolvedPosition = resolvePosition(e);
+                    String positionId = resolvedPosition.positionId();
+                    Double progress = resolvedPosition.progress();
+                    PositionType positionType = resolvedPosition.positionType();
+                    ItemPositionChangedEvent resolvedEvent = new ItemPositionChangedEvent(
+                            e.getEntityId(), positionId, progress, e.getTimestamp());
 
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = (lastState != null) ? lastState.getPositionId() : null;
@@ -504,7 +517,7 @@ public class EventProcessor {
                     boolean isTeleport = false;
                     if (previousPosId != null && lastPositionType != null) {
                         isTeleport = !pathfindingService.arePositionsConnected(previousPosId, lastPositionType,
-                                e.getLocationId(), positionType);
+                                positionId, positionType);
                     }
 
                     // --- REMOVE FROM PREVIOUS POSITION ---
@@ -526,25 +539,25 @@ public class EventProcessor {
                         // TODO: record into ch?
                     }
 
-                    itemService.updateItemPosition(e.getEntityId(), e.getLocationId(), positionType, e.getTimestamp(),
-                            e.getProgress(), null);
+                    itemService.updateItemPosition(e.getEntityId(), positionId, positionType, e.getTimestamp(),
+                            progress, null);
 
                     // --- ADD TO NEW POSITION ---
                     if (positionType == PositionType.CONVEYOR) {
-                        liveConveyorRepository.addItemToConveyor(e.getLocationId(), e.getEntityId(), e.getTimestamp());
-                        itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), e.getLocationId(),
-                                e.getTimestamp(), e.getProgress(),
+                        liveConveyorRepository.addItemToConveyor(positionId, e.getEntityId(), e.getTimestamp());
+                        itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), positionId,
+                                e.getTimestamp(), progress,
                                 previousPosId, shouldBroadcast);
                     } else {
-                        itemMovementProcessor.processLocationEntry(e.getEntityId(), e.getLocationId(),
+                        itemMovementProcessor.processLocationEntry(e.getEntityId(), positionId,
                                 e.getTimestamp(), shouldBroadcast);
                     }
 
-                    anomalyObservationService.collectPositionChange(e, lastState, positionType);
+                    anomalyObservationService.collectPositionChange(resolvedEvent, lastState, positionType);
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(e.getEntityId(), e.getLocationId(), e.getTimestamp(),
-                                positionType, e.getProgress());
+                        webSocketService.broadcastPositionUpdate(e.getEntityId(), positionId, e.getTimestamp(),
+                                positionType, progress);
                     }
 
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -1444,6 +1457,28 @@ public class EventProcessor {
      */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
+    }
+
+    /**
+     * Resolves raw external position identifiers without altering the event that is
+     * persisted for replay. Topology IDs retain their existing precedence.
+     */
+    private ResolvedPosition resolvePosition(ItemPositionChangedEvent event) {
+        RuntimeException topologyFailure;
+        try {
+            return new ResolvedPosition(event.getLocationId(), event.getProgress(),
+                    topologyProvider.getPositionType(event.getLocationId()));
+        } catch (RuntimeException e) {
+            topologyFailure = e;
+        }
+
+        return sensorMappingService.findBySensorName(event.getLocationId())
+                .map(mapping -> new ResolvedPosition(mapping.getConveyorId(), mapping.getProgress(),
+                        PositionType.CONVEYOR))
+                .orElseThrow(() -> topologyFailure);
+    }
+
+    private record ResolvedPosition(String positionId, Double progress, PositionType positionType) {
     }
 
     /**

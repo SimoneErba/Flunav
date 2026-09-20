@@ -1636,11 +1636,11 @@ public class ClickHouseService {
         }
     }
 
-    public List<DomainEvent> getLatestDestinationMappingEventsBefore(Instant timestamp) {
+    public List<DomainEvent> getLatestConfigurationEventsBefore(Instant timestamp) {
         String query = """
                 SELECT data
                 FROM Events
-                WHERE event_type IN ('MAP_DESTINATIONS', 'MAP_DESTINATION_EXITS')
+                WHERE event_type IN ('MAP_DESTINATIONS', 'MAP_DESTINATION_EXITS', 'MAP_SENSOR_MAPPINGS')
                   AND timestamp_received <= {ts:DateTime64(3)}
                 ORDER BY timestamp_received DESC, timestamp_processed DESC
                 LIMIT 1 BY event_type
@@ -1661,7 +1661,7 @@ public class ClickHouseService {
             events.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
             return events;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to retrieve destination mapping state", e);
+            throw new RuntimeException("Failed to retrieve configuration state", e);
         }
     }
 

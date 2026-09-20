@@ -71,6 +71,28 @@ export const useGraphLoader = (
             }
         });
 
+        initialGraphData?.sensorMappings?.forEach((sensor) => {
+            const conveyor = sensor.conveyorId ? conveyorLookup.get(sensor.conveyorId) : undefined;
+            if (!conveyor || !graph.hasNode(conveyor.sourceId) || !graph.hasNode(conveyor.targetId)) return;
+
+            const source = graph.getNodeAttributes(conveyor.sourceId);
+            const target = graph.getNodeAttributes(conveyor.targetId);
+            const progress = Math.min(100, Math.max(0, sensor.progress ?? 0)) / 100;
+            graph.addNode(`sensor:${sensor.sensorName}`, {
+                x: source.x + (target.x - source.x) * progress,
+                y: source.y + (target.y - source.y) * progress,
+                label: sensor.sensorName,
+                size: 5,
+                color: "#f59e0b",
+                type: "triangle",
+                angle: Math.atan2(target.y - source.y, target.x - source.x),
+                isSensor: true,
+                sensorName: sensor.sensorName,
+                conveyorId: sensor.conveyorId,
+                progress: sensor.progress,
+            });
+        });
+
         // Chute items are represented on the chute node instead of as separate
         // item nodes so the graph stays readable while preserving occupancy counts.
         activeItemsRef.current.clear();

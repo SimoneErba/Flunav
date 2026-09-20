@@ -120,6 +120,25 @@ export type ActiveAlarmSourceEnum = typeof ActiveAlarmSourceEnum[keyof typeof Ac
 /**
  *
  * @export
+ * @interface AirportDemoStartResponse
+ */
+export interface AirportDemoStartResponse {
+    /**
+     *
+     * @type {DemoStatus}
+     * @memberof AirportDemoStartResponse
+     */
+    'demo'?: DemoStatus;
+    /**
+     *
+     * @type {SimulationStateResponse}
+     * @memberof AirportDemoStartResponse
+     */
+    'simulation'?: SimulationStateResponse;
+}
+/**
+ *
+ * @export
  * @interface AlarmHistoryRecord
  */
 export interface AlarmHistoryRecord {
@@ -1187,6 +1206,56 @@ export interface CurrentUserResponse {
 /**
  *
  * @export
+ * @interface DemoStartResponse
+ */
+export interface DemoStartResponse {
+    /**
+     *
+     * @type {DemoStatus}
+     * @memberof DemoStartResponse
+     */
+    'demo'?: DemoStatus;
+    /**
+     *
+     * @type {SimulationStateResponse}
+     * @memberof DemoStartResponse
+     */
+    'simulation'?: SimulationStateResponse;
+}
+/**
+ *
+ * @export
+ * @interface DemoStatus
+ */
+export interface DemoStatus {
+    /**
+     *
+     * @type {string}
+     * @memberof DemoStatus
+     */
+    'simulationId'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof DemoStatus
+     */
+    'startedAt'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof DemoStatus
+     */
+    'endsAt'?: string;
+    /**
+     *
+     * @type {boolean}
+     * @memberof DemoStatus
+     */
+    'running'?: boolean;
+}
+/**
+ *
+ * @export
  * @interface DestinationExitMappingRecord
  */
 export interface DestinationExitMappingRecord {
@@ -2032,6 +2101,12 @@ export interface GraphData {
      * @memberof GraphData
      */
     'items'?: Array<ItemResponse>;
+    /**
+     *
+     * @type {Array<SensorMappingRecord>}
+     * @memberof GraphData
+     */
+    'sensorMappings'?: Array<SensorMappingRecord>;
     /**
      *
      * @type {string}
@@ -3042,6 +3117,31 @@ export interface RerouteOption {
      * @memberof RerouteOption
      */
     'advisoryOnly'?: boolean;
+}
+/**
+ *
+ * @export
+ * @interface SensorMappingRecord
+ */
+export interface SensorMappingRecord {
+    /**
+     *
+     * @type {string}
+     * @memberof SensorMappingRecord
+     */
+    'sensorName'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof SensorMappingRecord
+     */
+    'conveyorId'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof SensorMappingRecord
+     */
+    'progress'?: number;
 }
 /**
  *
@@ -4900,6 +5000,277 @@ export class AuthControllerApi extends BaseAPI {
 
 
 /**
+ * ClientDemoScenarioControllerApi - axios parameter creator
+ * @export
+ */
+export const ClientDemoScenarioControllerApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        airportRoutingStatus: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/client-demo/airport-routing`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        start: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/client-demo`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        startAirportRouting: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/client-demo/airport-routing`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        status: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/client-demo`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * ClientDemoScenarioControllerApi - functional programming interface
+ * @export
+ */
+export const ClientDemoScenarioControllerApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = ClientDemoScenarioControllerApiAxiosParamCreator(configuration)
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async airportRoutingStatus(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStatus>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.airportRoutingStatus(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.airportRoutingStatus']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async start(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStartResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.start(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.start']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async startAirportRouting(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<AirportDemoStartResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.startAirportRouting(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.startAirportRouting']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async status(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStatus>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.status(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.status']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * ClientDemoScenarioControllerApi - factory interface
+ * @export
+ */
+export const ClientDemoScenarioControllerApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = ClientDemoScenarioControllerApiFp(configuration)
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        airportRoutingStatus(options?: RawAxiosRequestConfig): AxiosPromise<DemoStatus> {
+            return localVarFp.airportRoutingStatus(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        start(options?: RawAxiosRequestConfig): AxiosPromise<DemoStartResponse> {
+            return localVarFp.start(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        startAirportRouting(options?: RawAxiosRequestConfig): AxiosPromise<AirportDemoStartResponse> {
+            return localVarFp.startAirportRouting(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        status(options?: RawAxiosRequestConfig): AxiosPromise<DemoStatus> {
+            return localVarFp.status(options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * ClientDemoScenarioControllerApi - object-oriented interface
+ * @export
+ * @class ClientDemoScenarioControllerApi
+ * @extends {BaseAPI}
+ */
+export class ClientDemoScenarioControllerApi extends BaseAPI {
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ClientDemoScenarioControllerApi
+     */
+    public airportRoutingStatus(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).airportRoutingStatus(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ClientDemoScenarioControllerApi
+     */
+    public start(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).start(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ClientDemoScenarioControllerApi
+     */
+    public startAirportRouting(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).startAirportRouting(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ClientDemoScenarioControllerApi
+     */
+    public status(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).status(options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
  * ComponentAlarmControllerApi - axios parameter creator
  * @export
  */
@@ -6110,7 +6481,7 @@ export const DestinationExitMappingControllerApiAxiosParamCreator = function (co
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getMappings: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        getDestinationExitMappings: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/destination-exit-mappings`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -6140,9 +6511,9 @@ export const DestinationExitMappingControllerApiAxiosParamCreator = function (co
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateMappings: async (destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        updateDestinationExitMappings: async (destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'destinationExitMappingRecord' is not null or undefined
-            assertParamExists('updateMappings', 'destinationExitMappingRecord', destinationExitMappingRecord)
+            assertParamExists('updateDestinationExitMappings', 'destinationExitMappingRecord', destinationExitMappingRecord)
             const localVarPath = `/api/destination-exit-mappings`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -6184,10 +6555,10 @@ export const DestinationExitMappingControllerApiFp = function(configuration?: Co
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async getMappings(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<DestinationExitMappingRecord>>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.getMappings(options);
+        async getDestinationExitMappings(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<DestinationExitMappingRecord>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getDestinationExitMappings(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['DestinationExitMappingControllerApi.getMappings']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['DestinationExitMappingControllerApi.getDestinationExitMappings']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -6196,10 +6567,10 @@ export const DestinationExitMappingControllerApiFp = function(configuration?: Co
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async updateMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<DestinationExitMappingRecord>>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.updateMappings(destinationExitMappingRecord, options);
+        async updateDestinationExitMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<DestinationExitMappingRecord>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateDestinationExitMappings(destinationExitMappingRecord, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['DestinationExitMappingControllerApi.updateMappings']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['DestinationExitMappingControllerApi.updateDestinationExitMappings']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -6217,8 +6588,8 @@ export const DestinationExitMappingControllerApiFactory = function (configuratio
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        getMappings(options?: RawAxiosRequestConfig): AxiosPromise<Array<DestinationExitMappingRecord>> {
-            return localVarFp.getMappings(options).then((request) => request(axios, basePath));
+        getDestinationExitMappings(options?: RawAxiosRequestConfig): AxiosPromise<Array<DestinationExitMappingRecord>> {
+            return localVarFp.getDestinationExitMappings(options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -6226,8 +6597,8 @@ export const DestinationExitMappingControllerApiFactory = function (configuratio
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        updateMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig): AxiosPromise<Array<DestinationExitMappingRecord>> {
-            return localVarFp.updateMappings(destinationExitMappingRecord, options).then((request) => request(axios, basePath));
+        updateDestinationExitMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig): AxiosPromise<Array<DestinationExitMappingRecord>> {
+            return localVarFp.updateDestinationExitMappings(destinationExitMappingRecord, options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -6245,8 +6616,8 @@ export class DestinationExitMappingControllerApi extends BaseAPI {
      * @throws {RequiredError}
      * @memberof DestinationExitMappingControllerApi
      */
-    public getMappings(options?: RawAxiosRequestConfig) {
-        return DestinationExitMappingControllerApiFp(this.configuration).getMappings(options).then((request) => request(this.axios, this.basePath));
+    public getDestinationExitMappings(options?: RawAxiosRequestConfig) {
+        return DestinationExitMappingControllerApiFp(this.configuration).getDestinationExitMappings(options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -6256,8 +6627,8 @@ export class DestinationExitMappingControllerApi extends BaseAPI {
      * @throws {RequiredError}
      * @memberof DestinationExitMappingControllerApi
      */
-    public updateMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig) {
-        return DestinationExitMappingControllerApiFp(this.configuration).updateMappings(destinationExitMappingRecord, options).then((request) => request(this.axios, this.basePath));
+    public updateDestinationExitMappings(destinationExitMappingRecord: Array<DestinationExitMappingRecord>, options?: RawAxiosRequestConfig) {
+        return DestinationExitMappingControllerApiFp(this.configuration).updateDestinationExitMappings(destinationExitMappingRecord, options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -9700,6 +10071,170 @@ export class PositionsApi extends BaseAPI {
      */
     public deleteConnections(itemId: string, options?: RawAxiosRequestConfig) {
         return PositionsApiFp(this.configuration).deleteConnections(itemId, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
+ * SensorMappingControllerApi - axios parameter creator
+ * @export
+ */
+export const SensorMappingControllerApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSensorMappings: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/sensor-mappings`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {Array<SensorMappingRecord>} sensorMappingRecord
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateSensorMappings: async (sensorMappingRecord: Array<SensorMappingRecord>, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'sensorMappingRecord' is not null or undefined
+            assertParamExists('updateSensorMappings', 'sensorMappingRecord', sensorMappingRecord)
+            const localVarPath = `/api/sensor-mappings`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PUT', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(sensorMappingRecord, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * SensorMappingControllerApi - functional programming interface
+ * @export
+ */
+export const SensorMappingControllerApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = SensorMappingControllerApiAxiosParamCreator(configuration)
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getSensorMappings(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<SensorMappingRecord>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getSensorMappings(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SensorMappingControllerApi.getSensorMappings']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {Array<SensorMappingRecord>} sensorMappingRecord
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async updateSensorMappings(sensorMappingRecord: Array<SensorMappingRecord>, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<SensorMappingRecord>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.updateSensorMappings(sensorMappingRecord, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['SensorMappingControllerApi.updateSensorMappings']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * SensorMappingControllerApi - factory interface
+ * @export
+ */
+export const SensorMappingControllerApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = SensorMappingControllerApiFp(configuration)
+    return {
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getSensorMappings(options?: RawAxiosRequestConfig): AxiosPromise<Array<SensorMappingRecord>> {
+            return localVarFp.getSensorMappings(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {Array<SensorMappingRecord>} sensorMappingRecord
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        updateSensorMappings(sensorMappingRecord: Array<SensorMappingRecord>, options?: RawAxiosRequestConfig): AxiosPromise<Array<SensorMappingRecord>> {
+            return localVarFp.updateSensorMappings(sensorMappingRecord, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * SensorMappingControllerApi - object-oriented interface
+ * @export
+ * @class SensorMappingControllerApi
+ * @extends {BaseAPI}
+ */
+export class SensorMappingControllerApi extends BaseAPI {
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SensorMappingControllerApi
+     */
+    public getSensorMappings(options?: RawAxiosRequestConfig) {
+        return SensorMappingControllerApiFp(this.configuration).getSensorMappings(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {Array<SensorMappingRecord>} sensorMappingRecord
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SensorMappingControllerApi
+     */
+    public updateSensorMappings(sensorMappingRecord: Array<SensorMappingRecord>, options?: RawAxiosRequestConfig) {
+        return SensorMappingControllerApiFp(this.configuration).updateSensorMappings(sensorMappingRecord, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

@@ -44,6 +44,7 @@ public class GraphService {
     private final TopologyProvider topologyProvider;
     private final StopwatchService stopwatchService;
     private final DestinationMappingService destinationMappingService;
+    private final SensorMappingService sensorMappingService;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
@@ -55,7 +56,8 @@ public class GraphService {
             org.modelmapper.ModelMapper modelMapper,
             TopologyProvider topologyProvider,
             StopwatchService stopwatchService,
-            DestinationMappingService destinationMappingService) {
+            DestinationMappingService destinationMappingService,
+            SensorMappingService sensorMappingService) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.liveConveyorRepository = liveConveyorRepository;
@@ -67,6 +69,7 @@ public class GraphService {
         this.topologyProvider = topologyProvider;
         this.stopwatchService = stopwatchService;
         this.destinationMappingService = destinationMappingService;
+        this.sensorMappingService = sensorMappingService;
     }
 
     public GraphData getGraphData() {
@@ -81,7 +84,7 @@ public class GraphService {
     public GraphData getTopologyData() {
         Topology topology = fetchTopology();
         return new GraphData(new ArrayList<>(topology.nodeMap.values()),
-                new ArrayList<>(topology.conveyorMap.values()), List.of(), timeService.now());
+                new ArrayList<>(topology.conveyorMap.values()), List.of(), sensorMappingService.getMappings(), timeService.now());
     }
 
     public GraphData getGraphData(Instant now) {
@@ -140,6 +143,7 @@ public class GraphService {
                     new ArrayList<>(topology.nodeMap.values()),
                     new ArrayList<>(topology.conveyorMap.values()),
                     activeItems,
+                    sensorMappingService.getMappings(),
                     now);
         }
     }

@@ -96,7 +96,7 @@ public class HistoricalGraphBuilder {
                 logger.info("Restoring state from snapshot taken at {}", eventsAfterTimestamp);
                 simulationService.updateBuildProgress(simulationId, 0.0, eventsAfterTimestamp);
                 for (DomainEvent mappingEvent : clickHouseService
-                        .getLatestDestinationMappingEventsBefore(eventsAfterTimestamp)) {
+                        .getLatestConfigurationEventsBefore(eventsAfterTimestamp)) {
                     eventProcessor.processEventWithoutBroadcast(mappingEvent);
                 }
                 restoreFromSnapshotData(snapshot.graphData());

@@ -9,8 +9,8 @@ import {
 } from "../../api-client";
 import { useApi } from "../../hooks/useApi";
 
-type PropertyRow = DestinationMappingRecord & { _localId: string; destinationsText: string };
-type ExitRow = DestinationExitMappingRecord & { _localId: string; exitsText: string };
+type PropertyRow = DestinationMappingRecord & { _localId: string };
+type ExitRow = DestinationExitMappingRecord & { _localId: string };
 
 const dataTypes = Object.values(DisplayRuleDataTypeEnum);
 const operatorLabels: Record<DisplayRuleOperatorEnum, string> = {
@@ -52,14 +52,19 @@ const normalizeOperator = (value?: string): DisplayRuleOperatorEnum => {
 };
 
 const localId = (prefix: string) => `${prefix}_${crypto.randomUUID?.() || Date.now()}`;
-const toArrayText = (values?: string[]) => JSON.stringify(values ?? []);
-
-const parseStringArray = (value: string, fieldName: string) => {
-  const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some(item => typeof item !== "string" || !item.trim())) {
-    throw new Error(`${fieldName} must be a nonempty JSON array of nonblank strings`);
+const normalizeStringList = (values: string[] | undefined, fieldName: string) => {
+  if (!values?.length || values.some(value => !value.trim())) {
+    throw new Error(`${fieldName} must contain at least one nonblank value`);
   }
-  return [...new Set(parsed.map(item => item.trim()))];
+  return [...new Set(values.map(value => value.trim()))];
+};
+
+const parseCsvStringArray = (value: string, fieldName: string) => {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.some(item => typeof item !== "string")) {
+    throw new Error(`${fieldName} must be a JSON array of strings`);
+  }
+  return normalizeStringList(parsed, fieldName);
 };
 
 const toInputDateTime = (value?: string) => {
@@ -131,8 +136,7 @@ const newPropertyRow = (): PropertyRow => {
     dataType: DisplayRuleDataTypeEnum.String,
     operator: DisplayRuleOperatorEnum.Equal,
     value: "",
-    destinations: [],
-    destinationsText: "[]",
+    destinations: [""],
     validFrom: now.toISOString(),
     validTo: new Date(now.getTime() + 86_400_000).toISOString(),
   };
@@ -141,8 +145,7 @@ const newPropertyRow = (): PropertyRow => {
 const newExitRow = (): ExitRow => ({
   _localId: localId("exit"),
   destination: "",
-  exits: [],
-  exitsText: "[]",
+  exits: [""],
 });
 
 export const DestinationMappingManagement = () => {
@@ -155,6 +158,8 @@ export const DestinationMappingManagement = () => {
   const [loading, setLoading] = useState(false);
   const [savingProperties, setSavingProperties] = useState(false);
   const [savingExits, setSavingExits] = useState(false);
+  const [propertyDraft, setPropertyDraft] = useState<PropertyRow | null>(null);
+  const [exitDraft, setExitDraft] = useState<ExitRow | null>(null);
 
   const logicalDestinations = useMemo(
     () => [...new Set(exitRows.map(row => row.destination?.trim()).filter((value): value is string => Boolean(value)))],
@@ -166,7 +171,7 @@ export const DestinationMappingManagement = () => {
     try {
       const [propertyResponse, exitResponse, locationResponse] = await Promise.all([
         destinationMappingApi.getDestinationMappings(),
-        destinationExitMappingApi.getMappings(),
+        destinationExitMappingApi.getDestinationExitMappings(),
         locationApi.getAllLocations(),
       ]);
       setPropertyRows(propertyResponse.data.map(mapping => ({
@@ -175,12 +180,10 @@ export const DestinationMappingManagement = () => {
         dataType: normalizeDataType(mapping.dataType),
         operator: normalizeOperator(mapping.operator),
         secondOperator: mapping.secondOperator ? normalizeOperator(mapping.secondOperator) : undefined,
-        destinationsText: toArrayText(mapping.destinations),
       })));
       setExitRows(exitResponse.data.map(mapping => ({
         ...mapping,
         _localId: localId("exit"),
-        exitsText: toArrayText(mapping.exits),
       })));
       setLocationIds(locationResponse.data.map(location => location.id).filter((id): id is string => Boolean(id)));
     } catch (error) {
@@ -205,7 +208,7 @@ export const DestinationMappingManagement = () => {
         value: row.value?.trim(),
         secondOperator: row.secondOperator,
         secondValue: row.secondValue?.trim() || undefined,
-        destinations: parseStringArray(row.destinationsText, "Destinations"),
+        destinations: normalizeStringList(row.destinations, "Destinations"),
         validFrom: row.validFrom,
         rushAt: row.rushAt || undefined,
         validTo: row.validTo,
@@ -226,9 +229,9 @@ export const DestinationMappingManagement = () => {
     try {
       const payload = exitRows.map(row => ({
         destination: row.destination?.trim(),
-        exits: parseStringArray(row.exitsText, "Exits"),
+        exits: normalizeStringList(row.exits, "Exits"),
       }));
-      await destinationExitMappingApi.updateMappings(payload);
+      await destinationExitMappingApi.updateDestinationExitMappings(payload);
       toast.success("Destination exit mappings saved");
       await fetchMappings();
     } catch (error) {
@@ -261,8 +264,7 @@ export const DestinationMappingManagement = () => {
           value: cells[3]?.trim(),
           secondOperator: cells[4]?.trim() ? normalizeOperator(cells[4]) : undefined,
           secondValue: cells[5]?.trim() || undefined,
-          destinations: parseStringArray(cells[6] || "", "Destinations"),
-          destinationsText: cells[6]?.trim() || "[]",
+          destinations: parseCsvStringArray(cells[6] || "", "Destinations"),
           validFrom: normalizeDate(cells[7] || ""),
           rushAt: withRush && cells[8]?.trim() ? normalizeDate(cells[8]) : undefined,
           validTo: normalizeDate(cells[withRush ? 9 : 8] || ""),
@@ -279,7 +281,7 @@ export const DestinationMappingManagement = () => {
     ["fieldName", "dataType", "operator", "value", "secondOperator", "secondValue", "destinations", "validFrom", "rushAt", "validTo"],
     ...propertyRows.map(row => [
       row.fieldName, row.dataType, row.operator, row.value, row.secondOperator, row.secondValue,
-      row.destinationsText, row.validFrom, row.rushAt, row.validTo,
+      JSON.stringify(row.destinations ?? []), row.validFrom, row.rushAt, row.validTo,
     ]),
   ]);
 
@@ -295,8 +297,7 @@ export const DestinationMappingManagement = () => {
         setExitRows(rows.map(cells => ({
           _localId: localId("exit"),
           destination: cells[0]?.trim(),
-          exits: parseStringArray(cells[1] || "", "Exits"),
-          exitsText: cells[1]?.trim() || "[]",
+          exits: parseCsvStringArray(cells[1] || "", "Exits"),
         })));
         toast.success("Exit CSV imported. Review and save to persist.");
       } catch (error) {
@@ -306,20 +307,50 @@ export const DestinationMappingManagement = () => {
     reader.readAsText(file);
   };
 
+  const addProperty = () => {
+    if (!propertyDraft) return;
+    try {
+      if (!propertyDraft.fieldName?.trim() || !propertyDraft.value?.trim()) {
+        throw new Error("Field and value are required");
+      }
+      const destinations = normalizeStringList(propertyDraft.destinations, "Destinations");
+      setPropertyRows(rows => [...rows, { ...propertyDraft, destinations }]);
+      setPropertyDraft(null);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const addExit = () => {
+    if (!exitDraft) return;
+    try {
+      if (!exitDraft.destination?.trim()) throw new Error("Destination is required");
+      const exits = normalizeStringList(exitDraft.exits, "Exits");
+      setExitRows(rows => [...rows, { ...exitDraft, exits }]);
+      setExitDraft(null);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <datalist id="logical-destinations">
-        {logicalDestinations.map(destination => <option key={destination} value={JSON.stringify([destination])} />)}
+      <datalist id="property-destination-suggestions">
+        {logicalDestinations.map(destination => <option key={`logical-${destination}`} value={destination} />)}
+        {locationIds.map(id => <option key={`location-${id}`} value={id} />)}
       </datalist>
       <datalist id="graph-locations">
-        {locationIds.map(id => <option key={id} value={JSON.stringify([id])} />)}
+        {locationIds.map(id => <option key={id} value={id} />)}
       </datalist>
+
+      {propertyDraft && <AddPropertyModal draft={propertyDraft} onChange={setPropertyDraft} onCancel={() => setPropertyDraft(null)} onSave={addProperty} />}
+      {exitDraft && <AddExitModal draft={exitDraft} onChange={setExitDraft} onCancel={() => setExitDraft(null)} onSave={addExit} />}
 
       <MappingSection
         title="Property To Destinations"
         loading={loading}
         saving={savingProperties}
-        onAdd={() => setPropertyRows(rows => [...rows, newPropertyRow()])}
+        onAdd={() => setPropertyDraft(newPropertyRow())}
         onReload={fetchMappings}
         onImport={() => propertyFileRef.current?.click()}
         onExport={exportProperties}
@@ -327,10 +358,11 @@ export const DestinationMappingManagement = () => {
         fileRef={propertyFileRef}
         onFile={importProperties}
       >
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">Destinations can be logical names configured in Destinations To Exits or direct graph location/chute IDs.</p>
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-sm min-w-[1800px]">
             <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700/50">
-              <tr>{["Field", "Type", "Op", "Value", "Second Op", "Second Value", "Destinations JSON", "Valid From", "Rush At", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
+              <tr>{["Field", "Type", "Op", "Value", "Second Op", "Second Value", "Destinations", "Valid From", "Rush At", "Valid To", "Actions"].map(label => <th key={label} className="px-3 py-3 text-left">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {propertyRows.map(row => (
@@ -341,7 +373,7 @@ export const DestinationMappingManagement = () => {
                   <td className="p-3"><Cell value={String(row.value || "")} onChange={value => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, value } : item))} /></td>
                   <td className="p-3"><select disabled={row.dataType !== DisplayRuleDataTypeEnum.Number && row.dataType !== DisplayRuleDataTypeEnum.Datetime} value={row.secondOperator || ""} onChange={event => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, secondOperator: event.target.value ? normalizeOperator(event.target.value) : undefined, secondValue: event.target.value ? item.secondValue || "0" : undefined } : item))} className={inputClass}><option value="">None</option>{operatorsForType(row.dataType).filter(operator => operator !== DisplayRuleOperatorEnum.Equal).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></td>
                   <td className="p-3"><Cell value={row.secondValue} onChange={secondValue => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, secondValue } : item))} /></td>
-                  <td className="p-3"><Cell value={row.destinationsText} onChange={destinationsText => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, destinationsText } : item))} list="logical-destinations" /></td>
+                  <td className="p-3"><StringListEditor label="Destinations" values={row.destinations ?? []} onChange={destinations => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, destinations } : item))} list="property-destination-suggestions" addLabel="Add destination" /></td>
                   <td className="p-3"><DateCell value={row.validFrom} onChange={validFrom => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validFrom } : item))} /></td>
                   <td className="p-3"><DateCell value={row.rushAt} onChange={rushAt => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, rushAt } : item))} /></td>
                   <td className="p-3"><DateCell value={row.validTo} onChange={validTo => setPropertyRows(rows => rows.map(item => item._localId === row._localId ? { ...item, validTo } : item))} /></td>
@@ -358,7 +390,7 @@ export const DestinationMappingManagement = () => {
         title="Destinations To Exits"
         loading={loading}
         saving={savingExits}
-        onAdd={() => setExitRows(rows => [...rows, newExitRow()])}
+        onAdd={() => setExitDraft(newExitRow())}
         onReload={fetchMappings}
         onImport={() => exitFileRef.current?.click()}
         onSave={saveExits}
@@ -368,13 +400,13 @@ export const DestinationMappingManagement = () => {
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-sm min-w-[760px]">
             <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700/50">
-              <tr><th className="p-3 text-left">Destination</th><th className="p-3 text-left">Exits JSON</th><th className="p-3 text-left">Actions</th></tr>
+              <tr><th className="p-3 text-left">Destination</th><th className="p-3 text-left">Exits</th><th className="p-3 text-left">Actions</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {exitRows.map(row => (
                 <tr key={row._localId}>
                   <td className="p-3"><Cell value={row.destination} onChange={destination => setExitRows(rows => rows.map(item => item._localId === row._localId ? { ...item, destination } : item))} /></td>
-                  <td className="p-3"><Cell value={row.exitsText} onChange={exitsText => setExitRows(rows => rows.map(item => item._localId === row._localId ? { ...item, exitsText } : item))} list="graph-locations" /></td>
+                  <td className="p-3"><StringListEditor label="Exits" values={row.exits ?? []} onChange={exits => setExitRows(rows => rows.map(item => item._localId === row._localId ? { ...item, exits } : item))} list="graph-locations" addLabel="Add exit" /></td>
                   <td className="p-3"><DeleteButton onClick={() => setExitRows(rows => rows.filter(item => item._localId !== row._localId))} /></td>
                 </tr>
               ))}
@@ -393,6 +425,33 @@ const Cell = ({ value, onChange, list }: { value?: string; onChange: (value: str
   <input list={list} value={value || ""} onChange={event => onChange(event.target.value)} className={inputClass} />
 );
 
+const StringListEditor = ({
+  label,
+  values,
+  onChange,
+  list,
+  addLabel,
+}: {
+  label: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  list?: string;
+  addLabel: string;
+}) => {
+  const rows = values.length ? values : [""];
+  const updateValue = (index: number, value: string) => onChange(rows.map((item, itemIndex) => itemIndex === index ? value : item));
+
+  return <div className="space-y-2">
+    {rows.map((value, index) => (
+      <div key={index} className="flex gap-2">
+        <input aria-label={`${label} ${index + 1}`} list={list} value={value} onChange={event => updateValue(index, event.target.value)} className={inputClass} />
+        <button type="button" aria-label={`Remove ${label.toLowerCase()} ${index + 1}`} onClick={() => onChange(rows.filter((_, itemIndex) => itemIndex !== index))} className="rounded px-2 py-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">Remove</button>
+      </div>
+    ))}
+    <button type="button" onClick={() => onChange([...values, ""])} className="rounded px-2 py-1 text-sm font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20">+ {addLabel}</button>
+  </div>;
+};
+
 const DateCell = ({ value, onChange }: { value?: string; onChange: (value?: string) => void }) => (
   <input type="datetime-local" value={toInputDateTime(value)} onChange={event => onChange(fromInputDateTime(event.target.value))} className={`${inputClass} dark:[color-scheme:dark]`} />
 );
@@ -403,6 +462,67 @@ const DeleteButton = ({ onClick }: { onClick: () => void }) => (
 
 const EmptyRow = ({ columns, loading }: { columns: number; loading: boolean }) => (
   <tr><td colSpan={columns} className="px-4 py-8 text-center text-gray-500 italic">{loading ? "Loading mappings..." : "No mappings configured."}</td></tr>
+);
+
+const AddPropertyModal = ({ draft, onChange, onCancel, onSave }: {
+  draft: PropertyRow;
+  onChange: (draft: PropertyRow) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) => {
+  const update = (changes: Partial<PropertyRow>) => onChange({ ...draft, ...changes });
+  const supportsRange = draft.dataType === DisplayRuleDataTypeEnum.Number || draft.dataType === DisplayRuleDataTypeEnum.Datetime;
+
+  return <MappingModal title="Add Property Mapping" onCancel={onCancel} onSave={onSave}>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <ModalField label="Field"><input autoFocus value={draft.fieldName || ""} onChange={event => update({ fieldName: event.target.value })} className={inputClass} /></ModalField>
+      <ModalField label="Type"><select value={draft.dataType} onChange={event => update({ dataType: normalizeDataType(event.target.value), operator: DisplayRuleOperatorEnum.Equal, secondOperator: undefined, secondValue: undefined })} className={inputClass}>{dataTypes.map(type => <option key={type}>{type}</option>)}</select></ModalField>
+      <ModalField label="Operator"><select value={draft.operator} onChange={event => update({ operator: normalizeOperator(event.target.value) })} className={inputClass}>{operatorsForType(draft.dataType).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></ModalField>
+      <ModalField label="Value"><input value={draft.value || ""} onChange={event => update({ value: event.target.value })} className={inputClass} /></ModalField>
+      <ModalField label="Second operator"><select disabled={!supportsRange} value={draft.secondOperator || ""} onChange={event => update({ secondOperator: event.target.value ? normalizeOperator(event.target.value) : undefined, secondValue: event.target.value ? draft.secondValue || "0" : undefined })} className={inputClass}><option value="">None</option>{operatorsForType(draft.dataType).filter(operator => operator !== DisplayRuleOperatorEnum.Equal).map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></ModalField>
+      <ModalField label="Second value"><input disabled={!draft.secondOperator} value={draft.secondValue || ""} onChange={event => update({ secondValue: event.target.value })} className={inputClass} /></ModalField>
+      <div className="sm:col-span-2">
+        <div className="mb-1 text-sm font-medium">Destinations</div>
+        <StringListEditor label="Destinations" values={draft.destinations ?? []} onChange={destinations => update({ destinations })} list="property-destination-suggestions" addLabel="Add destination" />
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Use a logical destination configured below or a direct graph location/chute ID.</p>
+      </div>
+      <ModalField label="Valid from"><DateCell value={draft.validFrom} onChange={validFrom => update({ validFrom })} /></ModalField>
+      <ModalField label="Rush at (optional)"><DateCell value={draft.rushAt} onChange={rushAt => update({ rushAt })} /></ModalField>
+      <ModalField label="Valid to"><DateCell value={draft.validTo} onChange={validTo => update({ validTo })} /></ModalField>
+    </div>
+  </MappingModal>;
+};
+
+const AddExitModal = ({ draft, onChange, onCancel, onSave }: {
+  draft: ExitRow;
+  onChange: (draft: ExitRow) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) => <MappingModal title="Add Destination Exit Mapping" onCancel={onCancel} onSave={onSave}>
+  <div className="space-y-4">
+    <ModalField label="Destination"><input autoFocus value={draft.destination || ""} onChange={event => onChange({ ...draft, destination: event.target.value })} className={inputClass} /></ModalField>
+    <div>
+      <div className="mb-1 text-sm font-medium">Exits</div>
+      <StringListEditor label="Exits" values={draft.exits ?? []} onChange={exits => onChange({ ...draft, exits })} list="graph-locations" addLabel="Add exit" />
+    </div>
+  </div>
+</MappingModal>;
+
+const MappingModal = ({ title, onCancel, onSave, children }: { title: string; onCancel: () => void; onSave: () => void; children: React.ReactNode }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="add-mapping-title">
+    <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+      <h3 id="add-mapping-title" className="text-lg font-bold">{title}</h3>
+      <div className="mt-4">{children}</div>
+      <div className="mt-6 flex justify-end gap-2">
+        <button onClick={onCancel} className="rounded bg-gray-100 px-3 py-2 text-sm font-semibold dark:bg-gray-700">Cancel</button>
+        <button onClick={onSave} className="rounded bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add</button>
+      </div>
+    </div>
+  </div>
+);
+
+const ModalField = ({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) => (
+  <label className={`block text-sm font-medium ${className || ""}`}><span className="mb-1 block">{label}</span>{children}</label>
 );
 
 const MappingSection = ({
@@ -434,7 +554,7 @@ const MappingSection = ({
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4 border-b border-gray-200 dark:border-gray-700 pb-4">
       <h2 className="text-lg font-bold">{title}</h2>
       <div className="flex flex-wrap gap-2">
-        <button onClick={onAdd} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-sm">Add Row</button>
+        <button onClick={onAdd} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-sm">Add Mapping</button>
         <button onClick={onReload} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Reload</button>
         <button onClick={onImport} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Import CSV</button>
         {onExport && <button onClick={onExport} disabled={loading} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded font-semibold text-sm disabled:opacity-50">Export CSV</button>}

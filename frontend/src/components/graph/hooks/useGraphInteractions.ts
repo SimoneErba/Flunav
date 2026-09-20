@@ -381,6 +381,10 @@ export const useGraphInteractions = (
                 didMoveRef.current = false;
                 const { isReadOnly } = stateRef.current;
 
+                if (sigma.getGraph().getNodeAttribute(node, "isSensor")) {
+                    return;
+                }
+
                 if (isReadOnly) {
                     notifyReadOnly(); 
                     return; 
@@ -471,6 +475,7 @@ export const useGraphInteractions = (
                 if (didMoveRef.current) return;
                 
                 const attrs = sigma.getGraph().getNodeAttributes(node);
+                if (attrs.isSensor) return;
                 
                 if (attrs.isItem) {
                     // It's an item: Lock the hover details immediately

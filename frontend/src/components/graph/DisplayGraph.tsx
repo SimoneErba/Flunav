@@ -8,6 +8,7 @@ import { GraphEvents } from "./GraphEvents";
 import { GraphHighlighter } from "./GraphHighlighter";
 import { ItemEditorData } from "../editors/item.editor";
 import { NodeBorderedSquareProgram } from "./rendering/NodeBorderedSquareProgram";
+import { NodeTriangleProgram } from "./rendering/NodeTriangleProgram";
 
 interface DisplayGraphProps {
     initialGraphData: GraphData;
@@ -41,7 +42,11 @@ export const DisplayGraph = ({
      * graph hooks mutate the existing Sigma instance incrementally.
      */
     const settings = useMemo(() => ({
-        nodeProgramClasses: { square: NodeSquareProgram, borderedSquare: NodeBorderedSquareProgram },
+        nodeProgramClasses: {
+            square: NodeSquareProgram,
+            borderedSquare: NodeBorderedSquareProgram,
+            triangle: NodeTriangleProgram,
+        },
         enableEdgeEvents: true,
         autoRescale: true,
         renderEdgeLabels: true, 

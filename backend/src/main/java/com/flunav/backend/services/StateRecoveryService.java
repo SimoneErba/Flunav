@@ -63,7 +63,7 @@ public class StateRecoveryService {
 
             liveItemRepository.deleteAllItems();
             for (DomainEvent mappingEvent : clickHouseService
-                    .getLatestDestinationMappingEventsBefore(snapshot.timestamp())) {
+                    .getLatestConfigurationEventsBefore(snapshot.timestamp())) {
                 eventProcessor.processEventWithoutBroadcast(mappingEvent);
             }
             historicalGraphBuilder.restoreFromSnapshotData(snapshot.graphData());

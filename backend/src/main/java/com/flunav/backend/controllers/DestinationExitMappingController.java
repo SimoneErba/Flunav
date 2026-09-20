@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
+
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -31,12 +33,14 @@ public class DestinationExitMappingController {
     }
 
     @GetMapping
+    @Operation(operationId = "getDestinationExitMappings")
     public List<DestinationExitMappingRecord> getMappings() {
         return mappingService.getMappings();
     }
 
     @BlockInDemo
     @PutMapping
+    @Operation(operationId = "updateDestinationExitMappings")
     public CompletableFuture<ResponseEntity<List<DestinationExitMappingRecord>>> updateMappings(
             @RequestBody List<DestinationExitMappingRecord> mappings) {
         return controllerHelper.processAndLogEvent(new MapDestinationExitsEvent(mappings))

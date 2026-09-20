@@ -198,12 +198,13 @@ export const AssistantPage = () => {
 
   const canAccessUsers = user?.role === 'SUPERADMIN';
   const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+  const canAccessSensors = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
   const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
   const nav = (label: string, path: string, enabled: boolean, selected = false) => <button type="button" onClick={() => navigate(path)} disabled={!enabled} className={`rounded-md px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${selected ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-blue-400'}`}>{label}</button>;
   const rendered = active || messages.length ? messages.flatMap(toPersistedMessage) : history;
 
   return <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-gray-50 text-gray-900 dark:bg-[#121212] dark:text-white">
-    <AppHeader centerContent={<div className="font-semibold">Assistant / {scope}</div>} leftActions={<div className="flex items-center gap-2">{nav('Live', '/live', true)}{nav('Users', '/admin', canAccessUsers)}{nav('Mappings', '/admin/destination-mappings', canAccessDestinationMappings)}{nav('BI', '/admin/bi', canAccessBi)}{nav('Assistant', '/assistant', true, true)}</div>} />
+    <AppHeader centerContent={<div className="font-semibold">Assistant / {scope}</div>} leftActions={<div className="flex items-center gap-2">{nav('Live', '/live', true)}{nav('Users', '/admin', canAccessUsers)}{nav('Mappings', '/admin/destination-mappings', canAccessDestinationMappings)}{nav('Sensors', '/admin/sensors', canAccessSensors)}{nav('BI', '/admin/bi', canAccessBi)}{nav('Assistant', '/assistant', true, true)}</div>} />
     <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col overflow-y-scroll px-4 py-6 pb-40">
       {active && <Progress progress={latest.progress} stalled={noProgress} onStop={stop} onReset={resetCurrentSession} />}
       <div className="space-y-4">{rendered.map((message, index) => <div key={`${message.role}-${index}`} className={message.role === 'user' ? 'ml-auto max-w-[78%]' : 'mr-auto w-full'}><div className={`rounded-lg p-3 text-sm ${message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white shadow-sm dark:bg-gray-900'}`}>{message.role === 'assistant' ? <AssistantSummary text={message.text} /> : message.text}</div>{message.role === 'assistant' && <InvestigationWidgets answer={message.answer ?? answer} />}</div>)}</div>

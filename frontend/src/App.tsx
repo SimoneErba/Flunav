@@ -9,6 +9,7 @@ import LiveAnalysisPanel from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { UserManagement } from './components/admin/UserManagement';
 import { DestinationMappingManagement } from './components/admin/DestinationMappingManagement';
+import { SensorMappingManagement } from './components/admin/SensorMappingManagement';
 import { BiEntityEvents } from './components/admin/BiEntityEvents';
 import { AppHeader } from './components/AppHeader';
 
@@ -55,14 +56,31 @@ const alignToMinute = (date: Date) => {
   return aligned;
 };
 
+const persistentNotification = (message: string, icon: string, id: string) => {
+  toast((notification) => (
+    <div className="flex max-w-lg items-center gap-3">
+      <span aria-hidden="true">{icon}</span>
+      <span className="flex-1 text-sm font-medium">{message}</span>
+      <button
+        type="button"
+        onClick={() => toast.dismiss(notification.id)}
+        className="rounded px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+      >
+        Dismiss
+      </button>
+    </div>
+  ), { id, duration: Infinity });
+};
+
 function LiveWorkspace() {
    const { user } = useAuth();
    const navigate = useNavigate();
-   const { activeSimulation, setActiveSimulation, designMode, setDesignMode, isBranching,
+   const { activeSimulation, setActiveSimulation, designMode, setDesignMode, isBranching, isExitingWhatIf,
        enterWhatIf, exitWhatIf } = useSimulationContext();
    const isWhatIf = activeSimulation?.kind === 'WHAT_IF_LIVE' || activeSimulation?.kind === 'WHAT_IF_SIMULATION';
    const canAccessUsers = user?.role === 'SUPERADMIN';
    const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+   const canAccessSensors = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
    const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
 
    // --- Simulation State ---
@@ -223,18 +241,17 @@ function LiveWorkspace() {
       const finding = notification.finding;
       const mode = finding?.temporalMode?.replaceAll('_', ' ') ?? (activeSimulation ? 'SIMULATION' : 'LIVE');
       if (notification.kind === 'FINDING_DETECTED' && finding) {
-        toast(`${mode}: ${finding.detector.replaceAll('_', ' ')} on ${finding.componentId}`, {
-          icon: '⚠️',
-          id: `finding-${mode}-${finding.detector}-${finding.componentId}`,
-          duration: 2000,
-          style: { pointerEvents: 'none' },
-        });
+        persistentNotification(
+          `${mode}: ${finding.detector.replaceAll('_', ' ')} on ${finding.componentId}`,
+          '⚠️',
+          `finding-${mode}-${finding.detector}-${finding.componentId}`,
+        );
       } else if (notification.kind === 'INCIDENT_UPDATED' && notification.incident) {
-        toast(`Probable root ${notification.incident.probableRootComponentId} · ${notification.incident.confidence.toLowerCase()} confidence`, {
-          icon: '🔎',
-          id: `incident-${notification.incident.incidentId}`,
-          style: { pointerEvents: 'none' },
-        });
+        persistentNotification(
+          `Probable root ${notification.incident.probableRootComponentId} · ${notification.incident.confidence.toLowerCase()} confidence`,
+          '🔎',
+          `incident-${notification.incident.incidentId}`,
+        );
       } else if (notification.kind === 'ALARM_CLEARED') {
         toast.success(`Advisory cleared on ${notification.componentId}`);
       }
@@ -263,7 +280,7 @@ function LiveWorkspace() {
     }
   }, [activeSimulation?.id, graphReady, designMode, refetchGraphData]);
 
-  const isLoading = graphLoading || isRestoring || isBranching;
+  const isLoading = graphLoading || isRestoring || isBranching || isExitingWhatIf;
   const restoreProgress = Math.min(100, Math.max(0, activeSimulation?.buildProgress ?? 0));
 
   const handleRetry = () => {
@@ -336,10 +353,17 @@ function LiveWorkspace() {
         )}
         {isWhatIf && (
           <button
-            className="rounded-lg border border-red-500 px-4 py-2 font-bold text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+            disabled={isExitingWhatIf}
+            className="flex items-center gap-2 rounded-lg border border-red-500 px-4 py-2 font-bold text-red-500 transition-colors hover:bg-red-50 disabled:cursor-progress disabled:opacity-70 dark:hover:bg-red-900/20"
             onClick={() => void exitWhatIf().catch(() => toast.error('Could not exit What If'))}
           >
-            Exit What If
+            {isExitingWhatIf && (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            )}
+            {isExitingWhatIf ? 'Exiting...' : 'Exit What If'}
           </button>
         )}
         {!activeSimulation && (
@@ -382,6 +406,7 @@ function LiveWorkspace() {
          {navButton('Live', '/live', true, true)}
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
+         {navButton('Sensors', '/admin/sensors', false, canAccessSensors)}
          {navButton('BI', '/admin/bi', false, canAccessBi)}
          {navButton('Assistant', '/assistant', false, true)}
       </div>
@@ -401,7 +426,13 @@ function LiveWorkspace() {
         {isLoading && (
           <div className="absolute top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-6 text-center">
             <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 animate-pulse">
-              {isBranching ? 'Going into What If...' : isRestoring ? 'Reconstructing Historical State...' : 'Loading Graph...'}
+              {isExitingWhatIf
+                ? 'Exiting What If...'
+                : isBranching
+                  ? 'Going into What If...'
+                  : isRestoring
+                    ? 'Reconstructing Historical State...'
+                    : 'Loading Graph...'}
             </h3>
             {isRestoring && (
               <div className="mt-5">
@@ -450,10 +481,12 @@ const AdminWorkspace = () => {
     const location = useLocation();
     const canAccessUsers = user?.role === 'SUPERADMIN';
     const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
+    const canAccessSensors = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
     const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
     const isDestinationMappings = location.pathname === '/admin/destination-mappings';
     const isBi = location.pathname === '/admin/bi';
-    const title = isDestinationMappings ? 'Destination Mappings' : isBi ? 'BI' : 'User Management';
+    const isSensors = location.pathname === '/admin/sensors';
+    const title = isDestinationMappings ? 'Destination Mappings' : isSensors ? 'Sensors' : isBi ? 'BI' : 'User Management';
     const adminNavButton = (label: string, path: string, active: boolean, enabled: boolean) => (
         <button
             type="button"
@@ -488,8 +521,9 @@ const AdminWorkspace = () => {
             >
                 Live
             </button>
-            {adminNavButton('Users', '/admin', !isDestinationMappings && !isBi, canAccessUsers)}
+            {adminNavButton('Users', '/admin', !isDestinationMappings && !isSensors && !isBi, canAccessUsers)}
             {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
+            {adminNavButton('Sensors', '/admin/sensors', isSensors, canAccessSensors)}
             {adminNavButton('BI', '/admin/bi', isBi, canAccessBi)}
             {adminNavButton('Assistant', '/assistant', false, true)}
         </div>
@@ -501,6 +535,14 @@ const AdminWorkspace = () => {
         ) : (
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
                 You do not have permission to access BI.
+            </div>
+        )
+    ) : isSensors ? (
+        canAccessSensors ? (
+            <SensorMappingManagement />
+        ) : (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded text-yellow-800 dark:text-yellow-200">
+                You do not have permission to manage sensors.
             </div>
         )
     ) : isDestinationMappings ? (
@@ -526,7 +568,7 @@ const AdminWorkspace = () => {
             <AppHeader centerContent={centerContent} leftActions={leftActions} />
 
             <div className="flex-1 overflow-y-auto p-8">
-                <div className={`${isDestinationMappings || isBi ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto space-y-8`}>
+                <div className={`${isDestinationMappings || isSensors || isBi ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto space-y-8`}>
                     {content}
                 </div>
             </div>
@@ -561,6 +603,7 @@ function App() {
                   {/* Admin View (Tables/Forms) */}
                   <Route path="/admin" element={<AdminWorkspace />} />
                   <Route path="/admin/destination-mappings" element={<AdminWorkspace />} />
+                  <Route path="/admin/sensors" element={<AdminWorkspace />} />
                   <Route path="/admin/bi" element={<AdminWorkspace />} />
                   <Route path="/assistant" element={(
                     <React.Suspense fallback={<div className="p-6">Loading assistant…</div>}>

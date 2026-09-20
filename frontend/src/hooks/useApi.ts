@@ -10,11 +10,13 @@ import {
     DisplayRulesControllerApi,
     DestinationMappingControllerApi,
     DestinationExitMappingControllerApi,
+    SensorMappingControllerApi,
     AuthControllerApi,
     UserControllerApi,
     AnalyticsControllerApi,
     InvestigationAnalyticsControllerApi,
-    AssistantGatewayControllerApi
+    AssistantGatewayControllerApi,
+    ClientDemoScenarioControllerApi
 } from '../api-client';
 import { useSimulationContext } from '../context/simulation.context';
 import { baseURL, CLIENT_ID } from '../api/config';
@@ -47,6 +49,7 @@ export const useApi = () => {
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const destinationMappingApi = useMemo(() => new DestinationMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const destinationExitMappingApi = useMemo(() => new DestinationExitMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const sensorMappingApi = useMemo(() => new SensorMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const authApi = useMemo(() => new AuthControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const userApi = useMemo(() => new UserControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const analyticsApi = useMemo(() => new AnalyticsControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
@@ -56,6 +59,10 @@ export const useApi = () => {
     );
     const assistantGatewayApi = useMemo(
         () => new AssistantGatewayControllerApi(apiConfig, undefined, axiosInstance),
+        [apiConfig],
+    );
+    const clientDemoApi = useMemo(
+        () => new ClientDemoScenarioControllerApi(apiConfig, undefined, axiosInstance),
         [apiConfig],
     );
 
@@ -69,11 +76,13 @@ export const useApi = () => {
         displayRuleApi,
         destinationMappingApi,
         destinationExitMappingApi,
+        sensorMappingApi,
         authApi,
         userApi,
         analyticsApi,
         investigationAnalyticsApi,
         assistantGatewayApi,
+        clientDemoApi,
         clientId: CLIENT_ID,
     };
 };

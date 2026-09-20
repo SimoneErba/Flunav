@@ -11,6 +11,7 @@ import {
   uniqueE2eId,
   updateDestinationMappings,
   updateDestinationExitMappings,
+  updateSensorMappings,
   updateConveyorSpeed,
 } from "./helpers/api";
 import { AuthSession, installAuthSession, loginAsSuperadmin } from "./helpers/auth";
@@ -45,6 +46,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ request }) => {
   await updateDestinationMappings(request, backendUrl, session, []);
   await updateDestinationExitMappings(request, backendUrl, session, []);
+  await updateSensorMappings(request, backendUrl, session, []);
 });
 
 test("websocket-created graph entities appear and animate without reload", async ({ page, request }) => {
@@ -196,6 +198,59 @@ test("admin imports and persists destination exit JSON-array CSV", async ({ page
   }).toEqual([{ destination, exits }]);
 });
 
+test("admin saves multiple logical and direct destinations and exits from list editors", async ({ page, request }) => {
+  const id = uniqueE2eId("destination-list");
+  const directLocationId = `${id}-direct-location`;
+  const firstExitId = `${id}-exit-a`;
+  const secondExitId = `${id}-exit-b`;
+  const logicalDestination = `${id}-logical-destination`;
+  const propertyValue = `${id}-property-value`;
+
+  await createLocation(request, backendUrl, session, { id: directLocationId, name: "Direct destination", latitude: 0, longitude: 0 });
+  await createLocation(request, backendUrl, session, { id: firstExitId, name: "First exit", latitude: 100, longitude: 0 });
+  await createLocation(request, backendUrl, session, { id: secondExitId, name: "Second exit", latitude: 200, longitude: 0 });
+
+  await page.goto("/admin/destination-mappings");
+  const exitsSection = page.getByRole("heading", { name: "Destinations To Exits" }).locator("xpath=ancestor::section");
+  await exitsSection.getByRole("button", { name: "Add Mapping" }).click();
+  const exitDialog = page.getByRole("dialog");
+  await exitDialog.getByLabel("Destination", { exact: true }).fill(logicalDestination);
+  await exitDialog.getByLabel("Exits 1").fill(firstExitId);
+  await exitDialog.getByRole("button", { name: "+ Add exit" }).click();
+  await exitDialog.getByLabel("Exits 2").fill(secondExitId);
+  await exitDialog.getByRole("button", { name: "Add", exact: true }).click();
+  await exitsSection.getByRole("button", { name: "Save", exact: true }).click();
+
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/destination-exit-mappings`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    return response.json();
+  }).toEqual([{ destination: logicalDestination, exits: [firstExitId, secondExitId] }]);
+
+  const propertiesSection = page.getByRole("heading", { name: "Property To Destinations" }).locator("xpath=ancestor::section");
+  await propertiesSection.getByRole("button", { name: "Add Mapping" }).click();
+  const propertyDialog = page.getByRole("dialog");
+  await propertyDialog.getByLabel("Field", { exact: true }).fill("flight_number");
+  await propertyDialog.getByLabel("Value", { exact: true }).fill(propertyValue);
+  await propertyDialog.getByLabel("Destinations 1").fill(logicalDestination);
+  await propertyDialog.getByRole("button", { name: "+ Add destination" }).click();
+  await propertyDialog.getByLabel("Destinations 2").fill(directLocationId);
+  await propertyDialog.getByRole("button", { name: "Add", exact: true }).click();
+  await propertiesSection.getByRole("button", { name: "Save", exact: true }).click();
+
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/destination-mappings`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+    return response.json();
+  }).toEqual([expect.objectContaining({
+    fieldName: "flight_number",
+    value: propertyValue,
+    destinations: [logicalDestination, directLocationId],
+  })]);
+});
+
 test("admin accepts legacy and rush destination-mapping CSV files", async ({ page, request }) => {
   await page.goto("/admin/destination-mappings");
   const section = page.getByRole("heading", { name: "Property To Destinations" }).locator("xpath=ancestor::section");
@@ -221,6 +276,36 @@ test("admin accepts legacy and rush destination-mapping CSV files", async ({ pag
     });
     return response.json();
   }).toEqual([expect.objectContaining({ value: "RUSH-123", rushAt: "2098-01-01T00:00:00Z" })]);
+});
+
+test("admin imports sensor CSV and renders a triangle at the configured conveyor progress", async ({ page, request }) => {
+  const id = uniqueE2eId("sensor-csv");
+  const sourceId = `${id}-source`;
+  const targetId = `${id}-target`;
+  const conveyorId = `${id}-conveyor`;
+  const sensorName = `${id}-scanner`;
+
+  await createLocation(request, backendUrl, session, { id: sourceId, name: "Sensor source", latitude: 0, longitude: 0 });
+  await createLocation(request, backendUrl, session, { id: targetId, name: "Sensor target", latitude: 100, longitude: 0 });
+  await createConveyor(request, backendUrl, session, { id: conveyorId, sourceId, targetId, length: 100, speed: 10 });
+
+  await page.goto("/admin/sensors");
+  const section = page.getByRole("heading", { name: "Sensors" }).locator("xpath=ancestor::section");
+  await section.locator('input[type="file"]').setInputFiles({
+    name: "sensors.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(`sensorName,conveyorId,progress\n${sensorName},${conveyorId},20\n`),
+  });
+  await section.getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const response = await request.get(`${backendUrl}/api/sensor-mappings`, { headers: { Authorization: `Bearer ${session.token}` } });
+    return response.json();
+  }).toEqual([{ sensorName, conveyorId, progress: 20 }]);
+
+  await page.goto("/live");
+  await waitForGraphTestApi(page);
+  await expect.poll(() => page.evaluate((nodeId) => window.__graphTestApi?.getNode(nodeId)?.attributes, `sensor:${sensorName}`))
+    .toMatchObject({ isSensor: true, type: "triangle", x: 20, y: 0, progress: 20 });
 });
 
 test("stop condition freezes moving item", async ({ page, request }) => {

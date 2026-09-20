@@ -245,7 +245,7 @@ public class SimulationService {
             try (var context = DatabaseContextHolder.enterSimulationContext(id);
                     var virtualTime = timeService.enterVirtualTime(fork)) {
                 historicalGraphBuilder.restoreFromSnapshotData(baseline);
-                for (DomainEvent mapping : clickHouseService.getLatestDestinationMappingEventsBefore(fork)) {
+                for (DomainEvent mapping : clickHouseService.getLatestConfigurationEventsBefore(fork)) {
                     eventProcessor.processEventWithoutBroadcast(mapping);
                 }
                 anomalyObservationRepository.initializeForkTimestamp(fork);
@@ -310,6 +310,13 @@ public class SimulationService {
         simulationInputService.unregister(state.getId());
         persistState(state);
         webSocketService.broadcastSimulationMode(state);
+    }
+
+    /** Detaches an isolated scenario from live intake while retaining its simulation lifecycle. */
+    public void isolateFromLiveInput(String simulationId) {
+        synchronized (lifecycleLock(simulationId)) {
+            freezeLiveInput(getSimulationState(simulationId));
+        }
     }
 
     public SimulationState getOrCreateSimulation(String simulationId, Instant timestamp) {
@@ -511,6 +518,25 @@ public class SimulationService {
             Instant updateTimestamp = timestamp != null ? timestamp : timeService.physicalNow();
             this.webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(), updateTimestamp,
                     state.getBuildProgress());
+        }
+    }
+
+    /** Advances a paused scenario clock without overwriting an active playback status. */
+    public void updateSimulationProgress(String simulationId, Instant timestamp) {
+        SimulationState state = loadOrRefreshSimulationState(simulationId);
+        if (state == null || timestamp == null) {
+            return;
+        }
+        synchronized (state.getExecutionLock()) {
+            if (state.getStatus() != SimulationStatus.PLAYING) {
+                Instant previous = state.getLastProcessedTimestamp();
+                if (previous == null || timestamp.isAfter(previous)) {
+                    state.setLastProcessedTimestamp(timestamp);
+                }
+                persistState(state);
+                webSocketService.broadcastSimulationUpdate(simulationId, state.getStatus(),
+                        state.getLastProcessedTimestamp(), state.getBuildProgress());
+            }
         }
     }
 
