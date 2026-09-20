@@ -1083,6 +1083,10 @@ public class EventProcessor {
                     conveyor.setOperatorEnabled(true);
                     conveyor.setActive(!hasStoppingAlarm(conveyor));
                     conveyorService.updateConveyor(conveyor);
+                    if (manageLogic && !wasActive && conveyor.isActive()) {
+                        itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
+                        itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
+                    }
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, conveyor.getId(), conveyor.isActive(), null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
@@ -1101,9 +1105,15 @@ public class EventProcessor {
                 case ConnectionDeactivatedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     boolean wasActive = conveyor.isActive();
+                    if (manageLogic && wasActive) {
+                        checkpointItems(conveyor.getId(), conveyor.getSpeed(), e.getTimestamp());
+                    }
                     conveyor.setOperatorEnabled(false);
                     conveyor.setActive(false);
                     conveyorService.updateConveyor(conveyor);
+                    if (manageLogic && wasActive) {
+                        itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
+                    }
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, conveyor.getId(), false, null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());

@@ -41,10 +41,13 @@ public class AirportRoutingDemoScenarioService {
     private static final String PRIMARY_SECOND_CONVEYOR = PREFIX + "gate-a-exit";
     private static final String ALTERNATE_FIRST_CONVEYOR = PREFIX + "gate-b-approach";
     private static final String ALTERNATE_SECOND_CONVEYOR = PREFIX + "gate-b-exit";
+    private static final String PRIMARY_BYPASS = PREFIX + "gate-a-recirculation-bypass";
     private static final String LOOP_OUT = PREFIX + "recirculation-out";
     private static final String LOOP_ACROSS = PREFIX + "recirculation-across";
     private static final String LOOP_BACK = PREFIX + "recirculation-back";
-    private static final int ITEM_COUNT = 18;
+    private static final int ITEM_COUNT = 12;
+    private static final double CONVEYOR_SPEED = 6.0;
+    private static final long ITEM_INTERVAL_MILLIS = 1_500L;
 
     private final EventProcessor events;
     private final TopologyProvider topology;
@@ -71,7 +74,7 @@ public class AirportRoutingDemoScenarioService {
         SimulationState simulation = simulations.createWhatIf(null);
         String simulationId = simulation.getId();
         simulations.isolateFromLiveInput(simulationId);
-        active = new DemoStatus(simulationId, startedAt, startedAt.plusSeconds(25), true);
+        active = new DemoStatus(simulationId, startedAt, startedAt.plusSeconds(35), true);
 
         inDemoContext(simulationId, () -> {
             clearClonedTopology();
@@ -82,7 +85,7 @@ public class AirportRoutingDemoScenarioService {
         executor.schedule(() -> inDemoContext(simulationId, this::stopPrimaryRoute), 10, TimeUnit.SECONDS);
         for (int index = 1; index <= ITEM_COUNT; index++) {
             int itemNumber = index;
-            long delayMillis = 500L + ((index - 1L) * 1_000L);
+            long delayMillis = 500L + ((index - 1L) * ITEM_INTERVAL_MILLIS);
             executor.schedule(() -> inDemoContext(simulationId, () -> publishBag(itemNumber)),
                     delayMillis, TimeUnit.MILLISECONDS);
         }
@@ -122,6 +125,7 @@ public class AirportRoutingDemoScenarioService {
         createConveyor(ALTERNATE_FIRST_CONVEYOR, DECISION, ALTERNATE_MIDPOINT, "Gate B approach", 40.0, false);
         createConveyor(ALTERNATE_SECOND_CONVEYOR, ALTERNATE_MIDPOINT, ALTERNATE_EXIT, "Gate B exit belt", 40.0,
                 false);
+        createConveyor(PRIMARY_BYPASS, PRIMARY_MIDPOINT, LOOP_FAR, "Gate A recirculation bypass", 45.0, true);
         createConveyor(LOOP_OUT, DECISION, LOOP_FAR, "Recirculation outbound", 30.0, true);
         createConveyor(LOOP_ACROSS, LOOP_FAR, LOOP_RETURN, "Recirculation transfer", 30.0, true);
         createConveyor(LOOP_BACK, LOOP_RETURN, DECISION, "Recirculation return", 30.0, true);
@@ -139,8 +143,8 @@ public class AirportRoutingDemoScenarioService {
 
     private void createConveyor(String id, String source, String target, String name, double length,
             boolean mainPath) {
-        long traversalMillis = Math.round((length / 10.0) * 1_000.0);
-        events.process(new ConnectionCreatedEvent(id, source, target, length, 10.0, 0.0, traversalMillis,
+        long traversalMillis = Math.round((length / CONVEYOR_SPEED) * 1_000.0);
+        events.process(new ConnectionCreatedEvent(id, source, target, length, CONVEYOR_SPEED, 0.0, traversalMillis,
                 mainPath, name, true, ConveyorType.BELT, 100,
                 Map.of("scenario", "airport-routing-demo")), true).join();
     }

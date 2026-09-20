@@ -165,8 +165,8 @@ public class ItemMovementProcessor {
             return;
         }
 
-        // 1. Handle Stopped Conveyor
-        if (speed <= 0) {
+        // Inactive conveyors retain items at their checkpoint until reactivated.
+        if (!conveyor.isActive() || speed <= 0) {
             cancelScheduledEvent(itemId);
             Double currentTail = liveConveyorRepository.getTailPosition(conveyorId);
             double itemDistance = length * (progress / 100.0);

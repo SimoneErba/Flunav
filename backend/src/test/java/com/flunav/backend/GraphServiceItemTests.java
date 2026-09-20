@@ -1533,6 +1533,31 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void deactivatedConveyorFreezesScheduledItemUntilReactivated() {
+        Instant now = Instant.now();
+        createLocation("stop-motion-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("stop-motion-exit", "Exit", LocationType.CHUTE, 10);
+        conveyorService.createConveyor("stop-motion-conveyor", "stop-motion-start", "stop-motion-exit",
+                "Stop Motion", 10_000.0, 1.0, 0.0, false, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "stop-motion-item", "Stop Motion Item", 1.0, true, "stop-motion-start",
+                PositionType.LOCATION, 0.0, List.of("stop-motion-exit"), Map.of(), now));
+
+        assertNotNull(itemMovementProcessor.getScheduledEvent("stop-motion-item"));
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionDeactivatedEvent("stop-motion-conveyor"));
+
+        assertNull(itemMovementProcessor.getScheduledEvent("stop-motion-item"));
+        assertEquals("stop-motion-conveyor",
+                liveItemRepository.getItemState("stop-motion-item").getPositionId());
+
+        eventProcessor.processEventWithoutBroadcast(new ConnectionActivatedEvent("stop-motion-conveyor"));
+
+        assertNotNull(itemMovementProcessor.getScheduledEvent("stop-motion-item"));
+    }
+
+    @Test
     void itemEnteringChuteBecomesCompletedUntilChuteIsEmptied() {
         Instant now = Instant.now();
         Instant arrivedAt = now.plusSeconds(10);
