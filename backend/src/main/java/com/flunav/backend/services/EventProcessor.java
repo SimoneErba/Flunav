@@ -102,6 +102,7 @@ public class EventProcessor {
     private final AnomalyObservationService anomalyObservationService;
     private final AnomalyEngine anomalyEngine;
     private final SimulationInputService simulationInputService;
+    private final MultiSimulationMetricsService multiSimulationMetricsService;
 
     ModelMapper modelMapper = new ModelMapper();
 
@@ -142,6 +143,7 @@ public class EventProcessor {
             AnomalyObservationService anomalyObservationService,
             @Lazy AnomalyEngine anomalyEngine,
             SimulationInputService simulationInputService,
+            MultiSimulationMetricsService multiSimulationMetricsService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.clickHouseService = clickHouseService;
         this.itemService = itemService;
@@ -174,6 +176,7 @@ public class EventProcessor {
         this.anomalyObservationService = anomalyObservationService;
         this.anomalyEngine = anomalyEngine;
         this.simulationInputService = simulationInputService;
+        this.multiSimulationMetricsService = multiSimulationMetricsService;
         this.manageLogic = manageLogic;
     }
 
@@ -1305,6 +1308,7 @@ public class EventProcessor {
             };
             invalidatePathCacheAfterTopologyChange(event, result);
             anomalyObservationService.collectTopologyChange(event);
+            multiSimulationMetricsService.recordSuccessfulReduction(event, result);
             if (shouldBroadcast) {
                 throughputBucketService.recordSuccessfulReduction(event, result);
             }
@@ -1627,6 +1631,9 @@ public class EventProcessor {
      * replay event store or crossing RabbitMQ boundaries.
      */
     private void recordPathTraversal(PathTraversedEvent event) {
+        if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+            return;
+        }
         clickHouseService.savePathTraversalMetricAsync(event);
     }
 

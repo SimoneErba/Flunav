@@ -114,6 +114,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     private final AmqpTemplate amqpTemplate;
     private final AmqpAdmin amqpAdmin;
     private final OperationalAnalyticsService operationalAnalyticsService;
+    private final com.flunav.backend.services.MultiSimulationMetricsService multiSimulationMetricsService;
 
     GraphServiceItemTests(
             GraphService graphService,
@@ -140,7 +141,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             StringRedisTemplate redisTemplate,
             AmqpTemplate amqpTemplate,
             AmqpAdmin amqpAdmin,
-            OperationalAnalyticsService operationalAnalyticsService) {
+            OperationalAnalyticsService operationalAnalyticsService,
+            com.flunav.backend.services.MultiSimulationMetricsService multiSimulationMetricsService) {
         this.graphService = graphService;
         this.itemService = itemService;
         this.liveConveyorRepository = liveConveyorRepository;
@@ -166,6 +168,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         this.amqpTemplate = amqpTemplate;
         this.amqpAdmin = amqpAdmin;
         this.operationalAnalyticsService = operationalAnalyticsService;
+        this.multiSimulationMetricsService = multiSimulationMetricsService;
     }
 
     @BeforeEach
@@ -1388,6 +1391,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 pathAssignmentPublisher,
                 webSocketService,
                 operationalAnalyticsService,
+                multiSimulationMetricsService,
                 false);
         disabledProcessor.processLocationEntry("disabled-item", "disabled-decision", now);
 

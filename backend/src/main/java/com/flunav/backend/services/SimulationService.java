@@ -28,6 +28,7 @@ import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.simulation.SimulationKind;
 import com.flunav.backend.models.simulation.LiveInputState;
+import com.flunav.backend.models.multisimulation.MultiSimulationBaseline;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
@@ -140,6 +141,43 @@ public class SimulationService {
     public SimulationState createSimulation(Instant timestamp) {
         String simulationId = "sim_" + UUID.randomUUID().toString().replace("-", "");
         return createSimulation(simulationId, timestamp);
+    }
+
+    /** Creates an isolated topology-only runtime used by one fast multi-simulation run. */
+    public SimulationState createMultiSimulationRuntime(
+            String simulationId,
+            Instant start,
+            MultiSimulationBaseline baseline) {
+        SimulationState state = new SimulationState(
+                simulationId,
+                start,
+                SimulationStatus.READY,
+                timeService.physicalNow(),
+                start,
+                1.0,
+                100.0);
+        state.setKind(SimulationKind.MULTI_SIMULATION_RUN);
+        state.setLiveInputState(LiveInputState.FROZEN);
+        SimulationState previous = simulationCache.putIfAbsent(simulationId, state);
+        if (previous != null) {
+            throw new IllegalStateException("Simulation runtime already exists: " + simulationId);
+        }
+        persistState(state);
+        try {
+            orientDBService.createInMemoryDatabase(simulationId);
+            try (var context = DatabaseContextHolder.enterSimulationContext(simulationId);
+                    var virtualTime = timeService.enterVirtualTime(start)) {
+                historicalGraphBuilder.restoreFromSnapshotData(baseline.graph());
+                for (DomainEvent configurationEvent : baseline.configurationEvents()) {
+                    eventProcessor.processEventWithoutBroadcast(configurationEvent);
+                }
+                anomalyObservationRepository.initializeForkTimestamp(start);
+            }
+            return state;
+        } catch (RuntimeException failure) {
+            destroySimulation(simulationId);
+            throw failure;
+        }
     }
 
     /**
@@ -640,6 +678,15 @@ public class SimulationService {
             state.getInternalEventQueue().add(event);
             state.getScheduledEventsByItem().put(ee.getEntityId(), event);
         }
+    }
+
+    /** Enqueues a planned infrastructure event without replacing another event for that conveyor. */
+    public void addPlannedInternalEvent(flunav.events.DomainEvent event) {
+        SimulationState state = getCurrentSimulation();
+        if (state == null) {
+            throw new IllegalStateException("A simulation context is required");
+        }
+        state.getInternalEventQueue().add(event);
     }
 
     public void cancelInternalEvent(String itemId) {

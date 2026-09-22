@@ -11,6 +11,7 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import flunav.events.DomainEvent;
 import flunav.events.ItemProcessingCompletedEvent;
 import flunav.events.ItemPositionChangedEvent;
+import flunav.events.ItemExitedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -56,6 +57,7 @@ public class ItemMovementProcessor {
     private final PathAssignmentPublisher pathAssignmentPublisher;
     private final WebSocketService webSocketService;
     private final OperationalAnalyticsService operationalAnalyticsService;
+    private final MultiSimulationMetricsService multiSimulationMetricsService;
     private final boolean manageLogic;
 
     public ItemMovementProcessor(
@@ -74,6 +76,7 @@ public class ItemMovementProcessor {
             PathAssignmentPublisher pathAssignmentPublisher,
             WebSocketService webSocketService,
             OperationalAnalyticsService operationalAnalyticsService,
+            MultiSimulationMetricsService multiSimulationMetricsService,
             @Value("${simulation.manage-logic:true}") boolean manageLogic) {
         this.amqpTemplate = amqpTemplate;
         this.itemEventsRoutingKey = itemEventsRoutingKey;
@@ -90,6 +93,7 @@ public class ItemMovementProcessor {
         this.pathAssignmentPublisher = pathAssignmentPublisher;
         this.webSocketService = webSocketService;
         this.operationalAnalyticsService = operationalAnalyticsService;
+        this.multiSimulationMetricsService = multiSimulationMetricsService;
         this.manageLogic = manageLogic;
     }
 
@@ -525,6 +529,9 @@ public class ItemMovementProcessor {
         if (location.getType() == LocationType.CHUTE) {
             itemService.updateItemRoutingStatus(itemId, RoutingStatus.COMPLETED, timestamp);
             liveLocationRepository.addItemToLocation(locationId, itemId);
+            if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+                scheduleEvent(new ItemExitedEvent(itemId, locationId, timestamp));
+            }
             if (publishAssignments) {
                 webSocketService.broadcastItemUpdated(
                         new UpdateModel(itemId, Map.of(

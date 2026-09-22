@@ -32,14 +32,17 @@ public class OperationalAnalyticsService {
     private final ClickHouseService clickHouseService;
     private final LiveSimulationRepository liveSimulationRepository;
     private final TimeService timeService;
+    private final MultiSimulationMetricsService multiSimulationMetricsService;
 
     public OperationalAnalyticsService(
             ClickHouseService clickHouseService,
             LiveSimulationRepository liveSimulationRepository,
-            TimeService timeService) {
+            TimeService timeService,
+            MultiSimulationMetricsService multiSimulationMetricsService) {
         this.clickHouseService = clickHouseService;
         this.liveSimulationRepository = liveSimulationRepository;
         this.timeService = timeService;
+        this.multiSimulationMetricsService = multiSimulationMetricsService;
     }
 
     /**
@@ -48,6 +51,10 @@ public class OperationalAnalyticsService {
      * summary is supplied by immutable live facts.
      */
     public void recordSuccessfulExit(DomainEvent event, String chuteId, RedisLiveItem itemState, String itemId) {
+        multiSimulationMetricsService.recordSuccessfulExit(event.getTimestamp(), itemState);
+        if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+            return;
+        }
         AnalyticsScope scope = currentScope(event.getTimestamp());
         if (!scope.record()) {
             return;
@@ -78,6 +85,10 @@ public class OperationalAnalyticsService {
         if (previousPath == null || newPath == null || Objects.equals(previousPath, newPath)) {
             return;
         }
+        multiSimulationMetricsService.recordRecirculation();
+        if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+            return;
+        }
         AnalyticsScope scope = currentScope(timestamp);
         if (!scope.record()) {
             return;
@@ -100,6 +111,9 @@ public class OperationalAnalyticsService {
             Double speed,
             String sourceId,
             String targetId) {
+        if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+            return;
+        }
         AnalyticsScope scope = currentScope(event.getTimestamp());
         if (!scope.record() || scope.simulationId() == null) {
             return;

@@ -27,12 +27,15 @@ public class AnomalyObservationService {
     private final AnomalyObservationRepository observations;
     private final TopologyProvider topology;
     private final ClickHouseService clickHouse;
+    private final MultiSimulationMetricsService multiSimulationMetricsService;
 
     public AnomalyObservationService(AnomalyObservationRepository observations, TopologyProvider topology,
-            ClickHouseService clickHouse) {
+            ClickHouseService clickHouse,
+            MultiSimulationMetricsService multiSimulationMetricsService) {
         this.observations = observations;
         this.topology = topology;
         this.clickHouse = clickHouse;
+        this.multiSimulationMetricsService = multiSimulationMetricsService;
     }
 
     /**
@@ -41,6 +44,9 @@ public class AnomalyObservationService {
      */
     public void collectPositionChange(ItemPositionChangedEvent event, RedisLiveItem previous,
             PositionType newType) {
+        if (multiSimulationMetricsService.isCollectingCurrentSimulation()) {
+            return;
+        }
         Double previousProgress = progress(previous);
         observations.appendTransition(new PositionTransitionObservation(event.getEventId(), event.getEntityId(),
                 previous != null ? previous.getPositionId() : null,

@@ -33,6 +33,8 @@ import { GraphImportExport } from './components/graph/GraphImportExport';
 
 const AssistantPage = React.lazy(() => import('./components/assistant/AssistantPage')
   .then(module => ({ default: module.AssistantPage })));
+const MultiSimulationsPage = React.lazy(() => import('./components/multisimulation/MultiSimulationsPage')
+  .then(module => ({ default: module.MultiSimulationsPage })));
 
 // ============================================================================
 // 1. AUTH GUARD
@@ -404,6 +406,7 @@ function LiveWorkspace() {
    const leftActions = (
       <div className="flex items-center gap-2">
          {navButton('Live', '/live', true, true)}
+         {navButton('Multi-simulations', '/multi-simulations', false, canAccessBi)}
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
          {navButton('Sensors', '/admin/sensors', false, canAccessSensors)}
@@ -521,6 +524,7 @@ const AdminWorkspace = () => {
             >
                 Live
             </button>
+            {adminNavButton('Multi-simulations', '/multi-simulations', false, canAccessBi)}
             {adminNavButton('Users', '/admin', !isDestinationMappings && !isSensors && !isBi, canAccessUsers)}
             {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
             {adminNavButton('Sensors', '/admin/sensors', isSensors, canAccessSensors)}
@@ -599,6 +603,11 @@ function App() {
                   
                   {/* Operational View (Graph) */}
                   <Route path="/live" element={<LiveWorkspace />} />
+                  <Route path="/multi-simulations" element={(
+                    <React.Suspense fallback={<div className="p-6">Loading multi-simulations…</div>}>
+                      <MultiSimulationsPage />
+                    </React.Suspense>
+                  )} />
                   
                   {/* Admin View (Tables/Forms) */}
                   <Route path="/admin" element={<AdminWorkspace />} />

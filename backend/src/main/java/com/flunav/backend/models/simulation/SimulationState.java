@@ -9,6 +9,7 @@ import java.util.concurrent.PriorityBlockingQueue;
 
 import flunav.events.DomainEvent;
 import flunav.events.AnomalyEvaluationTickEvent;
+import flunav.events.EntityEvent;
 import lombok.Data;
 
 /**
@@ -40,6 +41,7 @@ public class SimulationState {
     private final PriorityBlockingQueue<DomainEvent> internalEventQueue = new PriorityBlockingQueue<>(11,
             Comparator.comparing(DomainEvent::getTimestamp)
                     .thenComparingInt(SimulationState::eventPriority)
+                    .thenComparing(SimulationState::deterministicEventKey)
                     .thenComparing(DomainEvent::getEventId));
     private final Map<String, DomainEvent> scheduledEventsByItem = new ConcurrentHashMap<>();
 
@@ -82,5 +84,10 @@ public class SimulationState {
             case MINUTE -> 2;
             case BASELINE -> 3;
         };
+    }
+
+    private static String deterministicEventKey(DomainEvent event) {
+        String entityId = event instanceof EntityEvent entityEvent ? entityEvent.getEntityId() : "";
+        return event.getEventType() + "\u0000" + entityId;
     }
 }
