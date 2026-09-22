@@ -16,6 +16,9 @@ const validOperators: Record<NonNullable<DisplayRuleDataTypeEnum>, Array<Display
   DATETIME: [DisplayRuleOperatorEnum.Equal, DisplayRuleOperatorEnum.Greater, DisplayRuleOperatorEnum.GreaterOrEqual, DisplayRuleOperatorEnum.Lesser, DisplayRuleOperatorEnum.LesserOrEqual],
 };
 
+const controlClasses = "w-full p-2 rounded border text-sm bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500";
+const controlSurfaceClasses = "bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700";
+
 const InputWrapper: React.FC<{
   children: React.ReactNode;
   label: string;
@@ -51,11 +54,9 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
   };
 
   const renderValueInput = () => {
-    const commonInputClasses = "w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500";
-
     if (rule.dataType === DisplayRuleDataTypeEnum.Boolean) {
       return (
-        <div className="flex items-center justify-center h-10 px-2 bg-gray-700/50 dark:bg-gray-800/50 border border-gray-600 dark:border-gray-700 rounded">
+        <div className={`flex items-center justify-center h-10 px-2 border rounded ${controlSurfaceClasses}`}>
           <input
             type="checkbox"
             checked={!!rule.value}
@@ -68,11 +69,11 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
 
     switch (rule.dataType) {
       case DisplayRuleDataTypeEnum.Datetime:
-        return <input type="date" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={`${commonInputClasses} dark:[color-scheme:dark]`} />;
+        return <input type="date" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={`${controlClasses} dark:[color-scheme:dark]`} />;
       case DisplayRuleDataTypeEnum.Number:
-        return <input type="number" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
+        return <input type="number" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={controlClasses} />;
       default:
-        return <input type="text" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={commonInputClasses} />;
+        return <input type="text" value={String(rule.value ?? '')} onChange={e => onChange({ ...rule, value: e.target.value })} className={controlClasses} />;
     }
   };
 
@@ -111,7 +112,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
 
   // -- Expanded / Horizontal View --
   return (
-    <div className={`${layoutClasses} p-2 rounded bg-black/10 dark:bg-black/20 relative group`}>
+    <div className={`${layoutClasses} p-2 rounded bg-gray-50 dark:bg-black/20 relative group`}>
 
       {/* Drag handle */}
       {orientation === 'horizontal' ? (
@@ -134,7 +135,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
           placeholder="Field Name"
           value={rule.fieldName}
           onChange={e => onChange({ ...rule, fieldName: e.target.value })}
-          className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={controlClasses}
         />
       </InputWrapper>
 
@@ -153,9 +154,6 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
             title="Select color"
           />
         </div>
-        <button type="button" onClick={() => onChange({ ...rule, color: undefined })} className="text-[10px] text-gray-400">
-          No fill
-        </button>
       </InputWrapper>
 
       {/* 3. Type */}
@@ -163,7 +161,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
         <select
           value={rule.dataType || ''}
           onChange={handleTypeChange}
-          className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={controlClasses}
         >
           <option value="" disabled>Select Type</option>
           {Object.values(DisplayRuleDataTypeEnum).map(type => type && <option key={type} value={type}>{type}</option>)}
@@ -176,13 +174,13 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
           <select
             value={rule.operator || ''}
             onChange={e => onChange({ ...rule, operator: e.target.value as DisplayRuleOperatorEnum })}
-            className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className={controlClasses}
           >
             <option value="" disabled>Op</option>
             {availableOperators.map(op => op && <option key={op} value={op}>{op}</option>)}
           </select>
         ) : rule.dataType && (rule.dataType === DisplayRuleDataTypeEnum.String || rule.dataType === DisplayRuleDataTypeEnum.Boolean) ? (
-          <div className="h-10 w-full flex items-center justify-center rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-gray-400">=</div>
+          <div className={`h-10 w-full flex items-center justify-center rounded border text-sm text-gray-600 dark:text-gray-400 ${controlSurfaceClasses}`}>=</div>
         ) : <div className="h-10 w-full" />}
       </InputWrapper>
 
@@ -202,7 +200,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
                 : undefined,
               secondValue: event.target.value ? rule.secondValue ?? 0 : undefined,
             })}
-            className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+            className={controlClasses}
           >
             <option value="">None</option>
             {availableOperators.filter(operator => operator !== DisplayRuleOperatorEnum.Equal)
@@ -217,7 +215,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
             type={rule.dataType === DisplayRuleDataTypeEnum.Number ? "number" : "date"}
             value={String(rule.secondValue ?? "")}
             onChange={event => onChange({ ...rule, secondValue: event.target.value })}
-            className="w-full p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+            className={controlClasses}
           />
         ) : <div className="h-10" />}
       </InputWrapper>
@@ -229,9 +227,6 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
           onChange={event => onChange({ ...rule, borderColor: event.target.value, borderWidth: rule.borderWidth ?? 1 })}
           className="w-10 h-10 cursor-pointer"
         />
-        <button type="button" onClick={() => onChange({ ...rule, borderColor: undefined, borderWidth: undefined })} className="text-[10px] text-gray-400">
-          No border
-        </button>
       </InputWrapper>
 
       <InputWrapper label="Width" orientation={orientation}>
@@ -242,7 +237,7 @@ export const RuleRow = ({ rule, onChange, onDelete, orientation, dragHandleProps
           disabled={!rule.borderColor}
           value={rule.borderWidth ?? ""}
           onChange={event => onChange({ ...rule, borderWidth: Number(event.target.value) })}
-          className="w-20 p-2 rounded border text-sm bg-gray-700/50 dark:bg-gray-800/50 border-gray-600 dark:border-gray-700 text-white"
+          className={`${controlClasses} w-20 disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:bg-gray-800/50 dark:disabled:text-gray-500`}
         />
       </InputWrapper>
 

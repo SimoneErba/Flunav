@@ -60,6 +60,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
 
   // --- Panel ref for click-outside ---
   const panelRef = useRef<HTMLDivElement>(null);
+  const outsidePointerRef = useRef<{ pointerId: number; x: number; y: number; didDrag: boolean } | null>(null);
 
   // --- Dimensions ---
   const [dimensions, setDimensions] = useState({ width: 350, height: 300 });
@@ -71,26 +72,54 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   useEffect(() => {
     if (!isExpanded) return;
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        (window as Window & { __suppressNextGraphStageClickUntil?: number }).__suppressNextGraphStageClickUntil = Date.now() + 300;
-        e.stopPropagation();
-        e.preventDefault();
-        setIsExpanded(false);
+    const handlePointerDown = (e: PointerEvent) => {
+      outsidePointerRef.current = panelRef.current?.contains(e.target as Node)
+        ? null
+        : { pointerId: e.pointerId, x: e.clientX, y: e.clientY, didDrag: false };
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const pointer = outsidePointerRef.current;
+      if (!pointer || pointer.pointerId !== e.pointerId || pointer.didDrag) return;
+
+      const deltaX = e.clientX - pointer.x;
+      const deltaY = e.clientY - pointer.y;
+      if (deltaX * deltaX + deltaY * deltaY > 16) {
+        pointer.didDrag = true;
+      }
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const pointer = outsidePointerRef.current;
+      if (!pointer || pointer.pointerId !== e.pointerId) return;
+
+      outsidePointerRef.current = null;
+      if (pointer.didDrag) return;
+
+      (window as Window & { __suppressNextGraphStageClickUntil?: number }).__suppressNextGraphStageClickUntil = Date.now() + 300;
+      setIsExpanded(false);
+    };
+
+    const handlePointerCancel = (e: PointerEvent) => {
+      if (outsidePointerRef.current?.pointerId === e.pointerId) {
+        outsidePointerRef.current = null;
       }
     };
 
     const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside, true);
-      document.addEventListener('click', handleClickOutside, true);
-      document.addEventListener('pointerdown', handleClickOutside, true);
+      document.addEventListener('pointerdown', handlePointerDown, true);
+      document.addEventListener('pointermove', handlePointerMove, true);
+      document.addEventListener('pointerup', handlePointerUp, true);
+      document.addEventListener('pointercancel', handlePointerCancel, true);
     }, 100);
 
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('mousedown', handleClickOutside, true);
-      document.removeEventListener('click', handleClickOutside, true);
-      document.removeEventListener('pointerdown', handleClickOutside, true);
+      outsidePointerRef.current = null;
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('pointermove', handlePointerMove, true);
+      document.removeEventListener('pointerup', handlePointerUp, true);
+      document.removeEventListener('pointercancel', handlePointerCancel, true);
     };
   }, [isExpanded]);
 

@@ -74,7 +74,9 @@ class PriorityDemoSimulation implements Simulation {
         sendEvent(new MapDisplayRulesEvent(List.of(
                 new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 1, "#3b82f6", 1),
                 new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 2, "#22c55e", 1),
-                new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 3, "#f97316", 1))), "PUT");
+                new DisplayRule("flight", DataType.NUMBER, OperatorType.EQUAL, 3, "#f97316", 1),
+                new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.8,
+                        null, null, null, "#facc15", 3.0, 1))), "PUT");
         sendEvent(new MapDestinationExitsEvent(List.of(
                 new DestinationExitMappingRecord(SHARED_DESTINATION, List.of(EXIT_1, EXIT_2)),
                 new DestinationExitMappingRecord(ORANGE_DESTINATION, List.of(EXIT_3)))), "PUT");
