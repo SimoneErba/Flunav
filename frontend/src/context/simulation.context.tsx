@@ -32,9 +32,13 @@ const isOperationalCommand = (url?: string) =>
     /\/api\/conveyors\/[^/?]+\/(activate|deactivate|release)(?:\?|$)/.test(url ?? '') ||
     /\/api\/locations\/[^/?]+\/empty(?:\?|$)/.test(url ?? '');
 
+const isLayoutMutation = (url?: string) =>
+    /\/api\/locations\/[^/?]+\/coordinates(?:\?|$)/.test(url ?? '');
+
 const isGraphMutation = (method?: string, url?: string) =>
     !['get', 'head', 'options'].includes((method ?? 'get').toLowerCase()) &&
     !isOperationalCommand(url) &&
+    !isLayoutMutation(url) &&
     /\/api\/(items|locations|conveyors|positions|graph\/import)(\/|$|\?)/.test(url ?? '');
 
 /** One shared transition guards every graph mutation, including edits from controls outside the graph. */

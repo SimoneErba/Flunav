@@ -16,9 +16,13 @@ import com.flunav.backend.test.SimulationTestHarness;
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.ConnectionSpeedChangedEvent;
 import flunav.events.AnomalyEvaluationTickEvent;
+import flunav.events.ComponentAlarmRaisedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemPathChangedEvent;
 import flunav.events.LocationCreatedEvent;
+import flunav.types.AlarmSeverity;
+import flunav.types.AlarmSource;
+import flunav.types.ComponentType;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -111,6 +115,7 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         stopAndDestroy("sim-reschedule-speed");
         stopAndDestroy("sim-ready-speed");
         stopAndDestroy("sim-paused-speed");
+        stopAndDestroy("sim-invalid-event");
         sim.reset();
         truncateClickHouse();
         flushRedis();
@@ -391,6 +396,27 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         assertEquals("future-state-end", item.getLocationId(),
                 "Future simulation should project item state at the requested future timestamp");
         assertTrue(item.getProgress() >= 0.99, "Item should have completed conveyor travel in projected future state");
+    }
+
+    @Test
+    void historicalBuildSkipsAnEventForAMissingComponentAndContinuesReplay() throws Exception {
+        clickHouseService.saveEventAsync(new LocationCreatedEvent(
+                "invalid-event-start", "Start", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new ComponentAlarmRaisedEvent(
+                "orphan-alarm", "orphan-finding", "missing-location", ComponentType.LOCATION,
+                "MISSING_COMPONENT", AlarmSource.AUTOMATIC, AlarmSeverity.WARNING, false, Instant.now()));
+        Thread.sleep(5);
+        clickHouseService.saveEventAsync(new ItemCreatedEvent(
+                "invalid-event-item", "Box", 1.0, true, "invalid-event-start", PositionType.LOCATION, 0.0,
+                new HashMap<>(), Instant.now()));
+        clickHouseService.flushEvents();
+
+        simulationService.getOrCreateSimulation("sim-invalid-event", Instant.now().plusMillis(100));
+        waitForStatus("sim-invalid-event", SimulationStatus.READY);
+
+        assertTrue(getSimulationItem("sim-invalid-event", Instant.now(), "invalid-event-item").isPresent(),
+                "Replay should continue with valid events after an invalid historical event");
     }
 
     @Test

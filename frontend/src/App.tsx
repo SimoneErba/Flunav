@@ -217,7 +217,7 @@ function LiveWorkspace() {
             refetchGraphData(simId);
             setIsRestoring(false);
         } else if (update.status === SimulationStateResponseStatusEnum.Failed) {
-          toast.error(`Simulation failed: ${update.message}`);
+            toast.error(update.message ?? 'Simulation could not continue');
             setIsRestoring(false);
         }
     };
@@ -239,6 +239,7 @@ function LiveWorkspace() {
     if (!connected || designMode) return;
     return subscribeToAnomalies((notification) => {
       const finding = notification.finding;
+      if (finding?.detector === 'UNSCORABLE_CAPACITY') return;
       const mode = finding?.temporalMode?.replaceAll('_', ' ') ?? (activeSimulation ? 'SIMULATION' : 'LIVE');
       if (notification.kind === 'FINDING_DETECTED' && finding) {
         persistentNotification(
@@ -351,6 +352,11 @@ function LiveWorkspace() {
             What If
           </button>
         )}
+        {activeSimulation && !isWhatIf && (
+          <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+            Exit Sim
+          </button>
+        )}
         {isWhatIf && (
           <button
             disabled={isExitingWhatIf}
@@ -394,15 +400,9 @@ function LiveWorkspace() {
       </button>
    );
 
-   // 2. left Actions (Exit Sim, navigation)
+   // 2. left Actions (navigation)
    const leftActions = (
       <div className="flex items-center gap-2">
-         {activeSimulation && !isWhatIf && (
-            <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-               Exit Sim
-            </button>
-         )}
-
          {navButton('Live', '/live', true, true)}
          {navButton('Users', '/admin', false, canAccessUsers)}
          {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}

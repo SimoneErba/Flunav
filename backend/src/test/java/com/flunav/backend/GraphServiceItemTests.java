@@ -1533,6 +1533,45 @@ class GraphServiceItemTests extends BaseIntegrationTest {
     }
 
     @Test
+    void deactivatingPriorityDemoExitsReroutesAnApproachingItemOntoTheLoop() {
+        Instant now = Instant.now();
+        createLocation("priority-stop-entry", "Entry", LocationType.JUNCTION, 0);
+        createLocation("priority-stop-decision", "Decision", LocationType.DECISION_POINT, 0);
+        createLocation("priority-stop-loop", "Loop", LocationType.JUNCTION, 0);
+        createLocation("priority-stop-exit-1", "Exit 1", LocationType.CHUTE, 10);
+        createLocation("priority-stop-exit-2", "Exit 2", LocationType.CHUTE, 10);
+        createLocation("priority-stop-exit-3", "Exit 3", LocationType.CHUTE, 10);
+
+        conveyorService.createConveyor("priority-stop-entry-decision", "priority-stop-entry", "priority-stop-decision",
+                "Entry", 3.0, 0.25, 0.0, true, true);
+        conveyorService.createConveyor("priority-stop-exit-1-conveyor", "priority-stop-decision", "priority-stop-exit-1",
+                "Exit 1", 3.0, 0.25, 0.0, false, true);
+        conveyorService.createConveyor("priority-stop-exit-2-conveyor", "priority-stop-decision", "priority-stop-exit-2",
+                "Exit 2", 3.0, 0.25, 0.0, false, true);
+        conveyorService.createConveyor("priority-stop-exit-3-conveyor", "priority-stop-decision", "priority-stop-exit-3",
+                "Exit 3", 3.0, 0.25, 0.0, false, true);
+        conveyorService.createConveyor("priority-stop-loop-conveyor", "priority-stop-decision", "priority-stop-loop",
+                "Loop", 3.0, 0.25, 0.0, true, true);
+
+        eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
+                "priority-stop-orange", "Orange", 1.0, true, "priority-stop-entry", PositionType.LOCATION, 0.0,
+                List.of("priority-stop-exit-3"), Map.of(), now));
+        assertEquals("priority-stop-exit-3-conveyor", assertInstanceOf(ItemPositionChangedEvent.class,
+                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getLocationId());
+
+        eventProcessor.processEventWithoutBroadcast(
+                new ConnectionDeactivatedEvent("priority-stop-exit-1-conveyor"));
+        eventProcessor.processEventWithoutBroadcast(
+                new ConnectionDeactivatedEvent("priority-stop-exit-3-conveyor"));
+
+        var rerouted = itemService.getItemById("priority-stop-orange");
+        assertEquals(List.of("priority-stop-decision", "priority-stop-loop"), rerouted.getPath());
+        assertEquals(RoutingStatus.UNROUTED, rerouted.getRoutingStatus());
+        assertEquals("priority-stop-loop-conveyor", assertInstanceOf(ItemPositionChangedEvent.class,
+                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getLocationId());
+    }
+
+    @Test
     void deactivatedConveyorFreezesScheduledItemUntilReactivated() {
         Instant now = Instant.now();
         createLocation("stop-motion-start", "Start", LocationType.JUNCTION, 0);
@@ -1552,9 +1591,44 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertEquals("stop-motion-conveyor",
                 liveItemRepository.getItemState("stop-motion-item").getPositionId());
 
+        Instant frozenAt = Instant.now().minusSeconds(20_000);
+        liveItemRepository.checkpointPhysics("stop-motion-item", frozenAt, 25.0);
+
+        ItemResponse projectedItem = graphService.getGraphData(now.plusSeconds(20_000), false, null, false)
+                .getItems().stream()
+                .filter(item -> "stop-motion-item".equals(item.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("stop-motion-conveyor", projectedItem.getCurrentEdgeId());
+        assertNull(projectedItem.getLocationId());
+
         eventProcessor.processEventWithoutBroadcast(new ConnectionActivatedEvent("stop-motion-conveyor"));
 
-        assertNotNull(itemMovementProcessor.getScheduledEvent("stop-motion-item"));
+        var resumedState = liveItemRepository.getItemState("stop-motion-item");
+        assertEquals(25.0, resumedState.getAccumulatedDistance(), 0.0001);
+        assertTrue(resumedState.getEntryTime().isAfter(frozenAt));
+        ItemPositionChangedEvent resumedEvent = assertInstanceOf(ItemPositionChangedEvent.class,
+                itemMovementProcessor.getScheduledEvent("stop-motion-item"));
+        assertTrue(resumedEvent.getTimestamp().isAfter(resumedState.getEntryTime().plusSeconds(7_400)));
+    }
+
+    @Test
+    void positionEventStoresConveyorProgressAsPercentage() {
+        Instant now = Instant.now();
+        createLocation("percentage-checkpoint-start", "Start", LocationType.JUNCTION, 0);
+        createLocation("percentage-checkpoint-end", "End", LocationType.JUNCTION, 0);
+        conveyorService.createConveyor("percentage-checkpoint-conveyor", "percentage-checkpoint-start",
+                "percentage-checkpoint-end",
+                "Checkpoint", 20.0, 1.0, 0.0, false, false);
+        createItem("percentage-checkpoint-item", "Checkpoint Item", "percentage-checkpoint-start", now, Map.of());
+
+        eventProcessor.processEventWithoutBroadcast(new ItemPositionChangedEvent(
+                "percentage-checkpoint-item", "percentage-checkpoint-conveyor", 25.0, now.plusSeconds(1)));
+
+        var state = liveItemRepository.getItemState("percentage-checkpoint-item");
+        assertEquals("percentage-checkpoint-conveyor", state.getPositionId());
+        assertEquals(PositionType.CONVEYOR, state.getType());
+        assertEquals(25.0, state.getAccumulatedDistance(), 0.0001);
     }
 
     @Test

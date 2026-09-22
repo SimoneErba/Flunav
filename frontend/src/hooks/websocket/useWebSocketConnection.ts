@@ -27,6 +27,7 @@ const getWebSocketUrl = () => {
 };
 
 interface SubscriptionManager {
+    topic: string;
     subscription: StompSubscription;
     handlers: Map<string, GenericHandler>;
 }
@@ -43,6 +44,35 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
     const subscriptions = useRef<Map<string, SubscriptionManager>>(new Map());
     const [connected, setConnected] = useState(false);
 
+    const handleMessage = useCallback((topic: string, message: Message) => {
+        try {
+            const envelope: SocketEnvelope<unknown> = JSON.parse(message.body);
+            if (envelope.senderId === CLIENT_ID) return;
+
+            const payload = envelope.payload;
+            const hasPayloadTimestamp = typeof payload === 'object' && payload !== null
+                && Object.prototype.hasOwnProperty.call(payload, 'timestamp');
+            const mergedData = typeof payload === 'object' && payload !== null
+                ? {
+                    ...payload,
+                    timestamp: hasPayloadTimestamp
+                        ? (payload as { timestamp: unknown }).timestamp
+                        : envelope.timestamp,
+                }
+                : { value: payload, timestamp: envelope.timestamp };
+            subscriptions.current.get(topic)?.handlers.forEach(handler => handler(mergedData));
+        } catch (error) {
+            console.error("WS Parse Error", error);
+        }
+    }, []);
+
+    const subscribeTopic = useCallback((topic: string) => {
+        if (!client.current?.connected) return;
+        const manager = subscriptions.current.get(topic);
+        if (!manager) return;
+        manager.subscription = client.current.subscribe(topic, message => handleMessage(topic, message));
+    }, [handleMessage]);
+
     const connect = useCallback(() => {
         if (client.current?.active) return;
         const brokerURL = getWebSocketUrl();
@@ -53,10 +83,13 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
             heartbeatOutgoing: 4000,
         });
 
-        client.current.onConnect = () => setConnected(true);
+        client.current.onConnect = () => {
+            subscriptions.current.forEach((_manager, topic) => subscribeTopic(topic));
+            setConnected(true);
+        };
         client.current.onWebSocketClose = () => setConnected(false);
         client.current.activate();
-    }, []);
+    }, [subscribeTopic]);
 
     /**
      * Multiplexes handlers for the same STOMP topic through one subscription.
@@ -70,35 +103,10 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
         
         // If topic not subscribed yet, create subscription
         if (!subscriptions.current.has(topic)) {
-            const subscription = client.current.subscribe(topic, (message: Message) => {
-                try {
-                    const envelope: SocketEnvelope<unknown> = JSON.parse(message.body);
-
-                    // 1. Filter Echoes
-                    if (envelope.senderId === CLIENT_ID) return;
-
-                    const payload = envelope.payload;
-                    const hasPayloadTimestamp =
-                        typeof payload === 'object' &&
-                        payload !== null &&
-                        Object.prototype.hasOwnProperty.call(payload, 'timestamp');
-                    const mergedData =
-                        typeof payload === 'object' && payload !== null
-                            ? {
-                                ...payload,
-                                timestamp: hasPayloadTimestamp
-                                    ? (payload as { timestamp: unknown }).timestamp
-                                    : envelope.timestamp,
-                            }
-                            : { value: payload, timestamp: envelope.timestamp };
-
-                    subscriptions.current.get(topic)?.handlers.forEach(h => h(mergedData));
-                } catch (e) {
-                    console.error("WS Parse Error", e);
-                }
-            });
+            const subscription = client.current.subscribe(topic, message => handleMessage(topic, message));
 
             subscriptions.current.set(topic, {
+                topic,
                 subscription,
                 handlers: new Map()
             });
@@ -118,7 +126,7 @@ const useWebSocketConnectionState = (): WebSocketContextValue => {
                 }
             }
         };
-    }, []);
+    }, [handleMessage]);
 
     useEffect(() => {
         connect();

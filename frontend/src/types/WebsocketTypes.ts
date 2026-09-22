@@ -25,10 +25,12 @@ export interface SocketEnvelope<T> {
 
 // --- Payloads ---
 
-// Matches Java: record PositionUpdate(String itemId, String edgeId, PositionStatus status, PositionType type, Double progress)
+// `positionId` identifies either the current location or conveyor. `edgeId` is
+// retained so clients can read checkpoints sent by older backend versions.
 export interface PositionUpdate {
     itemId: string;
-    edgeId: string | null;
+    positionId?: string | null;
+    edgeId?: string | null;
     status: PositionStatus;
     type: PositionTypeEnum;
     progress: number | null;

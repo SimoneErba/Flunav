@@ -28,7 +28,7 @@ export const AnomalyFeed = () => {
         axiosInstance.get<AnomalyFinding[]>('/api/analytics/anomalies', { headers }),
         axiosInstance.get<AnomalyIncident[]>('/api/analytics/anomaly-incidents', { headers }),
       ]);
-      setFindings(findingResponse.data);
+      setFindings(findingResponse.data.filter(finding => finding.detector !== 'UNSCORABLE_CAPACITY'));
       setIncidents(incidentResponse.data);
       setError(null);
     } catch (requestError) {

@@ -30,7 +30,7 @@ public class SimulationIdFilter implements Filter {
         try {
             if (request instanceof HttpServletRequest httpRequest) {
                 String simId = httpRequest.getHeader("X-Simulation-ID");
-                if (simId != null && !simId.isBlank()) {
+                if (simId != null && !simId.isBlank() && !usesExplicitSimulationTarget(httpRequest)) {
                     var metadata = liveSimulationRepository.getState(simId).orElse(null);
                     if (metadata == null) {
                         HttpServletResponse httpResponse = (HttpServletResponse) response;
@@ -73,5 +73,10 @@ public class SimulationIdFilter implements Filter {
         String path = request.getRequestURI();
         return path.matches("/api/(items|locations|conveyors|positions)(/.*)?")
                 || path.matches("/api/graph/import(/.*)?");
+    }
+
+    /** Simulation lifecycle endpoints resolve their target from the path or body. */
+    private boolean usesExplicitSimulationTarget(HttpServletRequest request) {
+        return request.getRequestURI().matches("/api/simulations(/.*)?");
     }
 }

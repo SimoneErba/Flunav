@@ -25,6 +25,15 @@ import { axiosInstance } from '../api/axiosInstance';
 export const useApi = () => {
     const { activeSimulation } = useSimulationContext();
 
+    const simulationApiConfig = useMemo(() => new Configuration({
+        basePath: baseURL,
+        baseOptions: {
+            headers: {
+                'X-Sender-ID': CLIENT_ID,
+            },
+        },
+    }), []);
+
     const apiConfig = useMemo(() => {
         const headers: Record<string, string> = {
             'X-Sender-ID': CLIENT_ID
@@ -44,7 +53,10 @@ export const useApi = () => {
     const itemApi = useMemo(() => new ItemControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const locationApi = useMemo(() => new LocationControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const positionsApi = useMemo(() => new PositionsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
-    const simulationApi = useMemo(() => new SimulationsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
+    const simulationApi = useMemo(
+        () => new SimulationsApi(simulationApiConfig, undefined, axiosInstance),
+        [simulationApiConfig],
+    );
     const conveyorsApi = useMemo(() => new ConveyorsApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const displayRuleApi = useMemo(() => new DisplayRulesControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);
     const destinationMappingApi = useMemo(() => new DestinationMappingControllerApi(apiConfig, undefined, axiosInstance), [apiConfig]);

@@ -109,10 +109,7 @@ public class AnomalyObservationService {
             return null;
         }
         try {
-            Conveyor conveyor = topology.getConveyorById(item.getPositionId());
-            return conveyor != null && conveyor.getLength() != null && conveyor.getLength() > 0
-                    ? item.getAccumulatedDistance() / conveyor.getLength()
-                    : null;
+            return Math.min(1.0, Math.max(0.0, item.getAccumulatedDistance() / 100.0));
         } catch (RuntimeException missing) {
             return null;
         }

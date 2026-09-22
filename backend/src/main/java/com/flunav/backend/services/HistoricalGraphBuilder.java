@@ -247,7 +247,13 @@ public class HistoricalGraphBuilder {
      */
     private void processExternalEvent(DomainEvent event) {
         try (var timeContext = timeService.enterVirtualTime(event.getTimestamp())) {
-            eventProcessor.processEventWithoutBroadcast(event);
+            try {
+                eventProcessor.processEventWithoutBroadcast(event);
+            } catch (RuntimeException failure) {
+                logger.warn("Skipping unreplayable historical event {} ({}) at {} for simulation {}: {}",
+                        event.getEventId(), event.getEventType(), event.getTimestamp(),
+                        DatabaseContextHolder.getSimulationId(), failure.getMessage());
+            }
         }
     }
 
@@ -411,22 +417,20 @@ public class HistoricalGraphBuilder {
 
     /**
      * Rehydrates a snapshot item into Redis hot state.
-     * Conveyor progress is converted back to accumulated distance because movement
-     * projection depends on distance checkpoints rather than rendered progress.
+     * Snapshot and Redis positions both use percentage progress.
      */
     private void restoreItemToRedis(ItemResponse itemData, Map<String, ConveyorResponse> conveyorMap,
             Instant snapshotTimestamp) {
         String positionId;
         PositionType type;
-        double accumulatedDistance = 0.0;
+        double progressPercent = 0.0;
         Instant effectiveTimestamp = snapshotTimestamp != null ? snapshotTimestamp : itemData.getEntryTimestamp();
 
         if (itemData.getCurrentEdgeId() != null) {
             positionId = itemData.getCurrentEdgeId();
             type = PositionType.CONVEYOR;
-            ConveyorResponse conveyor = conveyorMap.get(positionId);
-            if (conveyor != null && conveyor.getLength() != null && itemData.getProgress() != null) {
-                accumulatedDistance = conveyor.getLength() * itemData.getProgress();
+            if (itemData.getProgress() != null) {
+                progressPercent = itemData.getProgress() * 100.0;
             }
         } else {
             positionId = itemData.getLocationId();
@@ -439,7 +443,7 @@ public class HistoricalGraphBuilder {
                     positionId,
                     type,
                     effectiveTimestamp,
-                    accumulatedDistance,
+                    progressPercent,
                     itemData.getName(),
                     itemData.getDestinations(),
                     itemData.getSelectedExitId(),
@@ -462,7 +466,7 @@ public class HistoricalGraphBuilder {
                 liveConveyorRepository.addItemToConveyor(positionId, itemData.getId(),
                         itemData.getStagingOrder() != null
                                 ? effectiveTimestamp.plusMillis(itemData.getStagingOrder())
-                                : effectiveTimestamp.minusMillis(Math.round(accumulatedDistance * 1000)));
+                                : effectiveTimestamp.minusMillis(Math.round(progressPercent * 1000)));
             } else {
                 liveLocationRepository.addItemToLocation(positionId, itemData.getId());
             }

@@ -70,10 +70,6 @@ export const useGraphAnimation = (
                     });
 
                     if (edgeKey && edgeAttrs) {
-                        if (edgeAttrs.speed === 0) {
-                            needsRefresh = true;
-                            return;
-                        }
                         const sourceId = graph.source(edgeKey);
                         const targetId = graph.target(edgeKey);
                         const sourceNode = graph.getNodeAttributes(sourceId);
@@ -81,29 +77,30 @@ export const useGraphAnimation = (
 
                         const length = Number(edgeAttrs.length);
                         const speed = Number(edgeAttrs.speed);
-                        const totalDuration = (length / speed) * 1000;
-                        const entryTime = new Date(item.entryTimestamp).getTime();
-                        const timeElapsed = simTimeRef.current - entryTime;
+                        const checkpointProgress = Math.min(1, Math.max(0, item.progress ?? 0));
+                        let progress = checkpointProgress;
+                        if (speed > 0 && length > 0) {
+                            const totalDuration = (length / speed) * 1000;
+                            const entryTime = new Date(item.entryTimestamp).getTime();
+                            const timeElapsed = simTimeRef.current - entryTime;
 
-                        if (timeElapsed < 0) {
-                            graph.setNodeAttribute(itemId, "hidden", true);
-                        } else {
-                            let progress = Math.min(1, Math.max(0, timeElapsed / totalDuration));
-                            if (edgeAttrs.conveyorType === "STAGING") {
-                                const spacing = Number(edgeAttrs.minDistance ?? 0.1);
-                                const index = stagingIndexes.get(itemId) ?? 0;
-                                progress = Math.min(progress, Math.max(0, 1 - index * spacing / length));
-                            }
-                            graph.setNodeAttribute(itemId, "hidden", false);
-                            const x = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
-                            const y = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
-                            
-                            graph.setNodeAttribute(itemId, "x", x);
-                            graph.setNodeAttribute(itemId, "y", y);
-                            graph.setNodeAttribute(itemId, "currentEdgeId", item.currentEdgeId);
-                            graph.setNodeAttribute(itemId, "locationId", null);
-                            needsRefresh = true;
+                            // A confirmed item stays visible even if the render clock trails its event.
+                            progress = Math.min(1, Math.max(0, timeElapsed / totalDuration));
                         }
+                        if (edgeAttrs.conveyorType === "STAGING") {
+                            const spacing = Number(edgeAttrs.minDistance ?? 0.1);
+                            const index = stagingIndexes.get(itemId) ?? 0;
+                            progress = Math.min(progress, Math.max(0, 1 - index * spacing / length));
+                        }
+                        graph.setNodeAttribute(itemId, "hidden", false);
+                        const x = sourceNode.x + (targetNode.x - sourceNode.x) * progress;
+                        const y = sourceNode.y + (targetNode.y - sourceNode.y) * progress;
+
+                        graph.setNodeAttribute(itemId, "x", x);
+                        graph.setNodeAttribute(itemId, "y", y);
+                        graph.setNodeAttribute(itemId, "currentEdgeId", item.currentEdgeId);
+                        graph.setNodeAttribute(itemId, "locationId", null);
+                        needsRefresh = true;
                     }
                 } 
                 // Location items remain stationary until the backend confirms a move.

@@ -99,7 +99,7 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
         var itemState = liveItemRepository.getItemState("checkpoint-item");
         assertNotNull(itemState);
         assertEquals(recoveryTime, itemState.getEntryTime());
-        assertEquals(4.0, itemState.getAccumulatedDistance(), 0.001);
+        assertEquals(40.0, itemState.getAccumulatedDistance(), 0.001);
         assertTrue(liveConveyorRepository.getItemsOrderedByDistance("checkpoint-first")
                 .contains("checkpoint-item"));
 

@@ -178,6 +178,27 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void playbackSkipsAnInvalidExternalEventAndContinuesWithLaterHistory() throws Exception {
+        Instant restorePoint = now.minusSeconds(10);
+        history.saveSnapshot(java.util.UUID.randomUUID().toString(), restorePoint,
+                graphs.getGraphData(restorePoint, false));
+        SimulationState replay = simulations.createSimulation(restorePoint);
+        awaitReady(replay);
+
+        ItemPositionChangedEvent invalidPosition = new ItemPositionChangedEvent(
+                "original", "missing-position", 0.0, restorePoint.plusSeconds(1));
+        com.fasterxml.jackson.databind.node.ObjectNode renamePayload = mapper.valueToTree(
+                new ItemRenamedEvent("original", "Continued after invalid event"));
+        renamePayload.put("timestamp", restorePoint.plusSeconds(2).toString());
+        DomainEvent laterRename = mapper.treeToValue(renamePayload, DomainEvent.class);
+        intake.addHistory(replay.getId(), List.of(invalidPosition, laterRename));
+
+        assertDoesNotThrow(() -> player.advanceThrough(replay, restorePoint.plusSeconds(3)));
+        assertEquals("Continued after invalid event", graph(replay).getItems().getFirst().getName());
+        assertNull(intake.peek(replay.getId()));
+    }
+
+    @Test
     void historicalForkUsesExactPausedSourceClockAndKeepsSourceAliveOnExit() throws Exception {
         Instant anchor = now.minusSeconds(30);
         history.saveSnapshot(java.util.UUID.randomUUID().toString(), anchor, graphs.getGraphData(anchor, false));
@@ -347,6 +368,18 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("kind").value("WHAT_IF_LIVE"))
                 .andExpect(jsonPath("status").value("PAUSED"))
                 .andExpect(jsonPath("liveInputState").value("ACTIVE"));
+    }
+
+    @Test
+    void simulationCreationIgnoresAStaleSimulationHeader() throws Exception {
+        String token = loginToken();
+
+        http.perform(post("/api/simulations").header("Authorization", "Bearer " + token)
+                        .header("X-Simulation-ID", "deleted-simulation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"timestamp\":\"" + now.minusSeconds(60) + "\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("id").isString());
     }
 
     private String loginToken() throws Exception {

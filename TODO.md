@@ -2,6 +2,17 @@
 
 TODO:
 
+simulation pause: itemds jump behind
+when a conveyour stop, only new items in dc gets corrcet routing, onld ones stop. 
+investihgate conveyour capacoty. if its null will ti work?
+Items were explicitly hidden when their event timestamp was ahead of the render clock. They now stay visible. --- maybe add 1 second tolerance
+light projection- kkep moving items then color them when they are confirmed
+paths are wronig in case of recirculation
+why si the backend checking for a simualton on startup? after i cleared all? shouldbe deleted.
+now decision ponts are junction. they should be sensors int he middle of conveyours
+dont start a what if on loc move
+fix colrs in what if-  brinog conf
+
 fix pathing. its nodes right now
 attese, ricircoli
 for analytics, count items exite not deleted

@@ -108,8 +108,8 @@ public class ItemMovementProcessor {
 
     /**
      * Freezes every item on a conveyor at the supplied timestamp before speed
-     * changes are applied. This preserves physical distance already traveled so
-     * rescheduled movement starts from the correct conveyor offset.
+     * changes are applied. This preserves percentage progress so rescheduled
+     * movement starts from the same conveyor position.
      */
     public void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         var allItems = liveConveyorRepository.getItemsOrderedByDistance(edgeId);
@@ -120,13 +120,16 @@ public class ItemMovementProcessor {
                 continue;
             }
             var lastUpdateTime = itemData.getEntryTime();
-            Double storedDistance = itemData.getAccumulatedDistance();
+            double storedProgress = itemData.getAccumulatedDistance();
 
             if (lastUpdateTime != null) {
                 long timeElapsed = timestamp.toEpochMilli() - lastUpdateTime.toEpochMilli();
-                double distanceTraveledSinceLastUpdate = (timeElapsed / 1000.0) * oldSpeed;
-                double totalDistance = Objects.requireNonNullElse(storedDistance, 0.0) + distanceTraveledSinceLastUpdate;
-                liveItemRepository.checkpointPhysics(itemId, timestamp, totalDistance);
+                Conveyor conveyor = topologyProvider.getConveyorById(edgeId);
+                double progressDelta = conveyor.getLength() > 0
+                        ? (timeElapsed / 1000.0) * oldSpeed / conveyor.getLength() * 100.0
+                        : 0.0;
+                double progress = storedProgress + progressDelta;
+                liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
             }
         }
     }
@@ -319,8 +322,46 @@ public class ItemMovementProcessor {
             var state = liveItemRepository.getItemState(itemId);
             if (state == null)
                 continue;
-            handleItemEntryToConveyor(itemId, conveyorId, now,
-                    (state.getAccumulatedDistance() / conveyor.getLength()) * 100, null);
+            double progress = state.getAccumulatedDistance();
+            if (conveyor.isActive() && conveyor.getSpeed() > 0 && state.getEntryTime() != null) {
+                long elapsedMillis = Math.max(0L, now.toEpochMilli() - state.getEntryTime().toEpochMilli());
+                double progressDelta = conveyor.getLength() > 0
+                        ? elapsedMillis / 1000.0 * conveyor.getSpeed() / conveyor.getLength() * 100.0
+                        : 0.0;
+                progress = Math.min(100.0, Math.max(0.0, progress + progressDelta));
+                liveItemRepository.checkpointPhysics(itemId, now, progress);
+            }
+            handleItemEntryToConveyor(itemId, conveyorId, now, progress, null);
+        }
+    }
+
+    /**
+     * Restarts items from their frozen checkpoints without treating the stopped
+     * interval as conveyor travel.
+     */
+    public void resumeConveyorFromCheckpoints(String conveyorId, Instant timestamp, boolean shouldBroadcast) {
+        if (!manageLogic)
+            return;
+        Conveyor conveyor = topologyProvider.getConveyorById(conveyorId);
+        if (conveyor == null || !conveyor.isActive() || conveyor.getSpeed() <= 0) {
+            return;
+        }
+
+        for (String itemId : liveConveyorRepository.getItemsOrderedByDistance(conveyorId)) {
+            var state = liveItemRepository.getItemState(itemId);
+            if (state == null || state.getType() != PositionType.CONVEYOR
+                    || !conveyorId.equals(state.getPositionId())) {
+                continue;
+            }
+            double progress = Math.min(100.0, Math.max(0.0, state.getAccumulatedDistance()));
+            liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
+            if (shouldBroadcast) {
+                webSocketService.broadcastPositionUpdate(itemId, conveyorId, timestamp,
+                        PositionType.CONVEYOR, progress);
+            }
+            if (conveyor.getType() != ConveyorType.STAGING) {
+                handleItemEntryToConveyor(itemId, conveyorId, timestamp, progress, null);
+            }
         }
     }
 
@@ -355,9 +396,9 @@ public class ItemMovementProcessor {
             }
 
             double distance = positions.getOrDefault(itemId, 0.0);
-            liveItemRepository.checkpointPhysics(itemId, timestamp, distance);
+            double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
+            liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
             if (shouldBroadcast) {
-                double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
                 webSocketService.broadcastPositionUpdate(itemId, conveyor.getId(), timestamp,
                         PositionType.CONVEYOR, progress);
             }
@@ -403,13 +444,13 @@ public class ItemMovementProcessor {
             if (distance == null) {
                 continue;
             }
-            liveItemRepository.checkpointPhysics(itemId, timestamp, distance);
+            double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
+            liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
             if (cancelPlans) {
                 cancelScheduledEvent(itemId);
                 liveItemRepository.clearPlannedTransition(itemId);
             }
             if (shouldBroadcast) {
-                double progress = conveyor.getLength() > 0 ? distance / conveyor.getLength() * 100.0 : 0.0;
                 webSocketService.broadcastPositionUpdate(itemId, conveyor.getId(), timestamp,
                         PositionType.CONVEYOR, progress);
             }
@@ -428,7 +469,8 @@ public class ItemMovementProcessor {
                 continue;
             }
             long elapsedMillis = Math.max(0L, timestamp.toEpochMilli() - state.getEntryTime().toEpochMilli());
-            double naturalDistance = Math.max(0.0, state.getAccumulatedDistance())
+            double storedDistance = length * Math.min(100.0, Math.max(0.0, state.getAccumulatedDistance())) / 100.0;
+            double naturalDistance = storedDistance
                     + elapsedMillis / 1000.0 * speed;
             double slot = Math.max(0.0, length - index * spacing);
             positions.put(itemId, Math.min(naturalDistance, slot));

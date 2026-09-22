@@ -306,7 +306,8 @@ public class GraphService {
             for (int index = 0; index < orderedItems.size(); index++) {
                 RedisLiveItem item = orderedItems.get(index);
                 long elapsedMillis = Math.max(0L, Duration.between(item.getEntryTime(), now).toMillis());
-                double naturalDistance = Math.max(0.0, item.getAccumulatedDistance())
+                double storedDistance = length * Math.min(100.0, Math.max(0.0, item.getAccumulatedDistance())) / 100.0;
+                double naturalDistance = storedDistance
                         + elapsedMillis / 1000.0 * speed;
                 double slot = Math.max(0.0, length - index * spacing);
                 result.put(item.getId(), Math.min(naturalDistance, slot));
@@ -429,23 +430,26 @@ public class GraphService {
             double speed = currentEdge.getSpeed() != null ? currentEdge.getSpeed() : 0.0;
             double length = currentEdge.getLength() != null ? currentEdge.getLength() : 1.0;
 
-            double startOffset = (currentEdge.getId().equals(startId) && startType == PositionType.CONVEYOR) ? accDist
+            double startProgress = currentEdge.getId().equals(startId) && startType == PositionType.CONVEYOR
+                    ? Math.min(100.0, Math.max(0.0, accDist))
                     : 0.0;
 
-            if (speed <= 0) {
-                return createItemResponse(itemId, currentEdge.getId(), null, lastUpdate, startOffset / length);
+            if (!Boolean.TRUE.equals(currentEdge.getActive()) || speed <= 0) {
+                return createItemResponse(itemId, currentEdge.getId(), null, lastUpdate, startProgress / 100.0);
             }
 
-            long traversalTimeMillis = (long) (((length - startOffset) / speed) * 1000);
+            long traversalTimeMillis = (long) ((length * (1.0 - startProgress / 100.0) / speed) * 1000);
             Duration traversalDuration = Duration.ofMillis(traversalTimeMillis);
 
             // CHECK: Is item still on this edge?
             if (timeElapsed.compareTo(traversalDuration) < 0) {
-                double distTraveled = (timeElapsed.toMillis() / 1000.0) * speed;
-                double distanceOnCurrentEdge = startOffset + distTraveled;
-                double progress = distanceOnCurrentEdge / length;
-                Instant currentEdgeEntryTime = now.minusMillis((long) ((distanceOnCurrentEdge / speed) * 1000));
-                return createItemResponse(itemId, currentEdge.getId(), null, currentEdgeEntryTime, progress);
+                double progressDelta = length > 0
+                        ? (timeElapsed.toMillis() / 1000.0) * speed / length * 100.0
+                        : 0.0;
+                double progress = Math.min(100.0, startProgress + progressDelta);
+                Instant currentEdgeEntryTime = now.minusMillis(
+                        (long) ((progress / 100.0 * length / speed) * 1000));
+                return createItemResponse(itemId, currentEdge.getId(), null, currentEdgeEntryTime, progress / 100.0);
             }
 
             // NO: Item finished this edge.

@@ -939,7 +939,7 @@ public class SimulationService {
         for (var itemData : items) {
             PositionType type = itemData.getType();
             Instant lastTs = itemData.getEntryTime();
-            Double accDist = itemData.getAccumulatedDistance();
+            double progress = itemData.getAccumulatedDistance();
 
             if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
                 var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
@@ -949,8 +949,10 @@ public class SimulationService {
                     }
                     long elapsed = now.toEpochMilli() - lastTs.toEpochMilli();
                     if (elapsed > 0) {
-                        double moved = (elapsed / 1000.0) * conveyor.getSpeed();
-                        liveItemRepository.checkpointPhysics(itemData.getId(), now, accDist + moved);
+                        double progressDelta = conveyor.getLength() > 0
+                                ? (elapsed / 1000.0) * conveyor.getSpeed() / conveyor.getLength() * 100.0
+                                : 0.0;
+                        liveItemRepository.checkpointPhysics(itemData.getId(), now, progress + progressDelta);
                     }
                 }
             }

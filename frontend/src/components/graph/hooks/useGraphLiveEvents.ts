@@ -75,25 +75,27 @@ export const useGraphLiveEvents = (
         if (!graph.hasEdge(edgeId)) return;
 
         const attrs = graph.getEdgeAttributes(edgeId);
-        const oldSpeed = attrs.speed;
-        const length = attrs.length;
+        const oldSpeed = Number(attrs.speed);
+        const length = Number(attrs.length);
         const anchorTime = effectiveTime ?? simTimeRef.current;
 
-        if (oldSpeed === 0 || newSpeed === 0) return;
+        if (!Number.isFinite(length) || length <= 0) return;
 
         activeItemsRef.current.forEach((item, itemId) => {
             if (item.currentEdgeId === attrs.id) {
-                const oldDuration = (length / oldSpeed) * 1000;
-                const currentEntryTime = new Date(item.entryTimestamp).getTime();
-                const timeElapsed = anchorTime - currentEntryTime;
-                
-                const progress = Math.min(1, Math.max(0, timeElapsed / oldDuration));
+                const progress = oldSpeed > 0
+                    ? Math.min(1, Math.max(0,
+                        (anchorTime - new Date(item.entryTimestamp).getTime()) / ((length / oldSpeed) * 1000)))
+                    : Math.min(1, Math.max(0, item.progress ?? 0));
 
-                const newDuration = (length / newSpeed) * 1000;
-                const newTimeElapsed = progress * newDuration;
-                const newEntryTimestamp = new Date(anchorTime - newTimeElapsed).toISOString();
-                
-                activeItemsRef.current.set(itemId, { ...item, entryTimestamp: newEntryTimestamp });
+                if (newSpeed <= 0) {
+                    activeItemsRef.current.set(itemId, { ...item, progress });
+                    return;
+                }
+
+                const newEntryTimestamp = new Date(anchorTime - progress * (length / newSpeed) * 1000)
+                    .toISOString();
+                activeItemsRef.current.set(itemId, { ...item, progress, entryTimestamp: newEntryTimestamp });
             }
         });
     }, [activeItemsRef, sigma]);
@@ -119,23 +121,26 @@ export const useGraphLiveEvents = (
 
             const currentItem = activeItemsRef.current.get(update.itemId);
             const isConveyor = update.type === ItemPositionTypeEnum.Conveyor;
+            const positionId = update.positionId ?? update.edgeId;
+            // Position events use percentages; ItemResponse snapshots use fractions.
+            const progress = Math.min(1, Math.max(0, (update.progress ?? 0) / 100));
 
             if (
                 !isConveyor &&
-                update.edgeId &&
-                graph.hasNode(update.edgeId) &&
-                graph.getNodeAttribute(update.edgeId, "locationType") === "CHUTE"
+                positionId &&
+                graph.hasNode(positionId) &&
+                graph.getNodeAttribute(positionId, "locationType") === "CHUTE"
             ) {
                 if (currentItem) {
-                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, update.edgeId, {
+                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, positionId, {
                         ...currentItem,
                         currentEdgeId: null,
-                        locationId: update.edgeId,
+                        locationId: positionId,
                         entryTimestamp: new Date(update.timestamp).toISOString(),
-                        progress: update.progress || 1,
+                        progress,
                     });
                 } else {
-                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, update.edgeId);
+                    dischargeItemToChute(graph, activeItemsRef.current, update.itemId, positionId);
                 }
                 refreshHighPriorityCount();
                 sigma.refresh();
@@ -147,13 +152,12 @@ export const useGraphLiveEvents = (
                 const eventTime = update.timestamp;
                 
                 // Conveyor updates describe progress at the event timestamp, not at websocket arrival time.
-                if (isConveyor && update.edgeId) {
-                    const edgeKey = graph.findEdge((_edge, attrs) => attrs.id === update.edgeId);
+                if (isConveyor && positionId) {
+                    const edgeKey = graph.findEdge((_edge, attrs) => attrs.id === positionId);
                     if (edgeKey) {
                         const edgeAttrs = graph.getEdgeAttributes(edgeKey);
                         if (edgeAttrs.speed > 0) {
                             const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
-                            const progress = update.progress || 0;
                             const offset = progress * totalDuration;
                             
                             const adjustedEntryTime = eventTime - offset;
@@ -165,10 +169,10 @@ export const useGraphLiveEvents = (
 
                 const updatedItem = {
                     ...currentItem,
-                    currentEdgeId: isConveyor ? update.edgeId : null,
-                    locationId: isConveyor ? null : update.edgeId,
+                    currentEdgeId: isConveyor ? positionId : null,
+                    locationId: isConveyor ? null : positionId,
                     entryTimestamp: entryTimestamp,
-                    progress: update.progress || 0
+                    progress
                 };
                 
                 activeItemsRef.current.set(update.itemId, updatedItem);
@@ -191,6 +195,18 @@ export const useGraphLiveEvents = (
         // resolves both forms so graph state matches the backend position model.
         unsubscribers.push(subscribeToItemCreated((item, timestamp) => {
             if (!item.id || graph.hasNode(item.id)) return;
+
+            if (
+                item.locationId &&
+                graph.hasNode(item.locationId) &&
+                graph.getNodeAttribute(item.locationId, "locationType") === "CHUTE" &&
+                !item.currentEdgeId
+            ) {
+                dischargeItemToChute(graph, activeItemsRef.current, item.id, item.locationId, item);
+                refreshHighPriorityCount();
+                sigma.refresh();
+                return;
+            }
 
             let startX = 0;
             let startY = 0;
@@ -281,7 +297,8 @@ export const useGraphLiveEvents = (
             });
 
             const isConveyor = Boolean(currentEdgeId);
-            let entryTimestamp = new Date(timestamp).toISOString();
+            const checkpointTime = item.entryTimestamp ? new Date(item.entryTimestamp).getTime() : timestamp;
+            let entryTimestamp = new Date(checkpointTime).toISOString();
             if (isConveyor && edgeKey) {
                 const edgeAttrs = graph.getEdgeAttributes(edgeKey);
                 const speed = Number(edgeAttrs.speed);
@@ -289,7 +306,7 @@ export const useGraphLiveEvents = (
                 if (speed > 0 && length > 0) {
                     const totalDuration = (length / speed) * 1000;
                     const progress = item.progress || 0;
-                    entryTimestamp = new Date(timestamp - progress * totalDuration).toISOString();
+                    entryTimestamp = new Date(checkpointTime - progress * totalDuration).toISOString();
                 }
             }
             
@@ -453,16 +470,16 @@ export const useGraphLiveEvents = (
                     graph.setEdgeAttribute(edge, 'originalColor', graph.getEdgeAttribute(edge, 'color'));
                     graph.setEdgeAttribute(edge, 'color', '#FF0000');
                     graph.setEdgeAttribute(edge, 'originalSpeed', graph.getEdgeAttribute(edge, 'speed'));
-                    graph.setEdgeAttribute(edge, 'speed', 0);
-
                     adjustItemsForSpeedChange(edge, 0, update.timestamp);
+                    graph.setEdgeAttribute(edge, 'speed', 0);
                 } else if (update.properties.active === true) {
                     // Edge activated - restore color and speed
                     const originalColor = graph.getEdgeAttribute(edge, 'originalColor') as string || '#808080';
-                    const originalSpeed = graph.getEdgeAttribute(edge, 'originalSpeed') as number || 1.0;
+                    const originalSpeed = graph.getEdgeAttribute(edge, 'originalSpeed')
+                        ?? graph.getEdgeAttribute(edge, 'speed') ?? 1.0;
                     graph.setEdgeAttribute(edge, 'color', originalColor);
+                    adjustItemsForSpeedChange(edge, Number(originalSpeed), update.timestamp);
                     graph.setEdgeAttribute(edge, 'speed', originalSpeed);
-                    adjustItemsForSpeedChange(edge, originalSpeed, update.timestamp);
                 } else if (update.properties.speed !== undefined) {
                     adjustItemsForSpeedChange(edge, Number(update.properties.speed), update.timestamp);
                 }
@@ -478,6 +495,7 @@ export const useGraphLiveEvents = (
 
         if (!designMode) unsubscribers.push(subscribeToAnomalies((notification) => {
             const finding = notification.finding;
+            if (finding?.detector === 'UNSCORABLE_CAPACITY') return;
             const componentId = finding?.componentId ?? notification.componentId;
             if (!componentId) return;
             const enabled = notification.kind !== 'ALARM_CLEARED';

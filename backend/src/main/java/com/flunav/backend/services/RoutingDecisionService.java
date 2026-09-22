@@ -112,7 +112,8 @@ public class RoutingDecisionService {
         }
 
         if (candidates.isEmpty() && !candidateExits.isEmpty() && !capacityBlocked) {
-            return new RoutingDecision(null, null, null, false, RoutingStatus.FAILED, false);
+            RoutingDecision fallback = fallbackDecision(sourceLocationId);
+            return fallback.nextConveyorId() != null ? fallback : failedDecision();
         }
 
         Comparator<RouteCandidate> comparator = routeComparator(candidates, priorityScore);

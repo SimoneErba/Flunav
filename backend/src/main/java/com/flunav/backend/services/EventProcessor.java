@@ -319,6 +319,8 @@ public class EventProcessor {
     private boolean isDestructiveTopologyEvent(DomainEvent event) {
         return event instanceof LocationDeletedEvent
                 || event instanceof ConnectionDeletedEvent
+                || event instanceof ConnectionActivatedEvent
+                || event instanceof ConnectionDeactivatedEvent
                 || event instanceof ReleaseStagingConveyorEvent
                 || event instanceof ConnectionTypeChangedEvent;
     }
@@ -439,22 +441,10 @@ public class EventProcessor {
                                 e.getTimestamp(),
                                 shouldBroadcast);
 
-                        if (item.getLocationId() != null) {
-                            var positionType = topologyProvider.getPositionType(item.getLocationId());
-                            if (positionType == PositionType.CONVEYOR) {
-                                liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
-                                        e.getTimestamp());
-                                itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(),
-                                        e.getTimestamp(),
-                                        e.getProgress(), null, shouldBroadcast);
-                            } else {
-                                itemMovementProcessor.processLocationEntry(e.getEntityId(), item.getLocationId(),
-                                        e.getTimestamp(), shouldBroadcast);
-                            }
-                        }
 
                         if (shouldBroadcast) {
                             ItemResponse response = modelMapper.map(item, ItemResponse.class);
+                            applyCurrentItemCheckpoint(response);
                             DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(
                                     itemRootFields(item), item.getProperties(), item.getDestinations(),
                                     item.getPriority(), e.getTimestamp());
@@ -468,6 +458,22 @@ public class EventProcessor {
                                 response.setCustomBorderWidth(style.getBorderWidth());
                             }
                             webSocketService.broadcastItemCreated(response, e.getTimestamp());
+                        }
+                        if (item.getLocationId() != null) {
+                            var positionType = topologyProvider.getPositionType(item.getLocationId());
+                            if (positionType == PositionType.CONVEYOR) {
+                                liveConveyorRepository.addItemToConveyor(item.getLocationId(), e.getEntityId(),
+                                        e.getTimestamp());
+                                itemMovementProcessor.handleItemEntryToConveyor(e.getEntityId(), item.getLocationId(),
+                                        e.getTimestamp(), e.getProgress(), null, shouldBroadcast);
+                            } else {
+                                itemMovementProcessor.processLocationEntry(e.getEntityId(), item.getLocationId(),
+                                        e.getTimestamp(), shouldBroadcast);
+                            }
+                            if (shouldBroadcast && !Objects.equals(item.getLocationId(),
+                                    liveItemRepository.getItemState(e.getEntityId()).getPositionId())) {
+                                broadcastCurrentItemCheckpoint(e.getEntityId());
+                            }
                         }
                         yield Map.of("status", "CREATED", "itemId", e.getEntityId());
                     } catch (DuplicateItemException die) {
@@ -556,8 +562,7 @@ public class EventProcessor {
                     anomalyObservationService.collectPositionChange(resolvedEvent, lastState, positionType);
 
                     if (shouldBroadcast) {
-                        webSocketService.broadcastPositionUpdate(e.getEntityId(), positionId, e.getTimestamp(),
-                                positionType, progress);
+                        broadcastCurrentItemCheckpoint(e.getEntityId());
                     }
 
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -1083,10 +1088,7 @@ public class EventProcessor {
                     conveyor.setOperatorEnabled(true);
                     conveyor.setActive(!hasStoppingAlarm(conveyor));
                     conveyorService.updateConveyor(conveyor);
-                    if (manageLogic && !wasActive && conveyor.isActive()) {
-                        itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
-                        itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
-                    }
+                    updateMovementAfterActivityChange(conveyor, wasActive, e.getTimestamp(), shouldBroadcast);
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, conveyor.getId(), conveyor.isActive(), null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
@@ -1106,14 +1108,12 @@ public class EventProcessor {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     boolean wasActive = conveyor.isActive();
                     if (manageLogic && wasActive) {
-                        checkpointItems(conveyor.getId(), conveyor.getSpeed(), e.getTimestamp());
+                        checkpointBeforeConveyorStops(conveyor, e.getTimestamp(), shouldBroadcast);
                     }
                     conveyor.setOperatorEnabled(false);
                     conveyor.setActive(false);
                     conveyorService.updateConveyor(conveyor);
-                    if (manageLogic && wasActive) {
-                        itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
-                    }
+                    updateMovementAfterActivityChange(conveyor, wasActive, e.getTimestamp(), shouldBroadcast);
                     operationalAnalyticsService.recordSimulationConnectionSignal(
                             e, conveyor.getId(), false, null,
                             conveyor.getSourceLocationId(), conveyor.getTargetLocationId());
@@ -1149,8 +1149,13 @@ public class EventProcessor {
                     conveyor.getActiveAlarms().add(new ActiveAlarm(
                             e.getAlarmId(), e.getConveyorId(), e.getSeverity(), e.getTypology(),
                             e.isStopsConveyor(), e.getTimestamp()));
-                    conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+                    boolean willBeActive = conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor);
+                    if (manageLogic && wasActive && !willBeActive) {
+                        checkpointBeforeConveyorStops(conveyor, e.getTimestamp(), shouldBroadcast);
+                    }
+                    conveyor.setActive(willBeActive);
                     conveyorService.updateConveyor(conveyor);
+                    updateMovementAfterActivityChange(conveyor, wasActive, e.getTimestamp(), shouldBroadcast);
                     if (shouldBroadcast) {
                         broadcastConveyorAlarmState(conveyor, e.getTimestamp());
                     }
@@ -1169,6 +1174,7 @@ public class EventProcessor {
                     }
                     conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
                     conveyorService.updateConveyor(conveyor);
+                    updateMovementAfterActivityChange(conveyor, wasActive, e.getTimestamp(), shouldBroadcast);
                     if (shouldBroadcast) {
                         broadcastConveyorAlarmState(conveyor, e.getTimestamp());
                     }
@@ -1319,8 +1325,13 @@ public class EventProcessor {
             conveyor.getActiveAlarms().add(new ActiveAlarm(event.getAlarmId(), event.getComponentId(),
                     event.getFindingId(), event.getComponentType(), event.getSeverity(), event.getTypology(),
                     event.getSource(), event.isStopsComponent(), event.getTimestamp()));
-            conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
+            boolean willBeActive = conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor);
+            if (manageLogic && wasActive && !willBeActive) {
+                checkpointBeforeConveyorStops(conveyor, event.getTimestamp(), shouldBroadcast);
+            }
+            conveyor.setActive(willBeActive);
             conveyorService.updateConveyor(conveyor);
+            updateMovementAfterActivityChange(conveyor, wasActive, event.getTimestamp(), shouldBroadcast);
             if (shouldBroadcast) {
                 broadcastConveyorAlarmState(conveyor, event.getTimestamp());
             }
@@ -1355,6 +1366,7 @@ public class EventProcessor {
             }
             conveyor.setActive(conveyor.isOperatorEnabled() && !hasStoppingAlarm(conveyor));
             conveyorService.updateConveyor(conveyor);
+            updateMovementAfterActivityChange(conveyor, wasActive, event.getTimestamp(), shouldBroadcast);
             if (shouldBroadcast) {
                 broadcastConveyorAlarmState(conveyor, event.getTimestamp());
             }
@@ -1467,6 +1479,29 @@ public class EventProcessor {
      */
     private void checkpointItems(String edgeId, double oldSpeed, Instant timestamp) {
         itemMovementProcessor.checkpointItems(edgeId, oldSpeed, timestamp);
+    }
+
+    /** Freezes and cancels movement plans before a conveyor becomes inactive. */
+    private void checkpointBeforeConveyorStops(Conveyor conveyor, Instant timestamp, boolean shouldBroadcast) {
+        if (conveyor.getType() == flunav.types.ConveyorType.STAGING) {
+            itemMovementProcessor.checkpointStagingItems(conveyor, timestamp, true, shouldBroadcast);
+        } else {
+            checkpointItems(conveyor.getId(), conveyor.getSpeed(), timestamp);
+        }
+    }
+
+    /** Rebuilds movement schedules only when effective conveyor activity changes. */
+    private void updateMovementAfterActivityChange(Conveyor conveyor, boolean wasActive, Instant timestamp,
+            boolean shouldBroadcast) {
+        if (!manageLogic || wasActive == conveyor.isActive()) {
+            return;
+        }
+        if (conveyor.isActive()) {
+            itemMovementProcessor.resumeConveyorFromCheckpoints(conveyor.getId(), timestamp, shouldBroadcast);
+        } else {
+            itemMovementProcessor.recalculateConveyorAccumulation(conveyor.getId());
+        }
+        itemMovementProcessor.wakeUpPrecedingConveyors(conveyor.getSourceLocationId());
     }
 
     /**
@@ -1598,6 +1633,44 @@ public class EventProcessor {
     private String currentSimulationScope() {
         String simulationId = DatabaseContextHolder.getSimulationId();
         return simulationId != null ? simulationId : "live";
+    }
+
+    /**
+     * Copies persisted position and routing into the websocket DTO. Creation is
+     * announced before managed movement; a separate checkpoint announces release.
+     */
+    private void applyCurrentItemCheckpoint(ItemResponse response) {
+        var state = liveItemRepository.getItemState(response.getId());
+        if (state == null) {
+            throw new IllegalStateException("Missing item checkpoint: " + response.getId());
+        }
+        boolean onConveyor = state.getType() == PositionType.CONVEYOR;
+        response.setCurrentEdgeId(onConveyor ? state.getPositionId() : null);
+        response.setLocationId(onConveyor ? null : state.getPositionId());
+        response.setEntryTimestamp(state.getEntryTime());
+        var conveyor = onConveyor ? topologyProvider.getConveyorById(state.getPositionId()) : null;
+        response.setProgress(conveyor != null
+                ? Math.min(1.0, Math.max(0.0, state.getAccumulatedDistance() / 100.0)) : 0.0);
+        response.setDestinations(state.getDestinations());
+        response.setSelectedExitId(state.getSelectedExitId());
+        response.setRoutingStatus(state.getRoutingStatus());
+        response.setRoutingStatusUpdatedAt(state.getRoutingStatusUpdatedAt());
+        response.setPath(state.getPath());
+        response.setPlannedPositionId(state.getPlannedPositionId());
+        response.setPlannedPositionType(state.getPlannedPositionType());
+        response.setPlannedTransitionTimestamp(state.getPlannedTransitionTimestamp());
+    }
+
+    /** Announces the actual position after immediate junction-release side effects. */
+    private void broadcastCurrentItemCheckpoint(String itemId) {
+        ItemResponse checkpoint = new ItemResponse();
+        checkpoint.setId(itemId);
+        applyCurrentItemCheckpoint(checkpoint);
+        boolean onConveyor = checkpoint.getCurrentEdgeId() != null;
+        webSocketService.broadcastPositionUpdate(itemId,
+                onConveyor ? checkpoint.getCurrentEdgeId() : checkpoint.getLocationId(),
+                checkpoint.getEntryTimestamp(), onConveyor ? PositionType.CONVEYOR : PositionType.LOCATION,
+                checkpoint.getProgress() * 100.0);
     }
 
     /**

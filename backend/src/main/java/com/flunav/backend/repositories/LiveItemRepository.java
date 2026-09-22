@@ -92,11 +92,11 @@ public class LiveItemRepository {
 
     /**
      * Updates only the movement fields for a hot item.
-     * The offset is stored as accumulated conveyor distance so future projections
-     * can resume from a physical checkpoint instead of a rendered percentage.
+     * Conveyor progress is stored as a percentage so event payloads, hot state,
+     * graph projection, and recovery use the same unit.
      */
     public void updatePosition(String itemId, String positionId, PositionType type, Instant entryTime,
-            double offsetMeters, List<String> path) {
+            double progressPercent, List<String> path) {
 
         // We can reuse the builder for partial updates if we want,
         // or just construct the specific fields we want to update.
@@ -105,7 +105,7 @@ public class LiveItemRepository {
                 .positionId(positionId)
                 .type(type)
                 .entryTime(entryTime)
-                .accumulatedDistance(offsetMeters)
+                .accumulatedDistance(progressPercent)
                 .path(path)
                 .build();
 
@@ -152,15 +152,13 @@ public class LiveItemRepository {
     }
 
     /**
-     * Advances the item's physics checkpoint without changing its assigned segment.
-     * Simulation replay and conveyor speed changes use this to preserve distance
-     * already traveled before rescheduling the next internal event.
+     * Advances the item's percentage checkpoint without changing its assigned segment.
      */
-    public void checkpointPhysics(String itemId, Instant timestamp, double currentDistance) {
+    public void checkpointPhysics(String itemId, Instant timestamp, double progressPercent) {
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
         updates.put("t", String.valueOf(timestamp.toEpochMilli()));
-        updates.put("ad", String.valueOf(currentDistance));
+        updates.put("ad", String.valueOf(Math.min(100.0, Math.max(0.0, progressPercent))));
         redis.opsForHash().putAll(itemKey, updates);
     }
 

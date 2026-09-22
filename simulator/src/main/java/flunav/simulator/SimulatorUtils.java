@@ -94,6 +94,25 @@ public final class SimulatorUtils {
         logger.info("RabbitMQ connection established.");
     }
 
+    /** Releases transport threads when a bounded scenario completes. */
+    public static void closeRabbit() {
+        try {
+            if (rabbitChannel != null && rabbitChannel.isOpen()) {
+                rabbitChannel.close();
+            }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error closing RabbitMQ channel", e);
+        } finally {
+            try {
+                if (rabbitConnection != null && rabbitConnection.isOpen()) {
+                    rabbitConnection.close();
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error closing RabbitMQ connection", e);
+            }
+        }
+    }
+
     public static void sendEvent(DomainEvent event, String httpMethod) throws Exception {
         String eventSummary = summarizeEvent(event);
         if (MODE.equalsIgnoreCase("rabbit")) {

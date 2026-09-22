@@ -171,20 +171,16 @@ public class ItemService {
                 Instant entryTime = itemInput.getTimestamp() != null ? itemInput.getTimestamp() : timeService.now();
                 PositionType posType = itemInput.getPositionType() != null ? itemInput.getPositionType()
                         : PositionType.LOCATION;
-                double initialDistance = 0.0;
-                if (itemInput.getProgress() != null && posType == PositionType.CONVEYOR) {
-                    var conveyor = topologyProvider.getConveyorById(itemInput.getLocationId());
-                    if (conveyor != null) {
-                        initialDistance = conveyor.getLength() * (itemInput.getProgress() / 100.0);
-                    }
-                }
+                double initialProgress = itemInput.getProgress() != null && posType == PositionType.CONVEYOR
+                        ? Math.min(100.0, Math.max(0.0, itemInput.getProgress()))
+                        : 0.0;
 
                 redisRepository.saveItemState(
                         itemInput.getId(),
                         itemInput.getLocationId(),
                         posType,
                         entryTime,
-                        initialDistance,
+                        initialProgress,
                         itemInput.getName(),
                         itemInput.getDestinations(),
                         itemInput.getSelectedExitId(),
@@ -206,11 +202,14 @@ public class ItemService {
 
     /**
      * High-frequency update method for the Event Processor.
-     * Only touches Redis.
+     * Position events and Redis both represent conveyor progress as a percentage.
      */
     public void updateItemPosition(String itemId, String positionId, PositionType type, Instant timestamp,
-            Double offset, List<String> path) {
-        redisRepository.updatePosition(itemId, positionId, type, timestamp, offset, path);
+            Double progress, List<String> path) {
+        double progressPercent = type == PositionType.CONVEYOR && progress != null
+                ? Math.min(100.0, Math.max(0.0, progress))
+                : 0.0;
+        redisRepository.updatePosition(itemId, positionId, type, timestamp, progressPercent, path);
     }
 
     /**

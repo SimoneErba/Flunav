@@ -14,6 +14,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(@NonNull MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic"); // Prefix for broadcast messages
+        // Creation and the initial position use different topics but must reach
+        // each client in the order they were published.
+        config.setPreservePublishOrder(true);
         config.setApplicationDestinationPrefixes("/app"); // Prefix for client-to-server messages
     }
 

@@ -2,6 +2,7 @@ package com.flunav.backend;
 
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.test.SimulationTestHarness;
+import flunav.events.ChuteEmptyEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
@@ -80,6 +81,28 @@ class AccumulationTests extends BaseIntegrationTest {
                 // Should have recirculated to conv_main
                 assertEquals("conv_main", item.getCurrentEdgeId(),
                                 "Item should have recirculated to main path because chute was full");
+        }
+
+        @Test
+        void chuteEmptyDoesNotRestartUpstreamConveyorTravel() {
+                DatabaseContextHolder.enterSimulationContext("test-sim");
+                Instant start = Instant.parse("2026-02-07T11:00:00Z");
+                sim.startAt(start);
+
+                sim.createLocation("start", "Start", LocationType.JUNCTION);
+                sim.createLocation("chute", "Chute", LocationType.CHUTE);
+                sim.createConveyor("exit-conveyor", "start", "chute", 10.0, 1.0, false);
+
+                sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "exit-conveyor",
+                                PositionType.CONVEYOR, 0.0, new HashMap<>(), start));
+
+                sim.advanceSeconds(5);
+                sim.applyEvent(new ChuteEmptyEvent("chute", sim.getCurrentTime()));
+                sim.advanceSeconds(6);
+
+                var item = sim.getItem("item-1").orElseThrow();
+                assertEquals("chute", item.getLocationId());
+                assertNull(item.getCurrentEdgeId());
         }
 
         @Test

@@ -34,7 +34,8 @@ enum PositionStatus {
 record SocketEnvelope<T>(T payload, String senderId, long timestamp) {
 }
 
-record PositionUpdate(String itemId, String edgeId, PositionStatus status, PositionType type, Double progress) {
+record PositionUpdate(String itemId, String positionId, String edgeId, PositionStatus status, PositionType type,
+        Double progress) {
 }
 
 record ConnectionMessage(String from, String to, CrudOperation operation, ConveyorResponse data) {
@@ -152,14 +153,15 @@ public class WebSocketService {
 
     // --- POSITION EVENTS ---
 
-    public void broadcastPositionUpdate(String itemId, String edgeId, Instant timestamp, PositionType type,
+    public void broadcastPositionUpdate(String itemId, String positionId, Instant timestamp, PositionType type,
             double progress) {
-        PositionUpdate payload = new PositionUpdate(itemId, edgeId, PositionStatus.UPDATED, type, progress);
+        PositionUpdate payload = new PositionUpdate(itemId, positionId, positionId, PositionStatus.UPDATED, type,
+                progress);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
     }
 
     public void broadcastPositionLost(String itemId, Instant timestamp) {
-        PositionUpdate payload = new PositionUpdate(itemId, null, PositionStatus.LOST, null, null);
+        PositionUpdate payload = new PositionUpdate(itemId, null, null, PositionStatus.LOST, null, null);
         sendToTopic(null, "positions", payload, timestamp.toEpochMilli());
     }
 

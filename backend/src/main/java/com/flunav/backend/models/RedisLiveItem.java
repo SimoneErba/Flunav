@@ -29,6 +29,7 @@ public class RedisLiveItem {
     private PositionType type; // Redis key: "ty"
     private Instant entryTime; // Redis key: "t"
     private Instant createdAt; // Redis key: "ct"
+    // Historical field/key name; the stored value is conveyor progress from 0 to 100.
     private double accumulatedDistance; // Redis key: "ad"
     private List<String> destinations; // Redis key: "ds"
     private String selectedExitId; // Redis key: "d"

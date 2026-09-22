@@ -4,14 +4,17 @@ import { useApi } from './useApi';
 import { baseURL } from '../api/config';
 import { axiosInstance } from '../api/axiosInstance';
 import { useSimulationContext } from '../context/simulation.context';
+import { useWebSocketConnection } from './websocket/useWebSocketConnection';
 
 export const useGraph = () => {
     const { designMode } = useSimulationContext();
+    const { connected } = useWebSocketConnection();
     const { graphApi, clientId } = useApi(); // Default API from context
     const [graphData, setGraphData] = useState<GraphData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<Error | null>(null);
     const hasLoadedInitialGraph = useRef(false);
+    const wasConnected = useRef(connected);
     const requestVersion = useRef(0);
 
     /**
@@ -70,6 +73,15 @@ export const useGraph = () => {
         hasLoadedInitialGraph.current = true;
         void refetchGraphData().catch(() => undefined);
     }, [refetchGraphData]);
+
+    useEffect(() => {
+        const reconnected = connected && !wasConnected.current;
+        wasConnected.current = connected;
+        if (!reconnected) return;
+        // A socket reconnect can leave a short interval of missed entity events;
+        // reconcile from the authoritative graph snapshot before live updates resume.
+        void refetchGraphData().catch(() => undefined);
+    }, [connected, refetchGraphData]);
 
     return { graphData, loading, error, refetchGraphData };
 };

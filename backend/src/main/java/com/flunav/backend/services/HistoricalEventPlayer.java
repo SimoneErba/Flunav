@@ -135,11 +135,26 @@ public class HistoricalEventPlayer {
                         ? AnomalyProcessingMode.FUTURE_SIMULATION : AnomalyProcessingMode.HISTORICAL_PLAYBACK;
                 try (var virtualTime = timeService.enterVirtualTime(eventClock);
                         var analytics = AnomalyProcessingContext.enter(mode)) {
-                    eventProcessor.process(next, true, useExternal
-                            ? EventOrigin.REPLAY : EventOrigin.SIMULATION_GENERATED).join();
+                    processPlaybackEvent(id, next, useExternal);
                 }
             }
             simulationService.checkpointSimulationAt(id, target);
+        }
+    }
+
+    /**
+     * Bad external history is logged and skipped so one stale position reference
+     * cannot stop an otherwise usable replay. Projected events remain fatal because
+     * later movement depends on their successful reduction.
+     */
+    private void processPlaybackEvent(String simulationId, DomainEvent event, boolean external) {
+        try {
+            eventProcessor.process(event, true,
+                    external ? EventOrigin.REPLAY : EventOrigin.SIMULATION_GENERATED).join();
+        } catch (RuntimeException failure) {
+            if (!external) throw failure;
+            logger.warn("Skipping external playback event {} ({}) at {} for simulation {}: {}",
+                    event.getEventId(), event.getEventType(), event.getTimestamp(), simulationId, failure.getMessage());
         }
     }
 

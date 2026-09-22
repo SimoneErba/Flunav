@@ -130,25 +130,25 @@ public class LiveMovementRecoveryService {
             return true;
         }
 
-        double storedDistance = Math.max(0.0, item.getAccumulatedDistance());
+        double storedProgress = Math.min(100.0, Math.max(0.0, item.getAccumulatedDistance()));
         double speed = conveyor.getSpeed() != null ? conveyor.getSpeed() : 0.0;
         long elapsedMillis = Math.max(0L, recoveryTime.toEpochMilli() - item.getEntryTime().toEpochMilli());
-        double currentDistance = storedDistance + (elapsedMillis / 1000.0) * Math.max(0.0, speed);
+        double progressDelta = (elapsedMillis / 1000.0) * Math.max(0.0, speed) / conveyor.getLength() * 100.0;
+        double currentProgress = storedProgress + progressDelta;
 
         Instant schedulingTime = item.getEntryTime();
-        double schedulingDistance = storedDistance;
-        if (speed <= 0 || currentDistance < conveyor.getLength()) {
+        double schedulingProgress = storedProgress;
+        if (speed <= 0 || currentProgress < 100.0) {
             schedulingTime = recoveryTime;
-            schedulingDistance = currentDistance;
-            liveItemRepository.checkpointPhysics(item.getId(), recoveryTime, currentDistance);
+            schedulingProgress = currentProgress;
+            liveItemRepository.checkpointPhysics(item.getId(), recoveryTime, currentProgress);
         }
 
-        double progress = (schedulingDistance / conveyor.getLength()) * 100.0;
         itemMovementProcessor.handleItemEntryToConveyor(
                 item.getId(),
                 item.getPositionId(),
                 schedulingTime,
-                progress,
+                schedulingProgress,
                 null);
         return true;
     }
