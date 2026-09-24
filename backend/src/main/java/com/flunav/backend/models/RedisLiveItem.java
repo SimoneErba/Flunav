@@ -40,6 +40,7 @@ public class RedisLiveItem {
     private String plannedPositionId; // Redis key: "pe"
     private PositionType plannedPositionType; // Redis key: "pty"
     private Instant plannedTransitionTimestamp; // Redis key: "pt"
+    private boolean movementPaused; // Redis key: "mp"
 
     /**
      * Converts the object to a Map for Redis Hash storage.
@@ -86,6 +87,8 @@ public class RedisLiveItem {
             data.put("pty", plannedPositionType.name());
         if (plannedTransitionTimestamp != null)
             data.put("pt", String.valueOf(plannedTransitionTimestamp.toEpochMilli()));
+        if (movementPaused)
+            data.put("mp", "true");
         return data;
     }
 
@@ -197,6 +200,7 @@ public class RedisLiveItem {
             } catch (NumberFormatException ignored) {
             }
         }
+        builder.movementPaused(Boolean.parseBoolean(hash.getOrDefault("mp", "false")));
 
         return builder.build();
     }

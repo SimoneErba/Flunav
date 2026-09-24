@@ -7,7 +7,9 @@ import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.test.SimulationTestHarness;
 
+import flunav.events.ItemActivatedEvent;
 import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemDeactivatedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 
@@ -187,6 +189,37 @@ class SimulationTests extends BaseIntegrationTest {
         var item = sim.getItem("item-1").orElseThrow();
         assertEquals("conv2", item.getCurrentEdgeId(), "Item should have transferred to conv2");
         assertEquals(0.5, item.getProgress(), 0.01, "Item should be halfway through conv2");
+    }
+
+    @Test
+    void deactivatedItemFreezesAndActivationResumesFromItsCheckpoint() {
+        DatabaseContextHolder.enterSimulationContext("test-sim");
+        Instant start = Instant.parse("2026-02-07T11:00:00Z");
+        sim.startAt(start);
+
+        sim.createLocation("pause-start", "Start", LocationType.GENERIC);
+        sim.createLocation("pause-end", "End", LocationType.GENERIC);
+        sim.createConveyor("pause-conveyor", "pause-start", "pause-end", 100.0, 1.0, false);
+        sim.applyEvent(new ItemCreatedEvent("pause-item", "Box", 1.0, true, "pause-start",
+                PositionType.LOCATION, 0.0, new HashMap<>(), start));
+
+        sim.applyEvent(new ItemDeactivatedEvent("pause-item", start.plusSeconds(20)));
+        var frozenState = liveItemRepository.getItemState("pause-item");
+        assertTrue(frozenState.isMovementPaused());
+        assertEquals(20.0, frozenState.getAccumulatedDistance(), 0.001);
+
+        sim.advanceTo(start.plusSeconds(60));
+        var frozenItem = sim.getItem("pause-item").orElseThrow();
+        assertEquals("pause-conveyor", frozenItem.getCurrentEdgeId());
+        assertEquals(0.2, frozenItem.getProgress(), 0.001);
+
+        sim.applyEvent(new ItemActivatedEvent("pause-item", start.plusSeconds(60)));
+        assertFalse(liveItemRepository.getItemState("pause-item").isMovementPaused());
+
+        sim.advanceTo(start.plusSeconds(139));
+        assertEquals(0.99, sim.getItem("pause-item").orElseThrow().getProgress(), 0.01);
+        sim.advanceTo(start.plusSeconds(141));
+        assertEquals("pause-end", sim.getItem("pause-item").orElseThrow().getLocationId());
     }
 
     @Test

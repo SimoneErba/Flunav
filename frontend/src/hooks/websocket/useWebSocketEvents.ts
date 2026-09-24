@@ -11,6 +11,7 @@ import {
     AnomalyNotification
 } from '../../types/WebsocketTypes';
 import { ItemResponse, LocationInput, ThroughputMetric } from '../../api-client/api';
+import type { MultiSimulationResponse } from '../../api/multiSimulation';
 
 export const useWebSocketEvents = () => {
     const { connected, subscribe } = useWebSocketConnection();
@@ -30,6 +31,13 @@ export const useWebSocketEvents = () => {
 
     const subscribeToSimulationSpeed = useCallback((simId: string, handler: (update: SimulationSpeedUpdate & { timestamp: number }) => void) => {
         return subscribe(`/topic/simulations/${simId}/speed`, handler);
+    }, [subscribe]);
+
+    const subscribeToMultiSimulationStatus = useCallback((
+        simulationId: string,
+        handler: (update: MultiSimulationResponse & { timestamp: number }) => void
+    ) => {
+        return subscribe(`/topic/simulations/${simulationId}/multi-simulation`, handler);
     }, [subscribe]);
 
     // 2. Physics (Positions)
@@ -113,6 +121,7 @@ export const useWebSocketEvents = () => {
         connected,
         subscribeToSimulationStatus,
         subscribeToSimulationSpeed,
+        subscribeToMultiSimulationStatus,
         subscribeToPositionUpdates,
         subscribeToItemCreated,
         subscribeToItemDeleted,

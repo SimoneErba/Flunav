@@ -450,6 +450,9 @@ public class HistoricalGraphBuilder {
                     itemData.getRoutingStatus(),
                     itemData.getRoutingStatusUpdatedAt(),
                     itemData.getPath());
+            if (!Boolean.TRUE.equals(itemData.getActive())) {
+                liveItemRepository.setMovementPaused(itemData.getId(), true);
+            }
             if (itemData.getPlannedPositionId() != null
                     && itemData.getPlannedPositionType() != null
                     && itemData.getPlannedTransitionTimestamp() != null) {

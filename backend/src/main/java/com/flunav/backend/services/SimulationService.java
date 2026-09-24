@@ -616,10 +616,14 @@ public class SimulationService {
         if ("true".equals(System.getProperty("disable-sim-cleanup")))
             return;
         Instant now = timeService.physicalNow();
-        for (var heartbeat : liveSimulationRepository.getAllSimulationHeartbeats()) {
-            if (Duration.between(heartbeat.lastHeartbeatTimestamp(), now).toMinutes() > 2
-                    && !hasWhatIfChild(heartbeat.simulationId())) {
-                destroySimulation(heartbeat.simulationId());
+        for (var metadata : liveSimulationRepository.getAllSimulationStates()) {
+            boolean activeMultiSimulationRuntime = metadata.kind() == SimulationKind.MULTI_SIMULATION_RUN
+                    && simulationCache.containsKey(metadata.simulationId());
+            if (!activeMultiSimulationRuntime
+                    && metadata.lastHeartbeatTimestamp() != null
+                    && Duration.between(metadata.lastHeartbeatTimestamp(), now).toMinutes() > 2
+                    && !hasWhatIfChild(metadata.simulationId())) {
+                destroySimulation(metadata.simulationId());
             }
         }
     }
@@ -984,13 +988,16 @@ public class SimulationService {
     private void checkpointAllItemsInCurrentContext(Instant now) {
         var items = liveItemRepository.getAllActiveItems();
         for (var itemData : items) {
+            if (itemData.isMovementPaused()) {
+                continue;
+            }
             PositionType type = itemData.getType();
             Instant lastTs = itemData.getEntryTime();
             double progress = itemData.getAccumulatedDistance();
 
             if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
                 var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
-                if (conveyor != null) {
+                if (conveyor != null && conveyor.isActive() && conveyor.getSpeed() > 0) {
                     if (conveyor.getType() == flunav.types.ConveyorType.STAGING) {
                         continue;
                     }

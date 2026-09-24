@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { axiosInstance } from '../../api/axiosInstance';
@@ -14,7 +13,9 @@ import {
   type MultiSimulationResponse,
 } from '../../api/multiSimulation';
 import { useAuth } from '../../context/auth.context';
+import { useWebSocketEvents } from '../../hooks/websocket/useWebSocketEvents';
 import { AppHeader } from '../AppHeader';
+import { AppNavigation } from '../AppNavigation';
 
 interface TopologyLocation { id: string; name: string; active: boolean; }
 interface TopologyConveyor { id: string; name: string; }
@@ -24,8 +25,8 @@ interface DestinationExitMapping { destination: string; exits: string[]; }
 const terminalStatuses = new Set(['COMPLETED', 'COMPLETED_WITH_FAILURES', 'CANCELLED', 'FAILED']);
 
 export const MultiSimulationsPage = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
+  const { connected, subscribeToMultiSimulationStatus } = useWebSocketEvents();
   const canRun = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
   const [simulations, setSimulations] = useState<MultiSimulationResponse[]>([]);
   const [selected, setSelected] = useState<MultiSimulationResponse>();
@@ -53,16 +54,36 @@ export const MultiSimulationsPage = () => {
       .finally(() => setLoading(false));
   }, [refreshList]);
 
+  const selectedId = selected?.id;
+  const selectedStatus = selected?.status;
+
   useEffect(() => {
-    if (!selected || terminalStatuses.has(selected.status) || selected.status === 'DRAFT') return;
-    const interval = window.setInterval(() => {
-      multiSimulationApi.get(selected.id).then(value => {
-        setSelected(value);
-        setSimulations(previous => previous.map(item => item.id === value.id ? value : item));
-      }).catch(console.warn);
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [selected]);
+    if (!selectedId || !selectedStatus || terminalStatuses.has(selectedStatus) || selectedStatus === 'DRAFT') return;
+
+    let active = true;
+    const applyUpdate = (value: MultiSimulationResponse) => {
+      if (!active) return;
+      setSelected(previous => previous?.id === value.id ? value : previous);
+      setSimulations(previous => previous.map(item => item.id === value.id ? value : item));
+    };
+    const refresh = () => multiSimulationApi.get(selectedId).then(applyUpdate).catch(console.warn);
+
+    if (connected) {
+      const unsubscribe = subscribeToMultiSimulationStatus(selectedId, applyUpdate);
+      void refresh();
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    }
+
+    void refresh();
+    const interval = window.setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [connected, selectedId, selectedStatus, subscribeToMultiSimulationStatus]);
 
   useEffect(() => {
     if (!selected || !['COMPLETED', 'COMPLETED_WITH_FAILURES', 'CANCELLED'].includes(selected.status)) {
@@ -72,20 +93,11 @@ export const MultiSimulationsPage = () => {
     multiSimulationApi.report(selected.id).then(setReport).catch(() => setReport(undefined));
   }, [selected]);
 
-  const leftActions = (
-    <div className="flex items-center gap-2">
-      <NavButton label="Live" onClick={() => navigate('/live')} />
-      <NavButton label="Multi-simulations" active onClick={() => undefined} />
-      <NavButton label="Admin" onClick={() => navigate('/admin')} />
-      <NavButton label="Assistant" onClick={() => navigate('/assistant')} />
-    </div>
-  );
-
   return (
     <div className="flex h-screen flex-col bg-gray-50 text-gray-900 dark:bg-[#121212] dark:text-white">
       <AppHeader
         centerContent={<span className="font-semibold">Multi-simulations</span>}
-        leftActions={leftActions}
+        leftActions={<AppNavigation activeMode="simulations" />}
         rightActions={canRun ? (
           <button type="button" onClick={() => setShowCreate(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
             New multi-simulation
@@ -246,4 +258,3 @@ const MetricCard = ({ name, distribution }: { name: string; distribution: Metric
 const Info = ({ label, value }: { label: string; value: string }) => <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"><div className="text-xs uppercase text-gray-500">{label}</div><div className="mt-1 font-bold">{value}</div></div>;
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block"><span className="mb-1 block text-sm font-medium">{label}</span>{children}</label>;
 const NumberInput = ({ value, onChange, min, max, step }: { value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) => <input type="number" value={value} min={min} max={max} step={step} onChange={event => onChange(Number(event.target.value))} className="input" />;
-const NavButton = ({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) => <button type="button" onClick={onClick} className={`rounded-md px-3 py-1.5 text-sm font-semibold ${active ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-blue-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800'}`}>{label}</button>;

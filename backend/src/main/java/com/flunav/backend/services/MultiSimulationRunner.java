@@ -36,6 +36,7 @@ public class MultiSimulationRunner {
     private final MultiSimulationMetricsService metricsService;
     private final MultiSimulationAggregator aggregator;
     private final TimeService timeService;
+    private final WebSocketService webSocketService;
     private final long maximumEventsPerRun;
     private final Semaphore executionPermits;
     private final Map<String, AtomicBoolean> cancellations = new ConcurrentHashMap<>();
@@ -47,6 +48,7 @@ public class MultiSimulationRunner {
             MultiSimulationMetricsService metricsService,
             MultiSimulationAggregator aggregator,
             TimeService timeService,
+            WebSocketService webSocketService,
             @Value("${multi-simulation.max-events-per-run:5000000}") long maximumEventsPerRun,
             @Value("${multi-simulation.max-concurrent-experiments:1}") int maximumConcurrentExperiments) {
         this.clickHouseService = clickHouseService;
@@ -55,6 +57,7 @@ public class MultiSimulationRunner {
         this.metricsService = metricsService;
         this.aggregator = aggregator;
         this.timeService = timeService;
+        this.webSocketService = webSocketService;
         this.maximumEventsPerRun = maximumEventsPerRun;
         this.executionPermits = new Semaphore(Math.max(1, maximumConcurrentExperiments));
     }
@@ -195,9 +198,11 @@ public class MultiSimulationRunner {
             Instant completedAt,
             boolean cancelRequested,
             String error) {
-        clickHouseService.saveMultiSimulation(new MultiSimulation(
+        MultiSimulation update = new MultiSimulation(
                 source.id(), source.configuration(), source.baseline(), source.baseSeed(), status,
-                completed, failed, source.createdAt(), startedAt, completedAt, cancelRequested, error));
+                completed, failed, source.createdAt(), startedAt, completedAt, cancelRequested, error);
+        clickHouseService.saveMultiSimulation(update);
+        webSocketService.broadcastMultiSimulationUpdate(update, timeService.physicalNow());
     }
 
     private String boundedMessage(Throwable failure) {

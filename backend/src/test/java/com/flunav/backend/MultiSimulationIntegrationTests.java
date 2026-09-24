@@ -22,6 +22,7 @@ import com.flunav.backend.models.multisimulation.MultiSimulationConfiguration;
 import com.flunav.backend.models.multisimulation.MultiSimulationStatus;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.MultiSimulationService;
+import com.flunav.backend.services.SimulationService;
 
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.DestinationExitMappingRecord;
@@ -40,15 +41,69 @@ import flunav.types.LocationType;
 class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     private final EventProcessor eventProcessor;
     private final MultiSimulationService multiSimulationService;
+    private final SimulationService simulationService;
     private final StringRedisTemplate redis;
 
     MultiSimulationIntegrationTests(
             EventProcessor eventProcessor,
             MultiSimulationService multiSimulationService,
+            SimulationService simulationService,
             StringRedisTemplate redis) {
         this.eventProcessor = eventProcessor;
         this.multiSimulationService = multiSimulationService;
+        this.simulationService = simulationService;
         this.redis = redis;
+    }
+
+    @Test
+    void cleanupDoesNotDestroyAnActiveMultiSimulationRuntime() {
+        String runtimeId = "active-multi-runtime-" + System.nanoTime();
+        String stateKey = "sim:" + runtimeId + ":state";
+        var source = createRunnableMultiSimulation("Cleanup protection " + runtimeId, 1);
+
+        simulationService.createMultiSimulationRuntime(
+                runtimeId, source.configuration().simulationStartTime(), source.baseline());
+        redis.opsForHash().put(stateKey, "hb",
+                String.valueOf(Instant.now().minus(Duration.ofMinutes(10)).toEpochMilli()));
+
+        try {
+            simulationService.cleanupAbandonedSimulations();
+            assertTrue(Boolean.TRUE.equals(redis.hasKey(stateKey)));
+            assertEquals(runtimeId, simulationService.getSimulationState(runtimeId).getId());
+        } finally {
+            simulationService.destroySimulation(runtimeId);
+        }
+    }
+
+    private com.flunav.backend.models.multisimulation.MultiSimulation createRunnableMultiSimulation(
+            String name,
+            int runs) {
+        String suffix = String.valueOf(System.nanoTime());
+        String source = "multi-source-" + suffix;
+        String chute = "multi-chute-" + suffix;
+        String conveyor = "multi-conveyor-" + suffix;
+        String destination = "multi-destination-" + suffix;
+
+        eventProcessor.process(new LocationCreatedEvent(
+                source, "Source", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new LocationCreatedEvent(
+                chute, "Chute", true, 1.0, 0.0, LocationType.CHUTE, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent(
+                conveyor, source, chute, 1.0, 1.0, 0.0, null, true,
+                "Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord(destination, List.of(chute)))), false).join();
+
+        return multiSimulationService.create(new MultiSimulationConfiguration(
+                name,
+                60,
+                runs,
+                new ArrivalConfiguration(360, ArrivalDistribution.FIXED, 0),
+                source,
+                List.of(new DestinationProbability(destination, 1.0)),
+                List.of(),
+                1234L,
+                Instant.parse("2035-01-01T00:00:00Z")));
     }
 
     @Test

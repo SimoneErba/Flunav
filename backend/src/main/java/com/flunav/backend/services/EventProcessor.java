@@ -615,6 +615,9 @@ public class EventProcessor {
 
                 case ItemDeactivatedEvent e -> {
                     var item = itemService.getItemById(e.getEntityId());
+                    itemMovementProcessor.checkpointItem(e.getEntityId(), e.getTimestamp(), shouldBroadcast);
+                    liveItemRepository.setMovementPaused(e.getEntityId(), true);
+                    liveItemRepository.clearPlannedTransition(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", false)));
                     item.stop();
                     itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
@@ -632,6 +635,7 @@ public class EventProcessor {
                     var item = itemService.getItemById(e.getEntityId());
                     itemService.updateItem(new UpdateModel(item.getId(), Map.of("active", true)));
                     item.resume();
+                    itemMovementProcessor.resumeItem(e.getEntityId(), e.getTimestamp(), shouldBroadcast);
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
                         updates.put("active", true);

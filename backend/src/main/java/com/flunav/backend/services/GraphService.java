@@ -213,7 +213,10 @@ public class GraphService {
                 }
 
                 ItemResponse simulatedItem;
-                if (stagedDistances.containsKey(id)) {
+                if (rawItem.isMovementPaused() && type == PositionType.CONVEYOR) {
+                    simulatedItem = createItemResponse(id, positionId, null, entryTime,
+                            Math.min(1.0, Math.max(0.0, accDist / 100.0)));
+                } else if (stagedDistances.containsKey(id)) {
                     ConveyorResponse staging = topology.conveyorMap.get(positionId);
                     simulatedItem = createItemResponse(id, positionId, null, entryTime,
                             stagedDistances.get(id) / staging.getLength());
@@ -305,7 +308,9 @@ public class GraphService {
             }
             for (int index = 0; index < orderedItems.size(); index++) {
                 RedisLiveItem item = orderedItems.get(index);
-                long elapsedMillis = Math.max(0L, Duration.between(item.getEntryTime(), now).toMillis());
+                long elapsedMillis = item.isMovementPaused()
+                        ? 0L
+                        : Math.max(0L, Duration.between(item.getEntryTime(), now).toMillis());
                 double storedDistance = length * Math.min(100.0, Math.max(0.0, item.getAccumulatedDistance())) / 100.0;
                 double naturalDistance = storedDistance
                         + elapsedMillis / 1000.0 * speed;

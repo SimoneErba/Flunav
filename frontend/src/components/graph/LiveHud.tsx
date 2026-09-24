@@ -28,6 +28,13 @@ interface ThroughputCounts {
   cleared: number;
 }
 
+interface HudItem {
+  label: string;
+  value: number;
+  testId: string;
+  alert?: boolean;
+}
+
 const EMPTY_COUNTS: HudCounts = {
   active: 0,
   priority: 0,
@@ -234,41 +241,66 @@ export const LiveHud = ({ activeItemsRef, simulationId }: LiveHudProps) => {
     };
   }, [analyticsApi, connected, simulationId, subscribeToThroughputUpdates]);
 
-  const items = [
+  const [expanded, setExpanded] = useState(false);
+  const primaryItems: HudItem[] = [
     { label: "Active", value: counts.active, testId: "live-hud-active" },
+    { label: "Waiting", value: counts.waiting, alert: counts.waiting > 0, testId: "live-hud-waiting" },
+    { label: "Completed", value: counts.completed, testId: "live-hud-completed" },
+  ];
+  const secondaryItems: HudItem[] = [
     { label: "Priority", value: counts.priority, testId: "live-hud-priority" },
     { label: "Routed", value: counts.routed, testId: "live-hud-routed" },
-    { label: "Waiting", value: counts.waiting, alert: counts.waiting > 0, testId: "live-hud-waiting" },
     { label: "Unrouted", value: counts.unrouted, alert: counts.unrouted > 0, testId: "live-hud-unrouted" },
-    { label: "Failed", value: counts.failed, alert: counts.failed > 0, testId: "live-hud-failed" },
-    { label: "Completed", value: counts.completed, testId: "live-hud-completed" },
     { label: "In/5s", value: throughput.entered, testId: "live-hud-in-5s" },
     { label: "Cleared/5s", value: throughput.cleared, testId: "live-hud-cleared-5s" },
+  ];
+  const problemItems: HudItem[] = [
+    { label: "Failed", value: counts.failed, alert: counts.failed > 0, testId: "live-hud-failed" },
     { label: "Stopped", value: counts.stopped, alert: counts.stopped > 0, testId: "live-hud-stopped" },
     { label: "Full chutes", value: counts.fullChutes, alert: counts.fullChutes > 0, testId: "live-hud-full-chutes" },
   ];
+  const visibleProblems = problemItems.filter((item) => item.value > 0);
+  const detailItems = [...secondaryItems, ...problemItems.filter((item) => item.value === 0)];
 
   return (
     <div
       data-testid="live-hud"
-      className="absolute left-4 top-4 z-[110] max-w-[calc(100%-2rem)] rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-gray-900 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-900/90 dark:text-gray-100"
+      className={`absolute left-4 top-4 z-[110] max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white/95 text-gray-900 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-900/90 dark:text-gray-100 ${expanded ? "w-[34rem]" : ""}`}
     >
-      <div className="flex max-w-xl flex-wrap items-center gap-x-4 gap-y-2">
-        {items.map((item) => (
-          <div key={item.label} data-testid={item.testId} className="flex min-w-0 items-baseline gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {item.label}
-            </span>
-            <span
-              className={`text-sm font-semibold tabular-nums ${
-                item.alert ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"
-              }`}
-            >
-              {formatMetricValue(item.value)}
-            </span>
-          </div>
-        ))}
+      <div className="flex min-h-9 items-center gap-4 overflow-x-auto px-2.5 py-1">
+        {primaryItems.map((item) => <HudMetric key={item.label} item={item} />)}
+        {visibleProblems.length > 0 && <span className="h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />}
+        {visibleProblems.map((item) => <HudMetric key={item.label} item={item} chip />)}
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse operational metrics" : "Expand operational metrics"}
+          title={expanded ? "Collapse metrics" : "Show all metrics"}
+        >
+          <svg className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
+      <div className={expanded ? "grid grid-cols-4 gap-x-6 gap-y-2 border-t border-gray-200 px-3 py-2.5 dark:border-gray-700" : "sr-only"}>
+        {detailItems.map((item) => <HudMetric key={item.label} item={item} muted={!item.alert} />)}
       </div>
     </div>
   );
 };
+
+const HudMetric = ({ item, chip = false, muted = false }: { item: HudItem; chip?: boolean; muted?: boolean }) => (
+  <div
+    data-testid={item.testId}
+    className={`flex min-w-0 items-baseline gap-1.5 whitespace-nowrap ${chip ? "rounded-md bg-red-50 px-2 py-1 dark:bg-red-950/40" : ""}`}
+  >
+    <span className={`text-[10px] font-semibold uppercase tracking-wide ${item.alert ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>
+      {item.label}
+    </span>
+    <span className={`text-sm font-semibold tabular-nums ${item.alert ? "text-red-600 dark:text-red-400" : muted ? "text-gray-400 dark:text-gray-500" : "text-gray-900 dark:text-gray-100"}`}>
+      {formatMetricValue(item.value)}
+    </span>
+  </div>
+);

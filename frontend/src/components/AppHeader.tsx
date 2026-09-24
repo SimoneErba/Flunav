@@ -10,27 +10,32 @@ interface AppHeaderProps {
 
 export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeaderProps) => {
   const { user, logout } = useAuth();
+  const initials = user?.username
+    .split(/\s+/)
+    .map(part => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <header className="
       relative
-      min-h-16 px-4 py-2 gap-4
+      h-[52px] px-3 gap-3
       bg-white/90 dark:bg-gray-900/90 backdrop-blur-md
       border-b border-gray-200 dark:border-gray-800
       flex items-center
-      shrink-0 z-50 sticky top-0
+      shrink-0 z-[3000] sticky top-0
       transition-all duration-300
     ">
       
       {/* --- LEFT SECTION --- */}
-      <div className="relative z-20 flex items-center gap-3 flex-1 min-w-0 overflow-x-auto">
+      <div className="relative z-20 flex min-w-0 items-center gap-3 overflow-visible">
         {/* Logo Area */}
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Increased to h-12 (48px) */}
-          <img 
-            src="/logo.svg" 
-            alt="Logo" 
-            className="h-12 w-auto object-contain" 
+        <div className="flex shrink-0 items-center gap-3">
+          <img
+            src="/logo.svg"
+            alt="Flunav"
+            className="h-10 w-auto object-contain"
           />
         </div>
 
@@ -43,14 +48,14 @@ export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeade
       </div>
 
       {/* --- CENTER SECTION --- */}
-      <div className="relative z-10 flex shrink-0 items-center">
+      <div className="relative z-10 flex min-w-0 flex-1 items-center justify-center">
         {centerContent}
       </div>
 
       {/* --- RIGHT SECTION --- */}
-      <div className="relative z-20 flex min-w-0 flex-1 items-center justify-end gap-2 pl-2">
+      <div className="relative z-20 flex shrink-0 items-center justify-end gap-1 pl-1">
         {rightActions && (
-          <div className="flex items-center gap-2 pr-1 shrink-0">
+          <div className="flex shrink-0 items-center gap-1 pr-1">
             {rightActions}
           </div>
         )}
@@ -58,24 +63,21 @@ export const AppHeader = ({ centerContent, leftActions, rightActions }: AppHeade
         <ThemeToggle />
 
         {user && (
-          <div className="flex items-center gap-3 pl-4 ml-2 border-l border-gray-200 dark:border-gray-700">
-            <div className="text-right hidden md:block cursor-default">
-              <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-none">
-                {user.username}
+          <details className="group relative ml-1 border-l border-gray-200 pl-2 dark:border-gray-700">
+            <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md p-1 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 [&::-webkit-details-marker]:hidden" aria-label="Open user menu">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">{initials}</span>
+              <span className="text-[10px] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+            </summary>
+            <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+              <div className="border-b border-gray-100 px-2 pb-2 dark:border-gray-800">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">{user.username}</div>
+                <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-gray-500">{user.role}</div>
               </div>
-              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mt-1">
-                {user.role}
-              </div>
+              <button type="button" onClick={logout} className="mt-1 w-full rounded-md px-2 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30">
+                Sign out
+              </button>
             </div>
-            
-            <button 
-              onClick={logout}
-              className="group p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-              title="Logout"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            </button>
-          </div>
+          </details>
         )}
       </div>
     </header>

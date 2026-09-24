@@ -132,6 +132,16 @@ public class LiveItemRepository {
         redis.opsForHash().delete(getNamespacedKey("item:" + itemId), "pe", "pty", "pt");
     }
 
+    /** Marks whether movement scheduling and time-based projection are paused. */
+    public void setMovementPaused(String itemId, boolean paused) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        if (paused) {
+            redis.opsForHash().put(itemKey, "mp", "true");
+        } else {
+            redis.opsForHash().delete(itemKey, "mp");
+        }
+    }
+
     /**
      * Deletes every active item in the current Redis namespace.
      * This follows the active set so simulation cleanup and live cleanup remove the

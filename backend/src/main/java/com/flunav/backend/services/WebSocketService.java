@@ -4,8 +4,10 @@ import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.models.input.LocationInput;
+import com.flunav.backend.models.multisimulation.MultiSimulation;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.ItemResponse;
+import com.flunav.backend.models.response.MultiSimulationResponse;
 import com.flunav.backend.models.response.ThroughputMetric;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.analytics.AnomalyNotification;
@@ -86,6 +88,11 @@ public class WebSocketService {
         message.put("speed", speedFactor);
         // Pass explicit ID, subtopic "speed"
         sendToTopic(simulationId, "speed", message, timestamp.toEpochMilli());
+    }
+
+    public void broadcastMultiSimulationUpdate(MultiSimulation simulation, Instant timestamp) {
+        sendToTopic(simulation.id(), "multi-simulation", MultiSimulationResponse.from(simulation),
+                timestamp.toEpochMilli());
     }
 
     // --- ITEM EVENTS ---

@@ -189,6 +189,9 @@ public class ItemService {
                                 : entryTime,
                         itemInput.getPath(),
                         entryTime);
+                if (!Boolean.TRUE.equals(itemInput.getActive())) {
+                    redisRepository.setMovementPaused(itemInput.getId(), true);
+                }
             });
         } catch (DuplicateItemException e) {
             // We know exactly what this is, so just re-throw it for the processor to

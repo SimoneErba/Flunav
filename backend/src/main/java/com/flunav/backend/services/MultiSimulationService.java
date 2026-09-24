@@ -47,6 +47,7 @@ public class MultiSimulationService {
     private final DestinationExitMappingService destinationExitMappingService;
     private final MultiSimulationRunner runner;
     private final TimeService timeService;
+    private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
     private final SecureRandom secureRandom = new SecureRandom();
     private final int maximumRuns;
@@ -58,6 +59,7 @@ public class MultiSimulationService {
             DestinationExitMappingService destinationExitMappingService,
             MultiSimulationRunner runner,
             TimeService timeService,
+            WebSocketService webSocketService,
             ObjectMapper objectMapper,
             @Value("${multi-simulation.max-runs:1000}") int maximumRuns) {
         this.clickHouseService = clickHouseService;
@@ -66,6 +68,7 @@ public class MultiSimulationService {
         this.destinationExitMappingService = destinationExitMappingService;
         this.runner = runner;
         this.timeService = timeService;
+        this.webSocketService = webSocketService;
         this.objectMapper = objectMapper;
         this.maximumRuns = maximumRuns;
     }
@@ -126,6 +129,7 @@ public class MultiSimulationService {
         }
         MultiSimulation queued = copy(current, MultiSimulationStatus.QUEUED, 0, 0, null, null, false, null);
         clickHouseService.saveMultiSimulation(queued);
+        webSocketService.broadcastMultiSimulationUpdate(queued, timeService.physicalNow());
         runner.run(id);
         return queued;
     }
@@ -138,6 +142,7 @@ public class MultiSimulationService {
         MultiSimulation cancelling = copy(current, MultiSimulationStatus.CANCELLING,
                 current.completedRuns(), current.failedRuns(), current.startedAt(), current.completedAt(), true, null);
         clickHouseService.saveMultiSimulation(cancelling);
+        webSocketService.broadcastMultiSimulationUpdate(cancelling, timeService.physicalNow());
         runner.requestCancellation(id);
         return cancelling;
     }

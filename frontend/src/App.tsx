@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 
 // --- COMPONENTS ---
@@ -12,6 +12,7 @@ import { DestinationMappingManagement } from './components/admin/DestinationMapp
 import { SensorMappingManagement } from './components/admin/SensorMappingManagement';
 import { BiEntityEvents } from './components/admin/BiEntityEvents';
 import { AppHeader } from './components/AppHeader';
+import { AppNavigation, type OperationalMode } from './components/AppNavigation';
 
 // --- HOOKS & UTILS ---
 import { useGraph } from './hooks/useGraph';
@@ -75,15 +76,10 @@ const persistentNotification = (message: string, icon: string, id: string) => {
 };
 
 function LiveWorkspace() {
-   const { user } = useAuth();
-   const navigate = useNavigate();
+   const [searchParams, setSearchParams] = useSearchParams();
    const { activeSimulation, setActiveSimulation, designMode, setDesignMode, isBranching, isExitingWhatIf,
        enterWhatIf, exitWhatIf } = useSimulationContext();
    const isWhatIf = activeSimulation?.kind === 'WHAT_IF_LIVE' || activeSimulation?.kind === 'WHAT_IF_SIMULATION';
-   const canAccessUsers = user?.role === 'SUPERADMIN';
-   const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-   const canAccessSensors = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
-   const canAccessBi = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
 
    // --- Simulation State ---
    const [selectedDate, setSelectedDate] = useState(new Date());
@@ -171,6 +167,27 @@ function LiveWorkspace() {
     setIsRestoring(false);
     setPlaybackSpeed(1.0);
     refetchGraphData(null);
+  };
+
+  const handleSelectLive = () => {
+    setIsSelectingDate(false);
+    setDesignMode(false);
+    if (isWhatIf) {
+      void exitWhatIf().catch(() => toast.error('Could not exit What If'));
+    } else if (activeSimulation) {
+      void handleReturnToLive();
+    }
+  };
+
+  const handleSelectReplay = () => {
+    setDesignMode(false);
+    handleStartSimulationClick();
+  };
+
+  const handleSelectWhatIf = () => {
+    setIsSelectingDate(false);
+    setDesignMode(false);
+    if (!isWhatIf) void enterWhatIf().catch(() => toast.error('Could not start What If'));
   };
 
   const handleTogglePlayback = async () => {
@@ -271,6 +288,35 @@ function LiveWorkspace() {
   }, [activeSimulation?.id, simulationApi]); 
 
   useEffect(() => {
+    const requestedMode = searchParams.get('mode');
+    if (!requestedMode) return;
+    setSearchParams({}, { replace: true });
+    setIsSelectingDate(false);
+    setDesignMode(false);
+    if (requestedMode === 'live') {
+      if (isWhatIf) {
+        void exitWhatIf().catch(() => toast.error('Could not exit What If'));
+      } else if (activeSimulation) {
+        void simulationApi.destroySimulation(activeSimulation.id)
+          .catch(console.error)
+          .finally(() => {
+            setActiveSimulation(null);
+            setIsRestoring(false);
+            setPlaybackSpeed(1.0);
+            void refetchGraphData(null).catch(console.warn);
+          });
+      }
+    } else if (requestedMode === 'replay') {
+      setSelectedDate(alignToMinute(new Date()));
+      setIsSelectingDate(true);
+    } else if (requestedMode === 'what-if' && !isWhatIf) {
+      void enterWhatIf().catch(() => toast.error('Could not start What If'));
+    } else if (requestedMode === 'design' && !activeSimulation) {
+      setDesignMode(true);
+    }
+  }, [activeSimulation, enterWhatIf, exitWhatIf, isWhatIf, refetchGraphData, searchParams, setActiveSimulation, setDesignMode, setSearchParams, simulationApi]);
+
+  useEffect(() => {
     const refresh = () => { void refetchGraphData(activeSimulationIdRef.current).catch(console.warn); };
     window.addEventListener('scenario-mutated', refresh);
     return () => window.removeEventListener('scenario-mutated', refresh);
@@ -314,7 +360,7 @@ function LiveWorkspace() {
 
   const restoreConfirmLabel = activeSimulation ? 'Change' : 'Start';
 
-  // 1. Center Content (Playback, time travel, and scenario controls)
+  // Playback controls appear only after a mode has established its simulation context.
   const centerContent = (
     <div className="flex items-center gap-2">
         {isSelectingDate ? (
@@ -337,82 +383,23 @@ function LiveWorkspace() {
                     Change Time
                 </button>}
             </>
-        ) : (
-            !isRestoring && !designMode && (
-                <button onClick={handleStartSimulationClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Time Travel
-                </button>
-            )
-        )}
-        {!designMode && !isWhatIf && (
-          <button
-            disabled={isLoading}
-            className="rounded-lg border border-gray-300 px-4 py-2 font-bold transition-colors hover:bg-gray-100 disabled:opacity-40 dark:border-gray-600 dark:hover:bg-gray-800"
-            onClick={() => void enterWhatIf().catch(() => toast.error('Could not start What If'))}
-          >
-            What If
-          </button>
-        )}
-        {activeSimulation && !isWhatIf && (
-          <button onClick={handleReturnToLive} className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-            Exit Sim
-          </button>
-        )}
-        {isWhatIf && (
-          <button
-            disabled={isExitingWhatIf}
-            className="flex items-center gap-2 rounded-lg border border-red-500 px-4 py-2 font-bold text-red-500 transition-colors hover:bg-red-50 disabled:cursor-progress disabled:opacity-70 dark:hover:bg-red-900/20"
-            onClick={() => void exitWhatIf().catch(() => toast.error('Could not exit What If'))}
-          >
-            {isExitingWhatIf && (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-              </svg>
-            )}
-            {isExitingWhatIf ? 'Exiting...' : 'Exit What If'}
-          </button>
-        )}
-        {!activeSimulation && (
-          <button
-            className={designMode
-              ? 'rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 font-bold text-white transition-colors hover:bg-blue-700'
-              : 'rounded-lg border border-gray-300 px-4 py-2 font-bold transition-colors hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800'}
-            onClick={() => setDesignMode(!designMode)}
-          >
-            {designMode ? 'Done' : 'Design System'}
-          </button>
-        )}
+        ) : null}
     </div>
   );
 
-   const navButton = (label: string, path: string, active: boolean, enabled: boolean) => (
-      <button
-         type="button"
-         onClick={() => navigate(path)}
-         disabled={!enabled}
-         className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-            active
-               ? 'bg-blue-600 text-white'
-               : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800'
-         }`}
-      >
-         {label}
-      </button>
-   );
-
-   // 2. left Actions (navigation)
+   const activeMode: OperationalMode = isWhatIf ? 'what-if' : (activeSimulation || isSelectingDate || isRestoring) ? 'replay' : 'live';
    const leftActions = (
-      <div className="flex items-center gap-2">
-         {navButton('Live', '/live', true, true)}
-         {navButton('Multi-simulations', '/multi-simulations', false, canAccessBi)}
-         {navButton('Users', '/admin', false, canAccessUsers)}
-         {navButton('Mappings', '/admin/destination-mappings', false, canAccessDestinationMappings)}
-         {navButton('Sensors', '/admin/sensors', false, canAccessSensors)}
-         {navButton('BI', '/admin/bi', false, canAccessBi)}
-         {navButton('Assistant', '/assistant', false, true)}
-      </div>
+      <AppNavigation
+        activeMode={activeMode}
+        designMode={designMode}
+        disabled={isLoading}
+        onLive={handleSelectLive}
+        onReplay={handleSelectReplay}
+        onWhatIf={handleSelectWhatIf}
+        onDesignSystem={() => {
+          if (!activeSimulation) setDesignMode(!designMode);
+        }}
+      />
    );
 
    const rightActions = (
@@ -480,7 +467,6 @@ function LiveWorkspace() {
 // ============================================================================
 const AdminWorkspace = () => {
     const { user } = useAuth();
-    const navigate = useNavigate();
     const location = useLocation();
     const canAccessUsers = user?.role === 'SUPERADMIN';
     const canAccessDestinationMappings = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN';
@@ -490,20 +476,6 @@ const AdminWorkspace = () => {
     const isBi = location.pathname === '/admin/bi';
     const isSensors = location.pathname === '/admin/sensors';
     const title = isDestinationMappings ? 'Destination Mappings' : isSensors ? 'Sensors' : isBi ? 'BI' : 'User Management';
-    const adminNavButton = (label: string, path: string, active: boolean, enabled: boolean) => (
-        <button
-            type="button"
-            onClick={() => navigate(path)}
-            disabled={!enabled}
-            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                active
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800'
-            }`}
-        >
-            {label}
-        </button>
-    );
     
     // 1. Center: Title
     const centerContent = (
@@ -514,24 +486,7 @@ const AdminWorkspace = () => {
         </div>
     );
 
-    // 2. left: Back Button and admin navigation
-    const leftActions = (
-        <div className="flex items-center gap-2">
-            <button
-                type="button"
-                onClick={() => navigate('/live')}
-                className="px-3 py-1.5 rounded-md text-sm font-semibold transition-colors text-gray-600 hover:text-blue-600 hover:bg-blue-50 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:bg-gray-800"
-            >
-                Live
-            </button>
-            {adminNavButton('Multi-simulations', '/multi-simulations', false, canAccessBi)}
-            {adminNavButton('Users', '/admin', !isDestinationMappings && !isSensors && !isBi, canAccessUsers)}
-            {adminNavButton('Mappings', '/admin/destination-mappings', isDestinationMappings, canAccessDestinationMappings)}
-            {adminNavButton('Sensors', '/admin/sensors', isSensors, canAccessSensors)}
-            {adminNavButton('BI', '/admin/bi', isBi, canAccessBi)}
-            {adminNavButton('Assistant', '/assistant', false, true)}
-        </div>
-    );
+    const leftActions = <AppNavigation />;
 
     const content = isBi ? (
         canAccessBi ? (

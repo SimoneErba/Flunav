@@ -88,7 +88,8 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
       <button
         onClick={handleExport}
         title="Export graph as .flugraph file"
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md
+        aria-label="Export graph"
+        className="flex items-center rounded-md p-2 text-xs font-medium
           text-gray-600 dark:text-gray-300
           hover:bg-gray-100 dark:hover:bg-gray-800
           border border-transparent hover:border-gray-200 dark:hover:border-gray-700
@@ -101,7 +102,6 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
           <polyline points="7 10 12 15 17 10"/>
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        Export
       </button>
 
       {/* Import Button */}
@@ -109,7 +109,8 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
         onClick={() => fileInputRef.current?.click()}
         disabled={isImporting}
         title="Import a .flugraph file"
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md
+        aria-label="Import graph"
+        className="flex items-center rounded-md p-2 text-xs font-medium
           text-gray-600 dark:text-gray-300
           hover:bg-gray-100 dark:hover:bg-gray-800
           border border-transparent hover:border-gray-200 dark:hover:border-gray-700
@@ -131,7 +132,6 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
         )}
-        {isImporting ? 'Importing...' : 'Import'}
       </button>
 
       {/* Hidden file input */}
