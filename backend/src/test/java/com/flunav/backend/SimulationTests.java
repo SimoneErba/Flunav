@@ -3,6 +3,7 @@ package com.flunav.backend;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.services.GraphService;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.test.SimulationTestHarness;
@@ -10,6 +11,7 @@ import com.flunav.backend.test.SimulationTestHarness;
 import flunav.events.ItemActivatedEvent;
 import flunav.events.ItemCreatedEvent;
 import flunav.events.ItemDeactivatedEvent;
+import flunav.events.ItemPositionChangedEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 
@@ -47,6 +49,7 @@ class SimulationTests extends BaseIntegrationTest {
     private final SimulationService simulationService;
     private final StringRedisTemplate redisTemplate;
     private final OrientDBService orientDBService;
+    private final GraphService graphService;
 
     SimulationTests(
             SimulationTestHarness sim,
@@ -54,13 +57,15 @@ class SimulationTests extends BaseIntegrationTest {
             LiveSimulationRepository liveSimulationRepository,
             SimulationService simulationService,
             StringRedisTemplate redisTemplate,
-            OrientDBService orientDBService) {
+            OrientDBService orientDBService,
+            GraphService graphService) {
         this.sim = sim;
         this.liveItemRepository = liveItemRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.simulationService = simulationService;
         this.redisTemplate = redisTemplate;
         this.orientDBService = orientDBService;
+        this.graphService = graphService;
     }
 
     @BeforeEach
@@ -220,6 +225,48 @@ class SimulationTests extends BaseIntegrationTest {
         assertEquals(0.99, sim.getItem("pause-item").orElseThrow().getProgress(), 0.01);
         sim.advanceTo(start.plusSeconds(141));
         assertEquals("pause-end", sim.getItem("pause-item").orElseThrow().getLocationId());
+    }
+
+    @Test
+    void internalEventLeavesUnrelatedItemCheckpointLazyUntilObservation() {
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            Instant start = Instant.parse("2026-02-07T12:00:00Z");
+            sim.startAt(start);
+            sim.createLocation("fast-start", "Fast Start", LocationType.GENERIC);
+            sim.createLocation("fast-end", "Fast End", LocationType.GENERIC);
+            sim.createLocation("slow-start", "Slow Start", LocationType.GENERIC);
+            sim.createLocation("slow-end", "Slow End", LocationType.GENERIC);
+            sim.createConveyor("fast-conveyor", "fast-start", "fast-end", 10.0, 1.0, false);
+            sim.createConveyor("slow-conveyor", "slow-start", "slow-end", 100.0, 1.0, false);
+            sim.applyEvent(new ItemCreatedEvent("fast-item", "Fast", 1.0, true, "fast-start",
+                    PositionType.LOCATION, 0.0, new HashMap<>(), start));
+            sim.applyEvent(new ItemCreatedEvent("slow-item", "Slow", 1.0, true, "slow-start",
+                    PositionType.LOCATION, 0.0, new HashMap<>(), start));
+
+            simulationService.getSimulationState("test-sim").getInternalEventQueue()
+                    .removeIf(event -> event instanceof flunav.events.AnomalyEvaluationTickEvent);
+            simulationService.addInternalEvent(new ItemPositionChangedEvent(
+                    "fast-item", "fast-end", 1.0, start.plusSeconds(10)));
+            var before = liveItemRepository.getItemState("slow-item");
+            var processed = simulationService.processNextInternalEvent("test-sim");
+            assertInstanceOf(ItemPositionChangedEvent.class, processed);
+            assertEquals(start.plusSeconds(10), processed.getTimestamp());
+            assertEquals(start.plusSeconds(10), simulationService.getSimulationState("test-sim")
+                    .getLastProcessedTimestamp());
+
+            var after = liveItemRepository.getItemState("slow-item");
+            assertEquals(before.getEntryTime(), after.getEntryTime());
+            assertEquals(before.getAccumulatedDistance(), after.getAccumulatedDistance(), 0.001);
+            assertEquals(0.1, graphService.getGraphData(start.plusSeconds(10), false, "test-sim", false)
+                    .getItems().stream()
+                    .filter(item -> item.getId().equals("slow-item"))
+                    .findFirst().orElseThrow().getProgress(), 0.001);
+
+            simulationService.checkpointSimulationAt("test-sim", start.plusSeconds(10));
+            var checkpointed = liveItemRepository.getItemState("slow-item");
+            assertEquals(start.plusSeconds(10), checkpointed.getEntryTime());
+            assertEquals(10.0, checkpointed.getAccumulatedDistance(), 0.001);
+        }
     }
 
     @Test

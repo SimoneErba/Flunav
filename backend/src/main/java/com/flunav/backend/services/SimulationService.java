@@ -741,7 +741,7 @@ public class SimulationService {
 
     /**
      * Processes one due internal event from the simulation queue.
-     * Pulling from the queue here centralizes timestamp checkpointing and context
+     * Pulling from the queue here centralizes virtual-time advancement and context
      * re-entry for both historical builds and interactive playback.
      */
     public DomainEvent processNextInternalEvent(String simulationId) {
@@ -784,7 +784,6 @@ public class SimulationService {
      * being persisted or broadcast as live history.
      */
     private void processInternalEvent(String simulationId, SimulationState state, DomainEvent event) {
-        checkpointAllItems(simulationId, event.getTimestamp());
         state.setLastProcessedTimestamp(event.getTimestamp());
         persistState(state);
 

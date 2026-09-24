@@ -138,6 +138,22 @@ public class ItemMovementProcessor {
         }
     }
 
+    /** Keeps each item's traveled distance stable when a conveyor changes length. */
+    public void rescaleProgressForLengthChange(String conveyorId, double oldLength, double newLength,
+            Instant timestamp) {
+        if (oldLength <= 0 || newLength <= 0) {
+            return;
+        }
+        for (String itemId : liveConveyorRepository.getItemsOrderedByDistance(conveyorId)) {
+            var state = liveItemRepository.getItemState(itemId);
+            if (state != null && state.getType() == PositionType.CONVEYOR
+                    && conveyorId.equals(state.getPositionId())) {
+                liveItemRepository.checkpointPhysics(itemId, timestamp,
+                        state.getAccumulatedDistance() * oldLength / newLength);
+            }
+        }
+    }
+
     /** Freezes one item's derived conveyor position at a domain-event timestamp. */
     public void checkpointItem(String itemId, Instant timestamp, boolean shouldBroadcast) {
         var state = liveItemRepository.getItemState(itemId);

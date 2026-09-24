@@ -17,7 +17,7 @@ import { useWebSocketEvents } from '../../hooks/websocket/useWebSocketEvents';
 import { AppHeader } from '../AppHeader';
 import { AppNavigation } from '../AppNavigation';
 
-interface TopologyLocation { id: string; name: string; active: boolean; }
+interface TopologyLocation { id: string; name: string; type: string; active: boolean; }
 interface TopologyConveyor { id: string; name: string; }
 interface TopologyData { locations: TopologyLocation[]; conveyors: TopologyConveyor[]; }
 interface DestinationExitMapping { destination: string; exits: string[]; }
@@ -158,6 +158,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   const [source, setSource] = useState('');
   const [seed, setSeed] = useState('');
   const [destinations, setDestinations] = useState<DestinationProbability[]>([]);
+  const [destinationMode, setDestinationMode] = useState<'logical' | 'chute'>('logical');
   const [failures, setFailures] = useState<ConveyorFailureConfiguration[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -166,6 +167,15 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   }, [source, topology.locations]);
 
   const probabilityTotal = useMemo(() => destinations.reduce((sum, value) => sum + value.probability, 0), [destinations]);
+  const hasLogicalDestinations = destinationMappings.length > 0;
+  const activeDestinationMode = hasLogicalDestinations ? destinationMode : 'chute';
+  const destinationOptions = useMemo(() => {
+    if (activeDestinationMode === 'logical') {
+      return destinationMappings.map(mapping => [mapping.destination, mapping.destination] as const);
+    }
+    return topology.locations.filter(location => location.active && location.type === 'CHUTE')
+      .map(location => [location.id, location.name || location.id] as const);
+  }, [activeDestinationMode, destinationMappings, topology.locations]);
   const updateDestination = (destination: string, probabilityPercent: number) => {
     setDestinations(previous => {
       const without = previous.filter(value => value.destination !== destination);
@@ -215,10 +225,15 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
       </div>
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-4 flex justify-between"><h2 className="font-bold">Destination mix</h2><span className={Math.abs(probabilityTotal - 1) < 0.000001 ? 'text-green-600' : 'text-red-600'}>{(probabilityTotal * 100).toFixed(1)}%</span></div>
-        <div className="grid gap-3 md:grid-cols-2">{destinationMappings.map(mapping => {
-          const value = destinations.find(item => item.destination === mapping.destination)?.probability ?? 0;
-          return <Field key={mapping.destination} label={mapping.destination}><NumberInput value={value * 100} min={0} max={100} step={1} onChange={next => updateDestination(mapping.destination, next)} /></Field>;
+        {hasLogicalDestinations && <Field label="Destination type"><select value={activeDestinationMode} onChange={event => {
+          setDestinationMode(event.target.value as 'logical' | 'chute');
+          setDestinations([]);
+        }} className="input mb-4"><option value="logical">Logical destinations</option><option value="chute">Chute IDs</option></select></Field>}
+        <div className="grid gap-3 md:grid-cols-2">{destinationOptions.map(([destination, label]) => {
+          const value = destinations.find(item => item.destination === destination)?.probability ?? 0;
+          return <Field key={destination} label={label}><NumberInput value={value * 100} min={0} max={100} step={1} onChange={next => updateDestination(destination, next)} /></Field>;
         })}</div>
+        {destinationOptions.length === 0 && <p className="text-sm text-gray-500">Add an active chute to define the mix.</p>}
       </div>
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <h2 className="mb-1 font-bold">Conveyor failures</h2><p className="mb-4 text-sm text-gray-500">A rate of zero disables failures. Empty repair duration leaves the conveyor stopped.</p>

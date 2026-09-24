@@ -107,6 +107,38 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void runsWithDirectChuteDestinationWithoutExitMapping() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String source = "direct-source-" + suffix;
+        String chute = "direct-chute-" + suffix;
+        String conveyor = "direct-conveyor-" + suffix;
+
+        eventProcessor.process(new LocationCreatedEvent(
+                source, "Source", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new LocationCreatedEvent(
+                chute, "Chute", true, 1.0, 0.0, LocationType.CHUTE, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent(
+                conveyor, source, chute, 1.0, 1.0, 0.0, null, true,
+                "Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()), false).join();
+
+        var created = multiSimulationService.create(new MultiSimulationConfiguration(
+                "Direct chute destination",
+                60,
+                1,
+                new ArrivalConfiguration(360, ArrivalDistribution.FIXED, 0),
+                source,
+                List.of(new DestinationProbability(chute, 1.0)),
+                List.of(),
+                1234L,
+                Instant.parse("2035-01-01T00:00:00Z")));
+        multiSimulationService.start(created.id());
+        waitForCompletion(created.id(), Duration.ofSeconds(30));
+
+        assertEquals(MultiSimulationStatus.COMPLETED, multiSimulationService.get(created.id()).status());
+        assertEquals(5, multiSimulationService.runs(created.id()).getFirst().metrics().itemsCompleted());
+    }
+
+    @Test
     void runsTheSharedMovementEngineAndCleansEveryTemporaryNamespace() throws Exception {
         String suffix = String.valueOf(System.nanoTime());
         String source = "multi-source-" + suffix;
@@ -155,6 +187,53 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
             assertFalse(Boolean.TRUE.equals(redis.hasKey("sim:" + runtimeId + ":state")));
             assertTrue(redis.keys("sim:" + runtimeId + ":*").isEmpty());
         }
+    }
+
+    @Test
+    void highArrivalRunsWithTheSameSeedProduceIdenticalMetrics() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String source = "busy-source-" + suffix;
+        String chute = "busy-chute-" + suffix;
+        String conveyor = "busy-conveyor-" + suffix;
+        String destination = "busy-destination-" + suffix;
+
+        eventProcessor.process(new LocationCreatedEvent(
+                source, "Busy Source", true, 0.0, 0.0, LocationType.GENERIC, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new LocationCreatedEvent(
+                chute, "Busy Chute", true, 1.0, 0.0, LocationType.CHUTE, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent(
+                conveyor, source, chute, 100.0, 1.0, 0.0, null, true,
+                "Busy Conveyor", true, ConveyorType.BELT, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new MapDestinationExitsEvent(List.of(
+                new DestinationExitMappingRecord(destination, List.of(chute)))), false).join();
+
+        MultiSimulationConfiguration configuration = new MultiSimulationConfiguration(
+                "High arrival deterministic run",
+                30,
+                1,
+                new ArrivalConfiguration(3600, ArrivalDistribution.FIXED, 0),
+                source,
+                List.of(new DestinationProbability(destination, 1.0)),
+                List.of(),
+                1234L,
+                Instant.parse("2035-01-01T00:00:00Z"));
+
+        var first = multiSimulationService.create(configuration);
+        multiSimulationService.start(first.id());
+        waitForCompletion(first.id(), Duration.ofMinutes(3));
+        var second = multiSimulationService.create(configuration);
+        multiSimulationService.start(second.id());
+        waitForCompletion(second.id(), Duration.ofMinutes(3));
+
+        assertEquals(MultiSimulationStatus.COMPLETED, multiSimulationService.get(first.id()).status());
+        assertEquals(MultiSimulationStatus.COMPLETED, multiSimulationService.get(second.id()).status());
+        var firstRun = multiSimulationService.runs(first.id()).getFirst();
+        var secondRun = multiSimulationService.runs(second.id()).getFirst();
+        assertNotNull(firstRun.metrics());
+        assertEquals(29, firstRun.metrics().itemsGenerated());
+        assertEquals(29, firstRun.metrics().itemsRemaining());
+        assertEquals(29, firstRun.metrics().maximumSystemPopulation());
+        assertEquals(firstRun.metrics(), secondRun.metrics());
     }
 
     private void waitForCompletion(String id, Duration timeout) throws InterruptedException {

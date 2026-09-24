@@ -184,6 +184,7 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
                 graphs.getGraphData(restorePoint, false));
         SimulationState replay = simulations.createSimulation(restorePoint);
         awaitReady(replay);
+        simulations.ensureLiveHandoff(replay);
 
         ItemPositionChangedEvent invalidPosition = new ItemPositionChangedEvent(
                 "original", "missing-position", 0.0, restorePoint.plusSeconds(1));

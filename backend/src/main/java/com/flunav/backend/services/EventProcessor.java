@@ -1053,6 +1053,8 @@ public class EventProcessor {
                 case ConnectionLengthChangedEvent e -> {
                     var conveyor = conveyorService.getConveyorById(e.getEntityId());
                     checkpointItems(e.getEntityId(), conveyor.getSpeed(), e.getTimestamp());
+                    itemMovementProcessor.rescaleProgressForLengthChange(
+                            e.getEntityId(), conveyor.getLength(), e.getLength(), e.getTimestamp());
                     conveyor.setLength(e.getLength());
                     conveyorService.updateConveyor(conveyor);
                     if (manageLogic) {

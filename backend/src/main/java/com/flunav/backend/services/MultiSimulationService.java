@@ -35,6 +35,7 @@ import com.flunav.backend.models.response.LocationResponse;
 
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.DomainEvent;
+import flunav.types.LocationType;
 
 @Service
 public class MultiSimulationService {
@@ -211,7 +212,18 @@ public class MultiSimulationService {
         Set<String> reachableLocations = reachableLocations(configuration.sourceLocationId(), topology.getConveyors());
         for (DestinationProbability destination : configuration.destinations()) {
             DestinationExitMappingRecord mapping = exitMappings.get(destination.destination());
-            if (mapping == null || mapping.getExits().isEmpty()
+            if (mapping == null) {
+                LocationResponse directExit = locations.get(destination.destination());
+                if (directExit == null || directExit.getType() != LocationType.CHUTE
+                        || !Boolean.TRUE.equals(directExit.getActive())) {
+                    throw badRequest("destination has no valid configured exit: " + destination.destination());
+                }
+                if (!reachableLocations.contains(destination.destination())) {
+                    throw badRequest("destination has no exit reachable from the source: " + destination.destination());
+                }
+                continue;
+            }
+            if (mapping.getExits().isEmpty()
                     || mapping.getExits().stream().anyMatch(exit -> !locations.containsKey(exit))) {
                 throw badRequest("destination has no valid configured exit: " + destination.destination());
             }
