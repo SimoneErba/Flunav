@@ -5,7 +5,6 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.PriorityBlockingQueue;
 
 import flunav.events.DomainEvent;
 import flunav.events.AnomalyEvaluationTickEvent;
@@ -38,7 +37,7 @@ public class SimulationState {
     private final Object executionLock = new Object();
     private final AtomicLong playbackGeneration = new AtomicLong();
     private final Object timingLock = new Object();
-    private final PriorityBlockingQueue<DomainEvent> internalEventQueue = new PriorityBlockingQueue<>(11,
+    private final SimulationEventQueue internalEventQueue = new SimulationEventQueue(
             Comparator.comparing(DomainEvent::getTimestamp)
                     .thenComparingInt(SimulationState::eventPriority)
                     .thenComparing(SimulationState::deterministicEventKey)

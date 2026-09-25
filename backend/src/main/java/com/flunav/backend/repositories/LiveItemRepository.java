@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.utils.SimulationRunTiming;
 
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -335,10 +336,12 @@ public class LiveItemRepository {
      * graph projection or routing decisions consume the active item list.
      */
     public List<RedisLiveItem> getAllActiveItems() {
+        long scanStarted = SimulationRunTiming.tick();
         String setKey = getNamespacedKey("active_items");
         Set<String> activeIds = redis.opsForSet().members(setKey);
 
         if (activeIds == null || activeIds.isEmpty()) {
+            SimulationRunTiming.record("redis.load-all-active-items", scanStarted);
             return Collections.emptyList();
         }
 
@@ -381,6 +384,7 @@ public class LiveItemRepository {
             }
         }
 
+        SimulationRunTiming.record("redis.load-all-active-items", scanStarted);
         return resultList;
     }
 

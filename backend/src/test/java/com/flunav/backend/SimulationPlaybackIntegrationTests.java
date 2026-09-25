@@ -444,6 +444,7 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
         Instant restorePoint = pathChangedAt.plusMillis(100);
         simulationService.getOrCreateSimulation("sim-empty-path", restorePoint);
         waitForStatus("sim-empty-path", SimulationStatus.READY);
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("sim:sim-empty-path:build_item_metadata")));
 
         ItemResponse item = getSimulationItem("sim-empty-path", restorePoint, "empty-path-item").orElseThrow();
         assertEquals(List.of("empty-path-end"), item.getDestinations());

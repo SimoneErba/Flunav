@@ -1,12 +1,15 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Item;
+import com.flunav.backend.context.SimulationBuildCacheContext;
 import com.flunav.backend.exception.DuplicateItemException;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.ItemInput;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.SimulationItemMetadataRepository;
 import com.flunav.backend.utils.OrientDBUtils;
+import com.flunav.backend.utils.SimulationRunTiming;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
 import com.orientechnologies.orient.core.record.OVertex;
@@ -36,17 +39,20 @@ public class ItemService {
     private final LiveItemRepository redisRepository;
     private final TimeService timeService;
     private final TopologyProvider topologyProvider;
+    private final SimulationItemMetadataRepository metadataCache;
 
     public ItemService(OrientDBService orientDBService,
             UpdateService updateService,
             LiveItemRepository redisRepository,
             TimeService timeService,
-            TopologyProvider topologyProvider) {
+            TopologyProvider topologyProvider,
+            SimulationItemMetadataRepository metadataCache) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
         this.redisRepository = redisRepository;
         this.timeService = timeService;
         this.topologyProvider = topologyProvider;
+        this.metadataCache = metadataCache;
     }
 
     /**
@@ -107,20 +113,32 @@ public class ItemService {
      * replayable item identity and transient movement state.
      */
     public Item getItemById(String id) {
-        // 1. Fetch Metadata
-        Item item = null;
-        try (ODatabaseSession db = orientDBService.getSession()) {
-            if (db != null) {
-                var itemInDb = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
-                item = vertexToItem(itemInDb);
+        long readStarted = SimulationRunTiming.tick();
+        Item item = metadataCache.get(id).orElse(null);
+        SimulationRunTiming.record("item.metadata-cache-read", readStarted);
+        if (item == null) {
+            readStarted = SimulationRunTiming.tick();
+            try (ODatabaseSession db = orientDBService.getSession()) {
+                if (db != null) {
+                    var itemInDb = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
+                    item = vertexToItem(itemInDb);
+                    metadataCache.put(item);
+                }
+            } catch (Exception e) {
+                logger.error("Could not fetch item {} from OrientDB", id);
+                return null;
+            } finally {
+                SimulationRunTiming.record("item.orient-read", readStarted);
             }
-        } catch (Exception e) {
-            logger.error("Could not fetch item {} from OrientDB", id);
+        }
+        if (item == null) {
             return null;
         }
 
         // 2. Fetch Live State
+        readStarted = SimulationRunTiming.tick();
         RedisLiveItem redisState = redisRepository.getItemState(id);
+        SimulationRunTiming.record("item.redis-state-read", readStarted);
 
         // 3. Merge
         if (redisState != null) {
@@ -146,9 +164,11 @@ public class ItemService {
      */
     public void createItem(ItemInput itemInput) {
         try {
+            long transactionStarted = SimulationRunTiming.tick();
             orientDBService.withTransaction(db -> {
 
-                if (db != null && OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
+                if (db != null && !SimulationBuildCacheContext.generatedMultiRun()
+                        && OrientDBUtils.checkIfAlreadyExists(db, itemInput.getId())) {
                     throw new DuplicateItemException("Item with ID " + itemInput.getId() + " already exists.");
                 }
 
@@ -193,6 +213,11 @@ public class ItemService {
                     redisRepository.setMovementPaused(itemInput.getId(), true);
                 }
             });
+            SimulationRunTiming.record("item.create-transaction", transactionStarted);
+            long cacheStarted = SimulationRunTiming.tick();
+            metadataCache.put(new Item(itemInput.getId(), itemInput.getName(),
+                    Boolean.TRUE.equals(itemInput.getActive()), itemInput.getPriority(), itemInput.getProperties()));
+            SimulationRunTiming.record("item.create-metadata-cache", cacheStarted);
         } catch (DuplicateItemException e) {
             // We know exactly what this is, so just re-throw it for the processor to
             // handle.
@@ -303,8 +328,9 @@ public class ItemService {
      * without waiting for the next full item reload.
      */
     public Item updateItem(UpdateModel model) {
-        // Standard property update (OrientDB)
+        metadataCache.evict(model.getId());
         Item updatedItem = vertexToLocation(this.updateService.updateVertex(model));
+        metadataCache.put(updatedItem);
 
         // If name changed, update Redis cache
         if (model.getProperties().containsKey("name")) {
@@ -321,6 +347,7 @@ public class ItemService {
      * touch Redis only to avoid unnecessary OrientDB churn.
      */
     public Item fullUpdateItem(Item item) {
+        metadataCache.evict(item.getId());
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex itemVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, item.getId());
 
@@ -345,7 +372,9 @@ public class ItemService {
                         item.getPath());
             }
 
-            return vertexToItem(itemVertex);
+            Item updated = vertexToItem(itemVertex);
+            metadataCache.put(updated);
+            return updated;
 
         } catch (OConcurrentModificationException | java.util.NoSuchElementException oce) {
             throw oce;
@@ -361,6 +390,7 @@ public class ItemService {
      * the durable delete fails and the caller has to retry.
      */
     public void deleteItem(String id) {
+        metadataCache.evict(id);
         redisRepository.deleteItem(id);
 
         try (ODatabaseSession db = orientDBService.getSession()) {

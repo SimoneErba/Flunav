@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.SimulationBuildCacheContext;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.simulation.SimulationKind;
@@ -675,13 +676,19 @@ public class SimulationService {
     public void addInternalEvent(flunav.events.DomainEvent event) {
         SimulationState state = getCurrentSimulation();
         if (state != null && event instanceof flunav.events.EntityEvent ee) {
-            // An item has one projected transition. A newer projection replaces the
-            // previous event regardless of its concrete movement-event type.
-            state.getInternalEventQueue().removeIf(
-                    e -> e instanceof flunav.events.EntityEvent e2 && e2.getEntityId().equals(ee.getEntityId()));
+            DomainEvent previous = state.getScheduledEventsByItem().put(ee.getEntityId(), event);
+            state.getInternalEventQueue().invalidate(previous);
             state.getInternalEventQueue().add(event);
-            state.getScheduledEventsByItem().put(ee.getEntityId(), event);
         }
+    }
+
+    /** Planned arrivals have distinct ids and never replace another item's projected transition. */
+    public void addPlannedInputEvents(java.util.Collection<? extends DomainEvent> events) {
+        SimulationState state = getCurrentSimulation();
+        if (state == null) {
+            throw new IllegalStateException("A simulation context is required");
+        }
+        state.getInternalEventQueue().addAll(events);
     }
 
     /** Enqueues a planned infrastructure event without replacing another event for that conveyor. */
@@ -696,9 +703,7 @@ public class SimulationService {
     public void cancelInternalEvent(String itemId) {
         SimulationState state = getCurrentSimulation();
         if (state != null) {
-            state.getInternalEventQueue()
-                    .removeIf(e -> e instanceof flunav.events.EntityEvent ee && ee.getEntityId().equals(itemId));
-            state.getScheduledEventsByItem().remove(itemId);
+            state.getInternalEventQueue().invalidate(state.getScheduledEventsByItem().remove(itemId));
         }
     }
 
@@ -785,7 +790,14 @@ public class SimulationService {
      */
     private void processInternalEvent(String simulationId, SimulationState state, DomainEvent event) {
         state.setLastProcessedTimestamp(event.getTimestamp());
-        persistState(state);
+        // Builds publish their Redis metadata through progress updates and their
+        // final checkpoint. Persisting each internal tick adds a round trip while
+        // the queue and current clock remain owned by this worker.
+        boolean buildingWithProgressUpdates = state.getStatus() == SimulationStatus.BUILDING
+                && SimulationBuildCacheContext.enabled();
+        if (state.getKind() != SimulationKind.MULTI_SIMULATION_RUN && !buildingWithProgressUpdates) {
+            persistState(state);
+        }
 
         if (event instanceof flunav.events.EntityEvent ee) {
             state.getScheduledEventsByItem().remove(ee.getEntityId(), event);

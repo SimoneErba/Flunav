@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.SimulationBuildCacheContext;
 import com.flunav.backend.context.AnomalyProcessingContext;
 import com.flunav.backend.models.analytics.AnomalyProcessingMode;
 import com.flunav.backend.models.graph.GraphData;
@@ -11,6 +12,8 @@ import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
+import com.flunav.backend.repositories.SimulationItemMetadataRepository;
+import com.flunav.backend.domain.Item;
 import com.flunav.backend.services.ClickHouseService.Snapshot;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.id.ORID;
@@ -52,12 +55,14 @@ public class HistoricalGraphBuilder {
     private final LiveItemRepository liveItemRepository;
     private final TimeService timeService;
     private final PathCacheRepository pathCacheRepository;
+    private final SimulationItemMetadataRepository itemMetadataCache;
     private final com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository;
     private final com.flunav.backend.repositories.LiveLocationRepository liveLocationRepository;
 
     public HistoricalGraphBuilder(ClickHouseService clickHouseService, EventProcessor eventProcessor,
             OrientDBService orientDBService, SimulationService simulationService,
             LiveItemRepository liveItemRepository, TimeService timeService, PathCacheRepository pathCacheRepository,
+            SimulationItemMetadataRepository itemMetadataCache,
             com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository,
             com.flunav.backend.repositories.LiveLocationRepository liveLocationRepository) {
         this.clickHouseService = clickHouseService;
@@ -67,6 +72,7 @@ public class HistoricalGraphBuilder {
         this.liveItemRepository = liveItemRepository;
         this.timeService = timeService;
         this.pathCacheRepository = pathCacheRepository;
+        this.itemMetadataCache = itemMetadataCache;
         this.liveConveyorRepository = liveConveyorRepository;
         this.liveLocationRepository = liveLocationRepository;
     }
@@ -80,6 +86,7 @@ public class HistoricalGraphBuilder {
     @Async("taskExecutor")
     public void build(String simulationId, Instant restorePoint, Semaphore buildPermits) {
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId);
+                var cacheContext = SimulationBuildCacheContext.enter(simulationId);
                 var analyticsContext = AnomalyProcessingContext.enter(AnomalyProcessingMode.HISTORICAL_BUILD)) {
             logger.info("Starting historical graph build for simulation: {}", simulationId);
             Instant physicalNow = timeService.physicalNow();
@@ -100,6 +107,7 @@ public class HistoricalGraphBuilder {
                     eventProcessor.processEventWithoutBroadcast(mappingEvent);
                 }
                 restoreFromSnapshotData(snapshot.graphData());
+                SimulationBuildCacheContext.invalidateTopology();
             }
 
             // Events after the snapshot form the delta and are merged with internal
@@ -133,15 +141,20 @@ public class HistoricalGraphBuilder {
                 processInternalEventsUntil(simulationId, restorePoint, progressTracker);
             }
             logger.info("Historical graph build complete for simulation: {}", simulationId);
+            itemMetadataCache.clear(simulationId);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.READY, restorePoint);
 
         } catch (Exception e) {
             logger.error("A critical error occurred during the build process for simulation: {}", simulationId, e);
             simulationService.updateSimulationStatus(simulationId, SimulationStatus.FAILED, null);
         } finally {
-            buildPermits.release();
-            logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());
-            simulationService.processWaitingQueue();
+            try {
+                itemMetadataCache.clear(simulationId);
+            } finally {
+                buildPermits.release();
+                logger.info("Build permit released. Available permits: {}", buildPermits.availablePermits());
+                simulationService.processWaitingQueue();
+            }
         }
     }
 
@@ -406,6 +419,13 @@ public class HistoricalGraphBuilder {
 
                 session.commit();
                 logger.info("Snapshot restore committed successfully for DB: {}", session.getName());
+                if (graphData.getItems() != null) {
+                    for (ItemResponse restored : graphData.getItems()) {
+                        itemMetadataCache.put(new Item(restored.getId(), restored.getName(),
+                                Boolean.TRUE.equals(restored.getActive()), restored.getPriority(),
+                                restored.getProperties()));
+                    }
+                }
             } catch (Exception e) {
                 logger.error("Error during snapshot restore for DB: {}. Rolling back.", session.getName(), e);
                 session.rollback();

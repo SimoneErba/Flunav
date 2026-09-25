@@ -1,5 +1,7 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.utils.SimulationRunTiming;
+
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.UpdateModel;
@@ -371,8 +373,11 @@ public class ItemMovementProcessor {
      * twice while rerouting or revalidating a path.
      */
     private long projectedChuteOccupancy(String chuteId, String itemId) {
-        return liveLocationRepository.getItemCount(chuteId)
+        long countStarted = SimulationRunTiming.tick();
+        long occupancy = liveLocationRepository.getItemCount(chuteId)
                 + liveItemRepository.countItemsAssignedToExit(chuteId, itemId);
+        SimulationRunTiming.record("routing.projected-chute-occupancy", countStarted);
+        return occupancy;
     }
 
     /**
@@ -689,15 +694,23 @@ public class ItemMovementProcessor {
      */
     private void releaseFromPassThroughLocation(String itemId, String locationId, Instant timestamp,
             boolean publishAssignments, boolean broadcastReleasedPosition) {
+        long stepStarted = SimulationRunTiming.tick();
         String nextConveyorId = calculateNextConveyor(itemId, locationId, null, publishAssignments);
+        SimulationRunTiming.record("entry.choose-conveyor", stepStarted);
         if (nextConveyorId != null) {
+            stepStarted = SimulationRunTiming.tick();
             itemService.updateItemPosition(itemId, nextConveyorId, PositionType.CONVEYOR, timestamp, 0.0, null);
+            SimulationRunTiming.record("entry.write-position", stepStarted);
+            stepStarted = SimulationRunTiming.tick();
             liveConveyorRepository.addItemToConveyor(nextConveyorId, itemId, timestamp);
+            SimulationRunTiming.record("entry.add-conveyor-occupancy", stepStarted);
             if (publishAssignments && broadcastReleasedPosition) {
                 webSocketService.broadcastPositionUpdate(itemId, nextConveyorId, timestamp,
                         PositionType.CONVEYOR, 0.0);
             }
+            stepStarted = SimulationRunTiming.tick();
             handleItemEntryToConveyor(itemId, nextConveyorId, timestamp, 0.0, locationId, publishAssignments);
+            SimulationRunTiming.record("entry.schedule-conveyor-motion", stepStarted);
         }
     }
 

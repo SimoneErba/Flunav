@@ -15,21 +15,31 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestConstructor;
 
+import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.SimulationBuildCacheContext;
 import com.flunav.backend.models.multisimulation.ArrivalConfiguration;
 import com.flunav.backend.models.multisimulation.ArrivalDistribution;
 import com.flunav.backend.models.multisimulation.DestinationProbability;
 import com.flunav.backend.models.multisimulation.MultiSimulationConfiguration;
 import com.flunav.backend.models.multisimulation.MultiSimulationStatus;
 import com.flunav.backend.services.EventProcessor;
+import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.MultiSimulationService;
 import com.flunav.backend.services.SimulationService;
+import com.flunav.backend.services.TopologyProvider;
+import com.flunav.backend.repositories.SimulationItemMetadataRepository;
 
+import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ConnectionCreatedEvent;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.LocationCreatedEvent;
 import flunav.events.MapDestinationExitsEvent;
+import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemPriorityUpdatedEvent;
+import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
+import flunav.types.PositionType;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
@@ -43,16 +53,66 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     private final MultiSimulationService multiSimulationService;
     private final SimulationService simulationService;
     private final StringRedisTemplate redis;
+    private final ItemService itemService;
+    private final SimulationItemMetadataRepository itemMetadataCache;
+    private final TopologyProvider topologyProvider;
 
     MultiSimulationIntegrationTests(
             EventProcessor eventProcessor,
             MultiSimulationService multiSimulationService,
             SimulationService simulationService,
-            StringRedisTemplate redis) {
+            StringRedisTemplate redis,
+            ItemService itemService,
+            SimulationItemMetadataRepository itemMetadataCache,
+            TopologyProvider topologyProvider) {
         this.eventProcessor = eventProcessor;
         this.multiSimulationService = multiSimulationService;
         this.simulationService = simulationService;
         this.redis = redis;
+        this.itemService = itemService;
+        this.itemMetadataCache = itemMetadataCache;
+        this.topologyProvider = topologyProvider;
+    }
+
+    @Test
+    void metadataAndTopologyCachesFollowReducedEvents() {
+        String runtimeId = "cache-run-" + System.nanoTime();
+        var source = createRunnableMultiSimulation("Cache verification " + runtimeId, 1);
+        String sourceId = source.configuration().sourceLocationId();
+        String destination = source.configuration().destinations().getFirst().destination();
+        String conveyorId = source.baseline().graph().getConveyors().stream()
+                .filter(conveyor -> sourceId.equals(conveyor.getSourceId()))
+                .findFirst().orElseThrow().getId();
+        String itemId = runtimeId + "-item";
+        Instant start = source.configuration().simulationStartTime();
+
+        simulationService.createMultiSimulationRuntime(runtimeId, start, source.baseline());
+        try (var context = DatabaseContextHolder.enterSimulationContext(runtimeId);
+                var cache = SimulationBuildCacheContext.enterMultiRun(runtimeId)) {
+            eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(itemId, itemId, 1.0, 0.2,
+                    true, sourceId, PositionType.LOCATION, 0.0, List.of(destination),
+                    java.util.Map.of("batch", "first"), start));
+            assertTrue(itemMetadataCache.get(itemId).isPresent());
+            assertEquals(0.2, itemService.getItemById(itemId).getPriority());
+
+            eventProcessor.processEventWithoutBroadcast(new ItemPriorityUpdatedEvent(itemId, 0.8,
+                    start.plusSeconds(1)));
+            eventProcessor.processEventWithoutBroadcast(new ItemPropertiesUpdatedEvent(itemId,
+                    java.util.Map.of("batch", "second")));
+            assertEquals(0.8, itemMetadataCache.get(itemId).orElseThrow().getPriority());
+            assertEquals("second", itemService.getItemById(itemId).getProperties().get("batch"));
+            try (var bypass = SimulationBuildCacheContext.enter("other-simulation")) {
+                assertEquals("second", itemService.getItemById(itemId).getProperties().get("batch"));
+            }
+
+            assertTrue(topologyProvider.getConveyorById(conveyorId).isActive());
+            eventProcessor.processEventWithoutBroadcast(new ConnectionDeactivatedEvent(conveyorId,
+                    start.plusSeconds(2)));
+            assertFalse(topologyProvider.getConveyorById(conveyorId).isActive());
+        } finally {
+            simulationService.destroySimulation(runtimeId);
+        }
+        assertFalse(Boolean.TRUE.equals(redis.hasKey("sim:" + runtimeId + ":build_item_metadata")));
     }
 
     @Test

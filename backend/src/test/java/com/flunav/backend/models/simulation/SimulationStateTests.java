@@ -8,6 +8,7 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SimulationStateTests {
 
@@ -50,5 +51,24 @@ class SimulationStateTests {
         assertSame(minute, state.getInternalEventQueue().poll());
         assertSame(baseline, state.getInternalEventQueue().poll());
         assertEquals(0, state.getInternalEventQueue().size());
+    }
+
+    @Test
+    void replacedProjectionIsSkippedBeforeTimestampComparison() {
+        Instant base = Instant.parse("2026-02-07T12:00:00Z");
+        SimulationState state = new SimulationState("sim-replaced", base);
+        ItemPositionChangedEvent stale = new ItemPositionChangedEvent("item", "old", 0.0,
+                base.plusSeconds(1));
+        ItemPositionChangedEvent current = new ItemPositionChangedEvent("item", "new", 0.0,
+                base.plusSeconds(10));
+
+        state.getInternalEventQueue().add(stale);
+        state.getInternalEventQueue().invalidate(stale);
+        state.getInternalEventQueue().add(current);
+
+        assertSame(current, state.getInternalEventQueue().peek());
+        assertEquals(1, state.getInternalEventQueue().stream().count());
+        assertSame(current, state.getInternalEventQueue().poll());
+        assertTrue(state.getInternalEventQueue().isEmpty());
     }
 }

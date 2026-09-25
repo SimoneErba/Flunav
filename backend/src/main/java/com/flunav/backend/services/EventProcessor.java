@@ -50,6 +50,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.context.SimulationBuildCacheContext;
+import com.flunav.backend.utils.SimulationRunTiming;
 
 /**
  * Central reducer for every domain event.
@@ -74,7 +76,6 @@ public class EventProcessor {
     private final ItemService itemService;
     private final ConveyorService conveyorService;
     private final WebSocketService webSocketService;
-    private final PathfindingService pathfindingService;
     private final LiveItemRepository liveItemRepository;
     private final LiveConveyorRepository liveConveyorRepository;
     private final LiveLocationRepository liveLocationRepository;
@@ -116,7 +117,6 @@ public class EventProcessor {
             ItemService itemService,
             ConveyorService conveyorService,
             WebSocketService webSocketService,
-            PathfindingService pathfindingService,
             LiveItemRepository liveItemRepository,
             LiveConveyorRepository liveConveyorRepository,
             LiveLocationRepository liveLocationRepository,
@@ -149,7 +149,6 @@ public class EventProcessor {
         this.itemService = itemService;
         this.conveyorService = conveyorService;
         this.webSocketService = webSocketService;
-        this.pathfindingService = pathfindingService;
         this.liveItemRepository = liveItemRepository;
         this.liveConveyorRepository = liveConveyorRepository;
         this.liveLocationRepository = liveLocationRepository;
@@ -422,19 +421,33 @@ public class EventProcessor {
      * routing assignments, and analytics side effects according to event type.
      */
     public Map<String, Object> processEvent(DomainEvent event, boolean shouldBroadcast) {
+        long eventStarted = SimulationRunTiming.tick();
         UserContextHolder.setSenderId(event.getSenderId());
-        return this.<Map<String, Object>>executeWithRetry(() -> {
+        boolean topologyMutation = isTopologyMutation(event);
+        if (topologyMutation && topologyProvider instanceof CachingTopologyProvider cached) {
+            cached.invalidate();
+        }
+        try (var bypass = topologyMutation ? SimulationBuildCacheContext.bypassTopology()
+                : (SimulationBuildCacheContext.TopologyBypass) () -> {}) {
+            return this.<Map<String, Object>>executeWithRetry(() -> {
             Map<String, Object> result = switch (event) {
                 case ItemCreatedEvent e -> {
                     try {
+                        long creationStep = SimulationRunTiming.tick();
                         validatePriority(e.getPriority());
                         validateItemProperties(e.getProperties());
                         var item = new ItemInput(e);
+                        SimulationRunTiming.record("create.validate-input", creationStep);
+                        creationStep = SimulationRunTiming.tick();
                         AppliedDestination appliedDestination = routingCoordinator.withRoutingLock(() -> {
+                            long routingStarted = SimulationRunTiming.tick();
                             AppliedDestination destination = applyDestinationToCreatedItem(item, e.getTimestamp());
+                            SimulationRunTiming.record("create.assign-destination", routingStarted);
                             itemService.createItem(item);
                             return destination;
                         });
+                        SimulationRunTiming.record("create.route-and-save", creationStep);
+                        creationStep = SimulationRunTiming.tick();
                         publishDestinationCommandIfNeeded(e, item, appliedDestination, shouldBroadcast);
                         pathAssignmentPublisher.publishIfAssigned(
                                 item.getId(),
@@ -443,6 +456,7 @@ public class EventProcessor {
                                 appliedDestination.path(),
                                 e.getTimestamp(),
                                 shouldBroadcast);
+                        SimulationRunTiming.record("create.publish-assignment", creationStep);
 
 
                         if (shouldBroadcast) {
@@ -462,6 +476,7 @@ public class EventProcessor {
                             }
                             webSocketService.broadcastItemCreated(response, e.getTimestamp());
                         }
+                        creationStep = SimulationRunTiming.tick();
                         if (item.getLocationId() != null) {
                             var positionType = topologyProvider.getPositionType(item.getLocationId());
                             if (positionType == PositionType.CONVEYOR) {
@@ -478,6 +493,7 @@ public class EventProcessor {
                                 broadcastCurrentItemCheckpoint(e.getEntityId());
                             }
                         }
+                        SimulationRunTiming.record("create.enter-network", creationStep);
                         yield Map.of("status", "CREATED", "itemId", e.getEntityId());
                     } catch (DuplicateItemException die) {
                         logger.warn("Received a duplicate ItemCreatedEvent for existing item '{}'. Ignoring event.",
@@ -509,26 +525,22 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
+                    long stepStarted = SimulationRunTiming.tick();
                     ResolvedPosition resolvedPosition = resolvePosition(e);
                     String positionId = resolvedPosition.positionId();
                     Double progress = resolvedPosition.progress();
                     PositionType positionType = resolvedPosition.positionType();
                     ItemPositionChangedEvent resolvedEvent = new ItemPositionChangedEvent(
                             e.getEntityId(), positionId, progress, e.getTimestamp());
+                    SimulationRunTiming.record("position.resolve", stepStarted);
 
+                    stepStarted = SimulationRunTiming.tick();
                     var lastState = liveItemRepository.getItemState(e.getEntityId());
                     String previousPosId = (lastState != null) ? lastState.getPositionId() : null;
                     var lastPositionType = (lastState != null) ? lastState.getType() : null;
+                    SimulationRunTiming.record("position.read-state", stepStarted);
 
-                    // If we are moving to a location (conveyor or node) that is NOT connected to
-                    // the previous one,
-                    // we consider it a teleport.
-                    boolean isTeleport = false;
-                    if (previousPosId != null && lastPositionType != null) {
-                        isTeleport = !pathfindingService.arePositionsConnected(previousPosId, lastPositionType,
-                                positionId, positionType);
-                    }
-
+                    stepStarted = SimulationRunTiming.tick();
                     // --- REMOVE FROM PREVIOUS POSITION ---
                     if (previousPosId != null) {
                         if (PositionType.CONVEYOR.equals(lastPositionType)) {
@@ -543,14 +555,14 @@ public class EventProcessor {
                             }
                         }
                     }
+                    SimulationRunTiming.record("position.remove-old-occupancy", stepStarted);
 
-                    if (isTeleport && previousPosId != null && lastPositionType != null) {
-                        // TODO: record into ch?
-                    }
-
+                    stepStarted = SimulationRunTiming.tick();
                     itemService.updateItemPosition(e.getEntityId(), positionId, positionType, e.getTimestamp(),
                             progress, null);
+                    SimulationRunTiming.record("position.write-state", stepStarted);
 
+                    stepStarted = SimulationRunTiming.tick();
                     // --- ADD TO NEW POSITION ---
                     if (positionType == PositionType.CONVEYOR) {
                         liveConveyorRepository.addItemToConveyor(positionId, e.getEntityId(), e.getTimestamp());
@@ -561,8 +573,11 @@ public class EventProcessor {
                         itemMovementProcessor.processLocationEntry(e.getEntityId(), positionId,
                                 e.getTimestamp(), shouldBroadcast);
                     }
+                    SimulationRunTiming.record("position.movement-routing", stepStarted);
 
+                    stepStarted = SimulationRunTiming.tick();
                     anomalyObservationService.collectPositionChange(resolvedEvent, lastState, positionType);
+                    SimulationRunTiming.record("position.anomaly", stepStarted);
 
                     if (shouldBroadcast) {
                         broadcastCurrentItemCheckpoint(e.getEntityId());
@@ -1319,7 +1334,19 @@ public class EventProcessor {
                 throughputBucketService.recordSuccessfulReduction(event, result);
             }
             return result;
-        });
+            });
+        } finally {
+            SimulationRunTiming.record("event." + event.getEventType(), eventStarted);
+            if (topologyMutation && topologyProvider instanceof CachingTopologyProvider cached) {
+                cached.invalidate();
+            }
+        }
+    }
+
+    private boolean isTopologyMutation(DomainEvent event) {
+        String type = event.getEventType();
+        return type.startsWith("LOCATION_") || type.startsWith("CONNECTION_")
+                || type.startsWith("ALARM_") || type.startsWith("COMPONENT_ALARM_");
     }
 
     private Map<String, Object> reduceComponentAlarmRaised(ComponentAlarmRaisedEvent event,

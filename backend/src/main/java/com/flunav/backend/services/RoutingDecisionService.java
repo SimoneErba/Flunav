@@ -1,5 +1,7 @@
 package com.flunav.backend.services;
 
+import com.flunav.backend.utils.SimulationRunTiming;
+
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.domain.Location;
@@ -225,12 +227,15 @@ public class RoutingDecisionService {
      * schedule items onto paths that movement processing cannot advance.
      */
     private PathResult calculateAvailablePath(String sourceLocationId, String exitId) {
+        long cacheStarted = SimulationRunTiming.tick();
         var cached = pathCacheRepository.getAvailablePath(sourceLocationId, exitId);
+        SimulationRunTiming.record("routing.path-cache-read", cacheStarted);
         if (cached.isPresent()) {
             PathCacheRepository.AvailablePath path = cached.get();
             return new PathResult(path.locations(), path.travelSeconds());
         }
 
+        long searchStarted = SimulationRunTiming.tick();
         Map<String, List<Conveyor>> outgoing = new HashMap<>();
         for (Conveyor conveyor : topologyProvider.getAllConveyors()) {
             if (isAvailable(conveyor)) {
@@ -255,6 +260,7 @@ public class RoutingDecisionService {
                 PathResult result = new PathResult(buildPath(previous, sourceLocationId, exitId), current.distance());
                 pathCacheRepository.putAvailablePath(sourceLocationId, exitId, result.locations(),
                         result.travelSeconds());
+                SimulationRunTiming.record("routing.path-search-and-write", searchStarted);
                 return result;
             }
 
@@ -267,6 +273,7 @@ public class RoutingDecisionService {
                 }
             }
         }
+        SimulationRunTiming.record("routing.path-search-and-write", searchStarted);
         return null;
     }
 
@@ -461,10 +468,12 @@ public class RoutingDecisionService {
         if (exit.getType() != LocationType.CHUTE) {
             return new CapacityState(0, null);
         }
+        long countStarted = SimulationRunTiming.tick();
         Integer capacity = exit.getCapacity();
         long occupancy = liveLocationRepository.getItemCount(exit.getId())
                 + liveItemRepository.countItemsAssignedToExit(exit.getId(), itemId)
                 + pendingReservations.getOrDefault(exit.getId(), 0);
+        SimulationRunTiming.record("routing.capacity-count", countStarted);
         if (capacity == null || capacity <= 0) {
             return new CapacityState(occupancy, null);
         }
@@ -477,6 +486,7 @@ public class RoutingDecisionService {
      * cannot consume all near-future capacity while urgent items are waiting.
      */
     private Map<String, Integer> allocatePendingReservations(String excludedItemId, Instant decisionTime) {
+        long reservationsStarted = SimulationRunTiming.tick();
         List<PendingRoutingDemand> pendingDemands = liveItemRepository.getAllActiveItems().stream()
                 .filter(item -> item != null)
                 .filter(item -> excludedItemId == null || !excludedItemId.equals(item.getId()))
@@ -526,6 +536,7 @@ public class RoutingDecisionService {
                             .thenComparing(PendingCandidate::exitId))
                     .ifPresent(candidate -> reservations.merge(candidate.exitId(), 1, Integer::sum));
         }
+        SimulationRunTiming.record("routing.pending-reservations", reservationsStarted);
         return reservations;
     }
 
