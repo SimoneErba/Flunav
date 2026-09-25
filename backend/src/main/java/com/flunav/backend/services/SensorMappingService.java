@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 
 import flunav.events.MapSensorMappingsEvent;
 import flunav.events.SensorMappingRecord;
@@ -28,28 +29,35 @@ public class SensorMappingService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final TopologyProvider topologyProvider;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public SensorMappingService(StringRedisTemplate redis, ObjectMapper objectMapper, TopologyProvider topologyProvider) {
+    public SensorMappingService(StringRedisTemplate redis, ObjectMapper objectMapper, TopologyProvider topologyProvider,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.topologyProvider = topologyProvider;
+        this.runtimeStore = runtimeStore;
     }
 
     public void saveMappings(MapSensorMappingsEvent event) {
         List<SensorMappingRecord> mappings = normalizeAndValidate(event);
         if (mappings.isEmpty()) {
-            redis.delete(tableKey());
+            var memory = runtimeStore.current();
+            if (memory != null) memory.delete(tableKey()); else redis.delete(tableKey());
             return;
         }
         try {
-            redis.opsForValue().set(tableKey(), objectMapper.writeValueAsString(mappings));
+            String json = objectMapper.writeValueAsString(mappings);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.setValue(tableKey(), json); else redis.opsForValue().set(tableKey(), json);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to serialize sensor mappings", e);
         }
     }
 
     public List<SensorMappingRecord> getMappings() {
-        String json = redis.opsForValue().get(tableKey());
+        var memory = runtimeStore.current();
+        String json = memory != null ? memory.getValue(tableKey()) : redis.opsForValue().get(tableKey());
         if (json == null) {
             return List.of();
         }

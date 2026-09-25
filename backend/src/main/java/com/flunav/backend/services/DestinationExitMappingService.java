@@ -3,6 +3,7 @@ package com.flunav.backend.services;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import com.flunav.backend.services.routing.MappingValueNormalizer;
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.MapDestinationExitsEvent;
@@ -25,10 +26,13 @@ public class DestinationExitMappingService {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public DestinationExitMappingService(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public DestinationExitMappingService(StringRedisTemplate redis, ObjectMapper objectMapper,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -39,11 +43,14 @@ public class DestinationExitMappingService {
     public void saveMappings(MapDestinationExitsEvent event) {
         List<DestinationExitMappingRecord> mappings = normalizeAndValidate(event);
         if (mappings.isEmpty()) {
-            redis.delete(tableKey());
+            var memory = runtimeStore.current();
+            if (memory != null) memory.delete(tableKey()); else redis.delete(tableKey());
             return;
         }
         try {
-            redis.opsForValue().set(tableKey(), objectMapper.writeValueAsString(mappings));
+            String json = objectMapper.writeValueAsString(mappings);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.setValue(tableKey(), json); else redis.opsForValue().set(tableKey(), json);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to serialize destination exit mappings", e);
         }
@@ -55,7 +62,8 @@ public class DestinationExitMappingService {
      * routing decisions unsafe.
      */
     public List<DestinationExitMappingRecord> getMappings() {
-        String json = redis.opsForValue().get(tableKey());
+        var memory = runtimeStore.current();
+        String json = memory != null ? memory.getValue(tableKey()) : redis.opsForValue().get(tableKey());
         if (json == null) {
             return List.of();
         }

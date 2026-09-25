@@ -67,7 +67,9 @@ class MultiSimulationRandomGeneratorTests {
                 .filter(ItemCreatedEvent.class::isInstance).map(event -> event.getTimestamp()).toList();
 
         assertFalse(arrivals.isEmpty());
+        assertEquals(20, arrivals.size());
         assertEquals(configuration.simulationStartTime().plusSeconds(3), arrivals.getFirst());
+        assertEquals(configuration.simulationStartTime().plusSeconds(60), arrivals.getLast());
         for (int index = 1; index < arrivals.size(); index++) {
             assertEquals(Duration.ofSeconds(3), Duration.between(arrivals.get(index - 1), arrivals.get(index)));
         }

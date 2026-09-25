@@ -7,6 +7,7 @@ import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.ODatabaseType;
 import com.orientechnologies.orient.core.db.OrientDB;
 import com.orientechnologies.orient.core.db.OrientDBConfig;
+import com.orientechnologies.orient.core.db.OrientDBInternal;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
 import com.orientechnologies.orient.core.metadata.schema.OType;
 
@@ -253,7 +254,9 @@ public class OrientDBService {
     /**
      * Drops a simulation database and closes its pool.
      * Pool removal happens before dropping the database so no later session can be
-     * acquired against storage that is being torn down.
+     * acquired against storage that is being torn down. Remote storage must also be
+     * forced closed because closing an ODatabasePool does not release the driver's
+     * per-database network connection.
      */
     public void dropDatabase(String dbName) {
         // NEW: Close and remove the pool associated with the database
@@ -262,6 +265,8 @@ public class OrientDBService {
             pool.close();
             logger.info("Closed and removed pool for database: {}", dbName);
         }
+
+        OrientDBInternal.extract(orientDB).forceDatabaseClose(dbName);
 
         if (orientDB.exists(dbName)) {
             orientDB.drop(dbName);

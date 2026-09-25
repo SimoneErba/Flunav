@@ -30,6 +30,7 @@ export interface MultiSimulationConfiguration {
   conveyorFailures: ConveyorFailureConfiguration[];
   baseSeed: number | null;
   simulationStartTime: string | null;
+  includeActiveItems: boolean;
 }
 
 export interface MultiSimulationResponse {

@@ -12,7 +12,15 @@ public record MultiSimulationConfiguration(
         List<DestinationProbability> destinations,
         List<ConveyorFailureConfiguration> conveyorFailures,
         Long baseSeed,
-        Instant simulationStartTime) {
+        Instant simulationStartTime,
+        boolean includeActiveItems) {
+
+    public MultiSimulationConfiguration(String name, long simulationDurationSeconds, int numberOfRuns,
+            ArrivalConfiguration arrival, String sourceLocationId, List<DestinationProbability> destinations,
+            List<ConveyorFailureConfiguration> conveyorFailures, Long baseSeed, Instant simulationStartTime) {
+        this(name, simulationDurationSeconds, numberOfRuns, arrival, sourceLocationId, destinations,
+                conveyorFailures, baseSeed, simulationStartTime, false);
+    }
 
     public MultiSimulationConfiguration {
         destinations = destinations == null ? List.of() : List.copyOf(destinations);

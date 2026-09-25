@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import com.flunav.backend.services.routing.MappingValueNormalizer;
 import flunav.events.DestinationMappingRecord;
 import flunav.events.MapDestinationsEvent;
@@ -42,10 +43,13 @@ public class DestinationMappingService {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public DestinationMappingService(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public DestinationMappingService(StringRedisTemplate redis, ObjectMapper objectMapper,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -87,14 +91,18 @@ public class DestinationMappingService {
                 .orElse(Instant.EPOCH);
 
         try {
-            redis.opsForValue().set(tableKey, objectMapper.writeValueAsString(values));
+            String json = objectMapper.writeValueAsString(values);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.setValue(tableKey, json); else redis.opsForValue().set(tableKey, json);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to serialize destination mappings", e);
         }
 
-        redis.opsForZSet().add(indexKey(), "records", maxValidTo.toEpochMilli());
+        var memory = runtimeStore.current();
+        if (memory != null) memory.sortedSetAdd(indexKey(), "records", maxValidTo.toEpochMilli());
+        else redis.opsForZSet().add(indexKey(), "records", maxValidTo.toEpochMilli());
         long ttlSeconds = Duration.between(Instant.now(), maxValidTo).getSeconds();
-        if (ttlSeconds > 0) {
+        if (memory == null && ttlSeconds > 0) {
             redis.expire(tableKey, Duration.ofSeconds(ttlSeconds));
         }
 
@@ -283,7 +291,8 @@ public class DestinationMappingService {
      * corrupted mapping payload.
      */
     private List<DestinationMappingValue> getStoredMappings() {
-        String json = redis.opsForValue().get(tableKey());
+        var memory = runtimeStore.current();
+        String json = memory != null ? memory.getValue(tableKey()) : redis.opsForValue().get(tableKey());
         if (json == null) {
             return List.of();
         }
@@ -302,6 +311,12 @@ public class DestinationMappingService {
      * cannot influence future route resolution.
      */
     private void clearDestinationMappings() {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            memory.deleteMatching(namespaced(MAP_PREFIX));
+            memory.delete(tableKey(), indexKey());
+            return;
+        }
         Set<String> mapKeys = redis.keys(namespaced(MAP_PREFIX + "*"));
         if (mapKeys != null && !mapKeys.isEmpty()) {
             redis.delete(mapKeys);

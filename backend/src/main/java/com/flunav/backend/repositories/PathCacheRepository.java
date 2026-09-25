@@ -3,6 +3,7 @@ package com.flunav.backend.repositories;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import flunav.types.PositionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,10 +26,13 @@ public class PathCacheRepository {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public PathCacheRepository(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public PathCacheRepository(StringRedisTemplate redis, ObjectMapper objectMapper,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -99,24 +103,32 @@ public class PathCacheRepository {
      * keep caches built against their own isolated graph.
      */
     public void invalidateCurrentNamespace() {
-        redis.delete(List.of(currentKey(AVAILABLE_KEY), currentKey(SHORTEST_KEY)));
+        var memory = runtimeStore.current();
+        List<String> keys = List.of(currentKey(AVAILABLE_KEY), currentKey(SHORTEST_KEY));
+        if (memory != null) memory.delete(keys); else redis.delete(keys);
     }
 
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null || simulationId.isBlank()) {
             return;
         }
-        redis.delete(List.of(simulationKey(simulationId, AVAILABLE_KEY), simulationKey(simulationId, SHORTEST_KEY)));
+        List<String> keys = List.of(simulationKey(simulationId, AVAILABLE_KEY), simulationKey(simulationId, SHORTEST_KEY));
+        var memory = runtimeStore.get(simulationId);
+        if (memory != null) memory.delete(keys); else redis.delete(keys);
     }
 
     private String readHashValue(String key, String field) {
+        var memory = runtimeStore.current();
+        if (memory != null) return memory.hashGet(key, field);
         Object value = redis.opsForHash().get(key, field);
         return value instanceof String text ? text : null;
     }
 
     private void writeHashValue(String key, String field, Object value) {
         try {
-            redis.opsForHash().put(key, field, objectMapper.writeValueAsString(value));
+            String json = objectMapper.writeValueAsString(value);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.hashPut(key, field, json); else redis.opsForHash().put(key, field, json);
         } catch (Exception e) {
             logger.warn("Failed to write path cache entry {}:{}", key, field, e);
         }

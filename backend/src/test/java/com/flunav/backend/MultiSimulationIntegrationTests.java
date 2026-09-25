@@ -28,6 +28,8 @@ import com.flunav.backend.services.MultiSimulationService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.TopologyProvider;
 import com.flunav.backend.repositories.SimulationItemMetadataRepository;
+import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 
 import flunav.events.ConnectionDeactivatedEvent;
 import flunav.events.ConnectionCreatedEvent;
@@ -40,6 +42,7 @@ import flunav.events.ItemPropertiesUpdatedEvent;
 import flunav.types.ConveyorType;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
+import flunav.types.RoutingStatus;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
@@ -56,6 +59,8 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     private final ItemService itemService;
     private final SimulationItemMetadataRepository itemMetadataCache;
     private final TopologyProvider topologyProvider;
+    private final MultiSimulationRuntimeStore runtimeStore;
+    private final LiveItemRepository liveItemRepository;
 
     MultiSimulationIntegrationTests(
             EventProcessor eventProcessor,
@@ -64,7 +69,9 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
             StringRedisTemplate redis,
             ItemService itemService,
             SimulationItemMetadataRepository itemMetadataCache,
-            TopologyProvider topologyProvider) {
+            TopologyProvider topologyProvider,
+            MultiSimulationRuntimeStore runtimeStore,
+            LiveItemRepository liveItemRepository) {
         this.eventProcessor = eventProcessor;
         this.multiSimulationService = multiSimulationService;
         this.simulationService = simulationService;
@@ -72,6 +79,37 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
         this.itemService = itemService;
         this.itemMetadataCache = itemMetadataCache;
         this.topologyProvider = topologyProvider;
+        this.runtimeStore = runtimeStore;
+        this.liveItemRepository = liveItemRepository;
+    }
+
+    @Test
+    void multiRuntimeMaintainsCapacityIndexesWithoutRedisScans() {
+        String runtimeId = "capacity-index-run-" + System.nanoTime();
+        var source = createRunnableMultiSimulation("Capacity index " + runtimeId, 1);
+        Instant start = source.configuration().simulationStartTime();
+        simulationService.createMultiSimulationRuntime(runtimeId, start, source.baseline());
+        try (var context = DatabaseContextHolder.enterSimulationContext(runtimeId);
+                var cache = SimulationBuildCacheContext.enterMultiRun(runtimeId)) {
+            liveItemRepository.saveItemState("assigned", "source", PositionType.LOCATION, start, 0,
+                    "Assigned", List.of("destination"), "exit", RoutingStatus.ASSIGNED, start, List.of());
+            liveItemRepository.saveItemState("waiting", "source", PositionType.LOCATION, start, 0,
+                    "Waiting", List.of("destination"), null, RoutingStatus.WAITING_FOR_CAPACITY, start, List.of());
+
+            assertEquals(1, liveItemRepository.countItemsAssignedToExit("exit", null));
+            assertEquals(0, liveItemRepository.countItemsAssignedToExit("exit", "assigned"));
+            assertEquals(List.of("waiting"), liveItemRepository.getItemsWaitingForCapacity().stream()
+                    .map(item -> item.getId()).toList());
+
+            liveItemRepository.updatePosition("assigned", "exit", PositionType.LOCATION, start.plusSeconds(1),
+                    0, List.of());
+            liveItemRepository.updateRoutingStatus("waiting", RoutingStatus.ASSIGNED, start.plusSeconds(1));
+            assertEquals(0, liveItemRepository.countItemsAssignedToExit("exit", null));
+            assertTrue(liveItemRepository.getItemsWaitingForCapacity().isEmpty());
+            assertTrue(redis.keys("sim:" + runtimeId + ":*").isEmpty());
+        } finally {
+            simulationService.destroySimulation(runtimeId);
+        }
     }
 
     @Test
@@ -118,21 +156,18 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     @Test
     void cleanupDoesNotDestroyAnActiveMultiSimulationRuntime() {
         String runtimeId = "active-multi-runtime-" + System.nanoTime();
-        String stateKey = "sim:" + runtimeId + ":state";
         var source = createRunnableMultiSimulation("Cleanup protection " + runtimeId, 1);
 
         simulationService.createMultiSimulationRuntime(
                 runtimeId, source.configuration().simulationStartTime(), source.baseline());
-        redis.opsForHash().put(stateKey, "hb",
-                String.valueOf(Instant.now().minus(Duration.ofMinutes(10)).toEpochMilli()));
-
         try {
             simulationService.cleanupAbandonedSimulations();
-            assertTrue(Boolean.TRUE.equals(redis.hasKey(stateKey)));
+            assertTrue(runtimeStore.contains(runtimeId));
             assertEquals(runtimeId, simulationService.getSimulationState(runtimeId).getId());
         } finally {
             simulationService.destroySimulation(runtimeId);
         }
+        assertFalse(runtimeStore.contains(runtimeId));
     }
 
     private com.flunav.backend.models.multisimulation.MultiSimulation createRunnableMultiSimulation(
@@ -237,9 +272,9 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
         assertEquals(0, completed.failedRuns());
         var runs = multiSimulationService.runs(created.id());
         assertEquals(2, runs.size());
-        assertTrue(runs.stream().allMatch(run -> run.metrics() != null && run.metrics().itemsGenerated() == 5));
+        assertTrue(runs.stream().allMatch(run -> run.metrics() != null && run.metrics().itemsGenerated() == 6));
         assertTrue(runs.stream().allMatch(run -> run.metrics().itemsCompleted() == 5));
-        assertTrue(runs.stream().allMatch(run -> run.metrics().itemsRemaining() == 0));
+        assertTrue(runs.stream().allMatch(run -> run.metrics().itemsRemaining() == 1));
         assertNotNull(multiSimulationService.report(created.id()));
 
         for (int runIndex = 0; runIndex < 2; runIndex++) {
@@ -290,9 +325,9 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
         var firstRun = multiSimulationService.runs(first.id()).getFirst();
         var secondRun = multiSimulationService.runs(second.id()).getFirst();
         assertNotNull(firstRun.metrics());
-        assertEquals(29, firstRun.metrics().itemsGenerated());
-        assertEquals(29, firstRun.metrics().itemsRemaining());
-        assertEquals(29, firstRun.metrics().maximumSystemPopulation());
+        assertEquals(30, firstRun.metrics().itemsGenerated());
+        assertEquals(30, firstRun.metrics().itemsRemaining());
+        assertEquals(30, firstRun.metrics().maximumSystemPopulation());
         assertEquals(firstRun.metrics(), secondRun.metrics());
     }
 

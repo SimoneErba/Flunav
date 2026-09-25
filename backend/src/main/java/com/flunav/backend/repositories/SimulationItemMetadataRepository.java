@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.SimulationBuildCacheContext;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 
 /** Complete item metadata for one build, held in a single namespaced Redis hash. */
 @Repository
@@ -19,10 +20,13 @@ public class SimulationItemMetadataRepository {
     private static final String KEY = "build_item_metadata";
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public SimulationItemMetadataRepository(StringRedisTemplate redis, ObjectMapper mapper) {
+    public SimulationItemMetadataRepository(StringRedisTemplate redis, ObjectMapper mapper,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.mapper = mapper;
+        this.runtimeStore = runtimeStore;
     }
 
     public Optional<Item> get(String id) {
@@ -32,8 +36,11 @@ public class SimulationItemMetadataRepository {
         if (SimulationBuildCacheContext.localItemMetadata(id) instanceof Metadata local) {
             return Optional.of(toItem(id, local));
         }
-        Object raw = redis.opsForHash().get(RedisKeyNamespace.current(KEY), id);
-        if (!(raw instanceof String json)) {
+        var memory = runtimeStore.current();
+        String json = memory != null
+                ? memory.hashGet(RedisKeyNamespace.current(KEY), id)
+                : (String) redis.opsForHash().get(RedisKeyNamespace.current(KEY), id);
+        if (json == null) {
             return Optional.empty();
         }
         try {
@@ -53,8 +60,10 @@ public class SimulationItemMetadataRepository {
         try {
             Metadata metadata = new Metadata(item.getName(), item.isActive(), item.getPriority(),
                     item.getProperties());
-            redis.opsForHash().put(RedisKeyNamespace.current(KEY), item.getId(),
-                    mapper.writeValueAsString(metadata));
+            String json = mapper.writeValueAsString(metadata);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.hashPut(RedisKeyNamespace.current(KEY), item.getId(), json);
+            else redis.opsForHash().put(RedisKeyNamespace.current(KEY), item.getId(), json);
             SimulationBuildCacheContext.cacheLocalItemMetadata(item.getId(), metadata);
         } catch (JsonProcessingException failure) {
             throw new IllegalStateException("Could not cache item metadata for " + item.getId(), failure);
@@ -64,13 +73,17 @@ public class SimulationItemMetadataRepository {
     public void evict(String id) {
         if (SimulationBuildCacheContext.enabled()) {
             SimulationBuildCacheContext.evictLocalItemMetadata(id);
-            redis.opsForHash().delete(RedisKeyNamespace.current(KEY), id);
+            var memory = runtimeStore.current();
+            if (memory != null) memory.hashDelete(RedisKeyNamespace.current(KEY), id);
+            else redis.opsForHash().delete(RedisKeyNamespace.current(KEY), id);
         }
     }
 
     public void clear(String simulationId) {
         if (simulationId != null) {
-            redis.delete(RedisKeyNamespace.simulation(simulationId, KEY));
+            var memory = runtimeStore.get(simulationId);
+            if (memory != null) memory.delete(RedisKeyNamespace.simulation(simulationId, KEY));
+            else redis.delete(RedisKeyNamespace.simulation(simulationId, KEY));
         }
     }
 

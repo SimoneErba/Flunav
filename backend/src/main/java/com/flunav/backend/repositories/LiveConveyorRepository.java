@@ -1,6 +1,7 @@
 package com.flunav.backend.repositories;
 
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,9 +19,11 @@ public class LiveConveyorRepository {
     private static final Logger logger = LoggerFactory.getLogger(LiveConveyorRepository.class);
 
     private final StringRedisTemplate redis;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public LiveConveyorRepository(StringRedisTemplate redis) {
+    public LiveConveyorRepository(StringRedisTemplate redis, MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -31,7 +34,9 @@ public class LiveConveyorRepository {
     public void addItemToConveyor(String conveyorId, @NonNull String itemId, Instant timestamp) {
         String key = getNamespacedKey(conveyorId + ":items");
         // Score = Timestamp. Lower score = Entered earlier = Further ahead on belt.
-        redis.opsForZSet().add(key, itemId, timestamp.toEpochMilli());
+        var memory = runtimeStore.current();
+        if (memory != null) memory.sortedSetAdd(key, itemId, timestamp.toEpochMilli());
+        else redis.opsForZSet().add(key, itemId, timestamp.toEpochMilli());
     }
 
     /**
@@ -41,7 +46,8 @@ public class LiveConveyorRepository {
      */
     public void removeItemFromConveyor(String conveyorId, String itemId) {
         String key = getNamespacedKey(conveyorId + ":items");
-        redis.opsForZSet().remove(key, itemId);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.sortedSetRemove(key, itemId); else redis.opsForZSet().remove(key, itemId);
     }
 
     /**
@@ -52,7 +58,8 @@ public class LiveConveyorRepository {
     public Set<String> getItemsOrderedByDistance(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":items");
         // Range 0 to -1 returns all items sorted by score (Oldest/Furthest first)
-        return redis.opsForZSet().range(key, 0, -1);
+        var memory = runtimeStore.current();
+        return memory != null ? memory.sortedSetRange(key, 0, -1) : redis.opsForZSet().range(key, 0, -1);
     }
 
     /**
@@ -62,7 +69,8 @@ public class LiveConveyorRepository {
      */
     public String getHeadItem(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":items");
-        Set<String> items = redis.opsForZSet().range(key, 0, 0);
+        var memory = runtimeStore.current();
+        Set<String> items = memory != null ? memory.sortedSetRange(key, 0, 0) : redis.opsForZSet().range(key, 0, 0);
         return (items != null && !items.isEmpty()) ? items.iterator().next() : null;
     }
 
@@ -75,7 +83,9 @@ public class LiveConveyorRepository {
      */
     public void updateTailPosition(String conveyorId, double tailMeters) {
         String key = getNamespacedKey(conveyorId + ":tail");
-        redis.opsForValue().set(key, String.valueOf(tailMeters));
+        var memory = runtimeStore.current();
+        if (memory != null) memory.setValue(key, String.valueOf(tailMeters));
+        else redis.opsForValue().set(key, String.valueOf(tailMeters));
     }
 
     /**
@@ -85,7 +95,8 @@ public class LiveConveyorRepository {
      */
     public Double getTailPosition(String conveyorId) {
         String key = getNamespacedKey(conveyorId + ":tail");
-        String val = redis.opsForValue().get(key);
+        var memory = runtimeStore.current();
+        String val = memory != null ? memory.getValue(key) : redis.opsForValue().get(key);
         return val != null ? Double.parseDouble(val) : null;
     }
 
@@ -96,7 +107,8 @@ public class LiveConveyorRepository {
      */
     public void incrementChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
-        redis.opsForValue().increment(key);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.increment(key, 1); else redis.opsForValue().increment(key);
     }
 
     /**
@@ -106,7 +118,8 @@ public class LiveConveyorRepository {
      */
     public void decrementChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
-        redis.opsForValue().decrement(key);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.increment(key, -1); else redis.opsForValue().decrement(key);
     }
 
     /**
@@ -116,7 +129,8 @@ public class LiveConveyorRepository {
      */
     public void clearChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
-        redis.delete(key);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.delete(key); else redis.delete(key);
     }
 
     /**
@@ -126,7 +140,8 @@ public class LiveConveyorRepository {
      */
     public Integer getChuteOccupancy(String chuteId) {
         String key = getNamespacedKey("chute:" + chuteId + ":occupancy");
-        String val = redis.opsForValue().get(key);
+        var memory = runtimeStore.current();
+        String val = memory != null ? memory.getValue(key) : redis.opsForValue().get(key);
         return val != null ? Integer.parseInt(val) : 0;
     }
 
@@ -140,8 +155,11 @@ public class LiveConveyorRepository {
     public void deleteConveyor(String conveyorId) {
         String itemsKey = getNamespacedKey(conveyorId + ":items");
         String tailKey = getNamespacedKey(conveyorId + ":tail");
-        redis.delete(itemsKey);
-        redis.delete(tailKey);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.delete(itemsKey, tailKey); else {
+            redis.delete(itemsKey);
+            redis.delete(tailKey);
+        }
     }
 
     /**
@@ -152,6 +170,11 @@ public class LiveConveyorRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
+        var memory = runtimeStore.get(simulationId);
+        if (memory != null) {
+            memory.deleteMatching(RedisKeyNamespace.simulation(simulationId, "conv:"));
+            return;
+        }
         String pattern = RedisKeyNamespace.simulation(simulationId, "conv:*");
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {

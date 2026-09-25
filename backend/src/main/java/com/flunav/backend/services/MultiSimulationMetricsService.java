@@ -24,7 +24,11 @@ public class MultiSimulationMetricsService {
     private final Map<String, Accumulator> accumulators = new ConcurrentHashMap<>();
 
     public void start(String simulationId) {
-        accumulators.put(simulationId, new Accumulator());
+        start(simulationId, 0);
+    }
+
+    public void start(String simulationId, long initialActiveItems) {
+        accumulators.put(simulationId, new Accumulator(initialActiveItems));
     }
 
     public boolean isCollectingCurrentSimulation() {
@@ -91,6 +95,11 @@ public class MultiSimulationMetricsService {
         private final Map<String, Long> failuresByConveyor = new HashMap<>();
         private final Map<String, Instant> downSinceByConveyor = new HashMap<>();
         private final Map<String, Double> downtimeSecondsByConveyor = new HashMap<>();
+
+        private Accumulator(long initialActiveItems) {
+            active = Math.max(0, initialActiveItems);
+            maximumPopulation = active;
+        }
 
         private synchronized void recordCreated(ItemCreatedEvent event) {
             generated++;

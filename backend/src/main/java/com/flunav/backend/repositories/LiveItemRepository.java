@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import com.flunav.backend.utils.SimulationRunTiming;
 
 import flunav.types.PositionType;
@@ -24,10 +25,13 @@ public class LiveItemRepository {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public LiveItemRepository(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public LiveItemRepository(StringRedisTemplate redis, ObjectMapper objectMapper,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -87,8 +91,10 @@ public class LiveItemRepository {
         String itemKey = getNamespacedKey("item:" + itemId);
         String setKey = getNamespacedKey("active_items");
 
-        redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
-        redis.opsForSet().add(setKey, itemId);
+        RedisLiveItem previous = memoryState(itemId);
+        hashPutAll(itemKey, item.toRedisMap(objectMapper));
+        setAdd(setKey, itemId);
+        reindexMemory(previous, item);
     }
 
     /**
@@ -113,9 +119,11 @@ public class LiveItemRepository {
         String itemKey = getNamespacedKey("item:" + itemId);
         String activeSetKey = getNamespacedKey("active_items");
 
-        redis.opsForHash().putAll(itemKey, item.toRedisMap(objectMapper));
-        redis.opsForHash().delete(itemKey, "pe", "pty", "pt");
-        redis.opsForSet().add(activeSetKey, itemId);
+        RedisLiveItem previous = memoryState(itemId);
+        hashPutAll(itemKey, item.toRedisMap(objectMapper));
+        hashDelete(itemKey, "pe", "pty", "pt");
+        setAdd(activeSetKey, itemId);
+        reindexMemory(previous, memoryState(itemId));
     }
 
     /** Stores the exact transition that a staging release has scheduled. */
@@ -125,21 +133,21 @@ public class LiveItemRepository {
         updates.put("pe", positionId);
         updates.put("pty", type.name());
         updates.put("pt", String.valueOf(timestamp.toEpochMilli()));
-        redis.opsForHash().putAll(itemKey, updates);
+        hashPutAll(itemKey, updates);
     }
 
     /** Clears a stale or cancelled staging transition without changing item physics. */
     public void clearPlannedTransition(String itemId) {
-        redis.opsForHash().delete(getNamespacedKey("item:" + itemId), "pe", "pty", "pt");
+        hashDelete(getNamespacedKey("item:" + itemId), "pe", "pty", "pt");
     }
 
     /** Marks whether movement scheduling and time-based projection are paused. */
     public void setMovementPaused(String itemId, boolean paused) {
         String itemKey = getNamespacedKey("item:" + itemId);
         if (paused) {
-            redis.opsForHash().put(itemKey, "mp", "true");
+            hashPut(itemKey, "mp", "true");
         } else {
-            redis.opsForHash().delete(itemKey, "mp");
+            hashDelete(itemKey, "mp");
         }
     }
 
@@ -151,7 +159,7 @@ public class LiveItemRepository {
     public void deleteAllItems() {
         String setKey = getNamespacedKey("active_items");
 
-        Set<String> activeIds = redis.opsForSet().members(setKey);
+        Set<String> activeIds = setMembers(setKey);
 
         if (activeIds == null || activeIds.isEmpty()) {
             return;
@@ -170,7 +178,7 @@ public class LiveItemRepository {
         Map<String, String> updates = new HashMap<>();
         updates.put("t", String.valueOf(timestamp.toEpochMilli()));
         updates.put("ad", String.valueOf(Math.min(100.0, Math.max(0.0, progressPercent))));
-        redis.opsForHash().putAll(itemKey, updates);
+        hashPutAll(itemKey, updates);
     }
 
     /**
@@ -180,7 +188,7 @@ public class LiveItemRepository {
      */
     public void updateName(String itemId, String name) {
         String itemKey = getNamespacedKey("item:" + itemId);
-        redis.opsForHash().put(itemKey, "n", name);
+        hashPut(itemKey, "n", name);
     }
 
     /**
@@ -198,6 +206,7 @@ public class LiveItemRepository {
      */
     public void updateRouting(String itemId, List<String> destinations, String selectedExitId,
             RoutingStatus routingStatus, Instant routingStatusUpdatedAt, List<String> path) {
+        RedisLiveItem previous = memoryState(itemId);
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
 
@@ -224,14 +233,15 @@ public class LiveItemRepository {
         }
 
         if (!updates.isEmpty()) {
-            redis.opsForHash().putAll(itemKey, updates);
+            hashPutAll(itemKey, updates);
         }
         if (selectedExitId == null) {
-            redis.opsForHash().delete(itemKey, "d");
+            hashDelete(itemKey, "d");
         }
         if (path == null) {
-            redis.opsForHash().delete(itemKey, "p");
+            hashDelete(itemKey, "p");
         }
+        reindexMemory(previous, memoryState(itemId));
     }
 
     /**
@@ -242,7 +252,7 @@ public class LiveItemRepository {
     public void updatePath(String itemId, List<String> path) {
         String itemKey = getNamespacedKey("item:" + itemId);
         try {
-            redis.opsForHash().put(itemKey, "p", objectMapper.writeValueAsString(path));
+            hashPut(itemKey, "p", objectMapper.writeValueAsString(path));
         } catch (Exception e) {
             throw new IllegalStateException("Failed to serialize path for item " + itemId, e);
         }
@@ -253,6 +263,7 @@ public class LiveItemRepository {
      * movement checkpoint or assigned route.
      */
     public void updateRoutingStatus(String itemId, RoutingStatus routingStatus, Instant routingStatusUpdatedAt) {
+        RedisLiveItem previous = memoryState(itemId);
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
         if (routingStatus != null) {
@@ -262,8 +273,9 @@ public class LiveItemRepository {
             updates.put("rst", String.valueOf(routingStatusUpdatedAt.toEpochMilli()));
         }
         if (!updates.isEmpty()) {
-            redis.opsForHash().putAll(itemKey, updates);
+            hashPutAll(itemKey, updates);
         }
+        reindexMemory(previous, memoryState(itemId));
     }
 
     /**
@@ -293,24 +305,33 @@ public class LiveItemRepository {
      */
     public void deleteItem(String itemId, String simulationId) {
         RedisLiveItem item = getItemState(itemId, simulationId);
+        MultiSimulationRuntimeStore.State memory = runtimeStore.get(simulationId);
 
         if (item != null && item.getPositionId() != null) {
             if (item.getType() == PositionType.CONVEYOR) {
                 String convItemsKey = RedisKeyNamespace.simulation(
                         simulationId, "conv:" + item.getPositionId() + ":items");
-                redis.opsForZSet().remove(convItemsKey, itemId);
+                if (memory != null) memory.sortedSetRemove(convItemsKey, itemId);
+                else redis.opsForZSet().remove(convItemsKey, itemId);
             } else {
                 String locItemsKey = RedisKeyNamespace.simulation(
                         simulationId, "loc:" + item.getPositionId() + ":items");
-                redis.opsForZSet().remove(locItemsKey, itemId);
+                if (memory != null) memory.sortedSetRemove(locItemsKey, itemId);
+                else redis.opsForZSet().remove(locItemsKey, itemId);
             }
         }
 
         String itemKey = RedisKeyNamespace.simulation(simulationId, "item:" + itemId);
         String setKey = RedisKeyNamespace.simulation(simulationId, "active_items");
 
-        redis.delete(itemKey);
-        redis.opsForSet().remove(setKey, itemId);
+        if (memory != null) {
+            reindexMemory(item, null, memory);
+            memory.delete(itemKey);
+            memory.setRemove(setKey, itemId);
+        } else {
+            redis.delete(itemKey);
+            redis.opsForSet().remove(setKey, itemId);
+        }
     }
 
     // --- READ OPERATIONS ---
@@ -326,7 +347,10 @@ public class LiveItemRepository {
      */
     public RedisLiveItem getItemState(String itemId, String simulationId) {
         String itemKey = RedisKeyNamespace.simulation(simulationId, "item:" + itemId);
-        Map<String, String> hash = redis.<String, String>opsForHash().entries(itemKey);
+        MultiSimulationRuntimeStore.State memory = runtimeStore.get(simulationId);
+        Map<String, String> hash = memory != null
+                ? memory.hashEntries(itemKey)
+                : redis.<String, String>opsForHash().entries(itemKey);
         return RedisLiveItem.fromRedisMap(itemId, hash, objectMapper);
     }
 
@@ -338,14 +362,26 @@ public class LiveItemRepository {
     public List<RedisLiveItem> getAllActiveItems() {
         long scanStarted = SimulationRunTiming.tick();
         String setKey = getNamespacedKey("active_items");
-        Set<String> activeIds = redis.opsForSet().members(setKey);
+        Set<String> activeIds = setMembers(setKey);
 
         if (activeIds == null || activeIds.isEmpty()) {
-            SimulationRunTiming.record("redis.load-all-active-items", scanStarted);
+            SimulationRunTiming.record("hot-state.load-all-active-items", scanStarted);
             return Collections.emptyList();
         }
 
         List<String> idList = new ArrayList<>(activeIds);
+
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) {
+            List<RedisLiveItem> result = new ArrayList<>(idList.size());
+            for (String itemId : idList) {
+                RedisLiveItem item = RedisLiveItem.fromRedisMap(itemId,
+                        memory.hashEntries(getNamespacedKey("item:" + itemId)), objectMapper);
+                if (item != null) result.add(item);
+            }
+            SimulationRunTiming.record("hot-state.load-all-active-items", scanStarted);
+            return result;
+        }
 
         // Pipeline execution
         List<Object> pipelineResults = redis.executePipelined(
@@ -384,7 +420,7 @@ public class LiveItemRepository {
             }
         }
 
-        SimulationRunTiming.record("redis.load-all-active-items", scanStarted);
+        SimulationRunTiming.record("hot-state.load-all-active-items", scanStarted);
         return resultList;
     }
 
@@ -403,6 +439,8 @@ public class LiveItemRepository {
      */
     public long countActiveItems(String simulationId) {
         String setKey = RedisKeyNamespace.simulation(simulationId, "active_items");
+        MultiSimulationRuntimeStore.State memory = runtimeStore.get(simulationId);
+        if (memory != null) return memory.setSize(setKey);
         Long size = redis.opsForSet().size(setKey);
         return size != null ? size : 0;
     }
@@ -417,12 +455,33 @@ public class LiveItemRepository {
             return 0;
         }
 
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) {
+            Set<String> assigned = memory.setMembers(assignedExitKey(exitId));
+            return assigned.size() - (excludedItemId != null && assigned.contains(excludedItemId) ? 1 : 0);
+        }
         return getAllActiveItems().stream()
                 .filter(item -> item != null)
                 .filter(item -> excludedItemId == null || !excludedItemId.equals(item.getId()))
                 .filter(item -> exitId.equals(item.getSelectedExitId()))
                 .filter(item -> !exitId.equals(item.getPositionId()))
                 .count();
+    }
+
+    /** Returns only capacity-waiting items; multi-runs use an incrementally maintained index. */
+    public List<RedisLiveItem> getItemsWaitingForCapacity() {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory == null) {
+            return getAllActiveItems().stream()
+                    .filter(item -> item.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY)
+                    .toList();
+        }
+        List<RedisLiveItem> result = new ArrayList<>();
+        for (String itemId : memory.setMembers(waitingCapacityKey())) {
+            RedisLiveItem item = memoryState(itemId);
+            if (item != null) result.add(item);
+        }
+        return result;
     }
 
     /**
@@ -477,6 +536,10 @@ public class LiveItemRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
+        if (runtimeStore.contains(simulationId)) {
+            runtimeStore.remove(simulationId);
+            return;
+        }
         String prefix = RedisKeyNamespace.simulation(simulationId, "*");
         List<String> batch = new ArrayList<>();
         long deleted = 0;
@@ -504,7 +567,7 @@ public class LiveItemRepository {
 
     public void printAllData() {
         String setKey = getNamespacedKey("active_items");
-        Set<String> activeIds = redis.opsForSet().members(setKey);
+        Set<String> activeIds = setMembers(setKey);
 
         System.out.println("\n========== REDIS DUMP: LIVE ITEMS ==========");
         if (activeIds == null || activeIds.isEmpty()) {
@@ -515,10 +578,77 @@ public class LiveItemRepository {
 
             for (String itemId : sortedIds) {
                 String itemKey = getNamespacedKey("item:" + itemId);
-                Map<Object, Object> data = redis.opsForHash().entries(itemKey);
+                MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+                Map<?, ?> data = memory != null ? memory.hashEntries(itemKey) : redis.opsForHash().entries(itemKey);
                 logger.debug(" -> Item ID: {} | Data: {}", itemId, data);
             }
         }
         logger.debug("============================================");
+    }
+
+    private void hashPutAll(String key, Map<String, String> values) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) memory.hashPutAll(key, values); else redis.opsForHash().putAll(key, values);
+    }
+
+    private void hashPut(String key, String field, String value) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) memory.hashPut(key, field, value); else redis.opsForHash().put(key, field, value);
+    }
+
+    private void hashDelete(String key, String... fields) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) memory.hashDelete(key, fields); else redis.opsForHash().delete(key, (Object[]) fields);
+    }
+
+    private void setAdd(String key, String value) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) memory.setAdd(key, value); else redis.opsForSet().add(key, value);
+    }
+
+    private Set<String> setMembers(String key) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        return memory != null ? memory.setMembers(key) : redis.opsForSet().members(key);
+    }
+
+    private RedisLiveItem memoryState(String itemId) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory == null) return null;
+        return RedisLiveItem.fromRedisMap(itemId,
+                memory.hashEntries(getNamespacedKey("item:" + itemId)), objectMapper);
+    }
+
+    private void reindexMemory(RedisLiveItem previous, RedisLiveItem current) {
+        MultiSimulationRuntimeStore.State memory = runtimeStore.current();
+        if (memory != null) reindexMemory(previous, current, memory);
+    }
+
+    private void reindexMemory(RedisLiveItem previous, RedisLiveItem current,
+            MultiSimulationRuntimeStore.State memory) {
+        if (contributesAssignment(previous)) {
+            memory.setRemove(assignedExitKey(previous.getSelectedExitId()), previous.getId());
+        }
+        if (previous != null && previous.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY) {
+            memory.setRemove(waitingCapacityKey(), previous.getId());
+        }
+        if (contributesAssignment(current)) {
+            memory.setAdd(assignedExitKey(current.getSelectedExitId()), current.getId());
+        }
+        if (current != null && current.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY) {
+            memory.setAdd(waitingCapacityKey(), current.getId());
+        }
+    }
+
+    private boolean contributesAssignment(RedisLiveItem item) {
+        return item != null && item.getSelectedExitId() != null
+                && !item.getSelectedExitId().equals(item.getPositionId());
+    }
+
+    private String assignedExitKey(String exitId) {
+        return getNamespacedKey("index:assigned_exit:" + exitId);
+    }
+
+    private String waitingCapacityKey() {
+        return getNamespacedKey("index:waiting_capacity");
     }
 }

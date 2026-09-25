@@ -172,7 +172,10 @@ public class MultiSimulationRunner {
                 inputs.effectiveArrivalRate(), startedAt, null, null, null));
         SimulationRunTiming.record("run.save-start", stepStarted);
         boolean runtimeCreated = false;
-        metricsService.start(runtimeId);
+        long initialActiveItems = simulation.baseline().graph().getItems() == null
+                ? 0
+                : simulation.baseline().graph().getItems().size();
+        metricsService.start(runtimeId, initialActiveItems);
         try {
             stepStarted = SimulationRunTiming.tick();
             SimulationState state = simulationService.createMultiSimulationRuntime(

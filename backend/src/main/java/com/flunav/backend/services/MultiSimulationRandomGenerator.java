@@ -36,7 +36,7 @@ public class MultiSimulationRandomGenerator {
         long itemSequence = 0;
         while (true) {
             arrival = arrival.plusNanos(nextIntervalNanos(configuration.arrival().distribution(), effectiveRate, random));
-            if (!arrival.isBefore(end)) {
+            if (arrival.isAfter(end)) {
                 break;
             }
             String destination = selectDestination(configuration.destinations(), random);

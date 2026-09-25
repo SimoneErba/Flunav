@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.multisimulation.ArrivalConfiguration;
 import com.flunav.backend.models.multisimulation.ConveyorFailureConfiguration;
@@ -47,6 +48,7 @@ public class MultiSimulationService {
     private final GraphService graphService;
     private final DestinationExitMappingService destinationExitMappingService;
     private final MultiSimulationRunner runner;
+    private final SimulationService simulationService;
     private final TimeService timeService;
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
@@ -59,6 +61,7 @@ public class MultiSimulationService {
             GraphService graphService,
             DestinationExitMappingService destinationExitMappingService,
             MultiSimulationRunner runner,
+            SimulationService simulationService,
             TimeService timeService,
             WebSocketService webSocketService,
             ObjectMapper objectMapper,
@@ -68,6 +71,7 @@ public class MultiSimulationService {
         this.graphService = graphService;
         this.destinationExitMappingService = destinationExitMappingService;
         this.runner = runner;
+        this.simulationService = simulationService;
         this.timeService = timeService;
         this.webSocketService = webSocketService;
         this.objectMapper = objectMapper;
@@ -84,7 +88,11 @@ public class MultiSimulationService {
         if (request.numberOfRuns() > 0 && seed > Long.MAX_VALUE - (request.numberOfRuns() - 1L)) {
             throw badRequest("baseSeed is too large for the requested number of runs");
         }
-        Instant simulationStart = request.simulationStartTime() != null ? request.simulationStartTime() : createdAt;
+        String sourceSimulationId = DatabaseContextHolder.getSimulationId();
+        Instant sourceClock = sourceSimulationId == null
+                ? createdAt
+                : simulationService.getSimulationClock(sourceSimulationId);
+        Instant simulationStart = request.simulationStartTime() != null ? request.simulationStartTime() : sourceClock;
         MultiSimulationConfiguration configuration = new MultiSimulationConfiguration(
                 request.name() == null ? null : request.name().trim(),
                 request.simulationDurationSeconds(),
@@ -94,15 +102,18 @@ public class MultiSimulationService {
                 request.destinations(),
                 request.conveyorFailures(),
                 seed,
-                simulationStart);
+                simulationStart,
+                request.includeActiveItems());
 
         MultiSimulationBaseline baseline = eventProcessor.withLiveSnapshotBarrier(() -> {
             clickHouseService.flushAllEventsOrThrow();
-            GraphData current = graphService.getTopologyData();
+            GraphData current = request.includeActiveItems()
+                    ? graphService.getGraphData(simulationStart, false, sourceSimulationId, true)
+                    : graphService.getTopologyData();
             GraphData topologyOnly = new GraphData(
                     current.getLocations(),
                     current.getConveyors(),
-                    List.of(),
+                    request.includeActiveItems() ? current.getItems() : List.of(),
                     current.getSensorMappings(),
                     simulationStart);
             validate(configuration, topologyOnly);

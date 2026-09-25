@@ -160,6 +160,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   const [destinations, setDestinations] = useState<DestinationProbability[]>([]);
   const [destinationMode, setDestinationMode] = useState<'logical' | 'chute'>('logical');
   const [failures, setFailures] = useState<ConveyorFailureConfiguration[]>([]);
+  const [includeActiveItems, setIncludeActiveItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -197,7 +198,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
       name, simulationDurationSeconds: Math.round(durationHours * 3600), numberOfRuns: runs,
       arrival: { ratePerHour: rate, distribution, rateVariationPercent: variation },
       sourceLocationId: source, destinations, conveyorFailures: failures,
-      baseSeed: seed.trim() ? Number(seed) : null, simulationStartTime: null,
+      baseSeed: seed.trim() ? Number(seed) : null, simulationStartTime: null, includeActiveItems,
     };
     setSubmitting(true);
     try {
@@ -212,7 +213,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div><h1 className="text-2xl font-bold">Create multi-simulation</h1><p className="text-sm text-gray-500">The current topology and routing configuration will be captured without live items.</p></div>
+      <div><h1 className="text-2xl font-bold">Create multi-simulation</h1><p className="text-sm text-gray-500">The current topology, routing configuration, and source clock are captured when the experiment is created.</p></div>
       <div className="grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900 md:grid-cols-2">
         <Field label="Name"><input value={name} onChange={event => setName(event.target.value)} className="input" /></Field>
         <Field label="Source location"><select value={source} onChange={event => setSource(event.target.value)} className="input">{topology.locations.filter(value => value.active).map(value => <option key={value.id} value={value.id}>{value.name || value.id}</option>)}</select></Field>
@@ -222,6 +223,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
         <Field label="Arrival model"><select value={distribution} onChange={event => setDistribution(event.target.value as ArrivalDistribution)} className="input"><option value="POISSON">Poisson</option><option value="FIXED">Fixed</option></select></Field>
         <Field label="Run-to-run rate variation (%)"><NumberInput value={variation} min={0} step={1} onChange={setVariation} /></Field>
         <Field label="Base seed (optional)"><input value={seed} onChange={event => setSeed(event.target.value)} inputMode="numeric" className="input" placeholder="Generated automatically" /></Field>
+        <label className="flex items-center gap-3 text-sm font-medium"><input type="checkbox" checked={includeActiveItems} onChange={event => setIncludeActiveItems(event.target.checked)} className="h-4 w-4" />Include current active items</label>
       </div>
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-4 flex justify-between"><h2 className="font-bold">Destination mix</h2><span className={Math.abs(probabilityTotal - 1) < 0.000001 ? 'text-green-600' : 'text-red-600'}>{(probabilityTotal * 100).toFixed(1)}%</span></div>

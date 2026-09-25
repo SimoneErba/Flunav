@@ -487,10 +487,9 @@ public class RoutingDecisionService {
      */
     private Map<String, Integer> allocatePendingReservations(String excludedItemId, Instant decisionTime) {
         long reservationsStarted = SimulationRunTiming.tick();
-        List<PendingRoutingDemand> pendingDemands = liveItemRepository.getAllActiveItems().stream()
+        List<PendingRoutingDemand> pendingDemands = liveItemRepository.getItemsWaitingForCapacity().stream()
                 .filter(item -> item != null)
                 .filter(item -> excludedItemId == null || !excludedItemId.equals(item.getId()))
-                .filter(item -> item.getRoutingStatus() == RoutingStatus.WAITING_FOR_CAPACITY)
                 .map(item -> {
                     Item domainItem = itemService.getItemById(item.getId());
                     double priorityScore = domainItem == null ? 0.0 : priorityScore(domainItem, decisionTime);

@@ -35,6 +35,7 @@ import com.flunav.backend.repositories.PathCacheRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository.SimulationMetadata;
 import com.flunav.backend.repositories.AnomalyObservationRepository;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import flunav.events.AnomalyEvaluationTickEvent;
 
 import flunav.events.DomainEvent;
@@ -69,6 +70,7 @@ public class SimulationService {
     private final RoutingCoordinator routingCoordinator;
     private final AnomalyEngine anomalyEngine;
     private final AnomalyObservationRepository anomalyObservationRepository;
+    private final MultiSimulationRuntimeStore multiSimulationRuntimeStore;
     private final int maxActiveSimulations;
     private final int maxBuildingSimulations;
     private final long maxActiveItemsPerSimulation;
@@ -105,6 +107,7 @@ public class SimulationService {
             RoutingCoordinator routingCoordinator,
             @Lazy AnomalyEngine anomalyEngine,
             AnomalyObservationRepository anomalyObservationRepository,
+            MultiSimulationRuntimeStore multiSimulationRuntimeStore,
             @Lazy GraphService graphService,
             SimulationInputService simulationInputService,
             @Lazy LiveSystemScheduler liveSystemScheduler,
@@ -126,6 +129,7 @@ public class SimulationService {
         this.routingCoordinator = routingCoordinator;
         this.anomalyEngine = anomalyEngine;
         this.anomalyObservationRepository = anomalyObservationRepository;
+        this.multiSimulationRuntimeStore = multiSimulationRuntimeStore;
         this.graphService = graphService;
         this.simulationInputService = simulationInputService;
         this.liveSystemScheduler = liveSystemScheduler;
@@ -163,7 +167,7 @@ public class SimulationService {
         if (previous != null) {
             throw new IllegalStateException("Simulation runtime already exists: " + simulationId);
         }
-        persistState(state);
+        multiSimulationRuntimeStore.register(simulationId);
         try {
             orientDBService.createInMemoryDatabase(simulationId);
             try (var context = DatabaseContextHolder.enterSimulationContext(simulationId);
@@ -490,30 +494,37 @@ public class SimulationService {
         cancelPlayback(simulationId);
         waitingQueue.removeIf(request -> request.simulationId().equals(simulationId));
         SimulationState state = simulationCache.remove(simulationId);
+        boolean multiRuntime = state != null && state.getKind() == SimulationKind.MULTI_SIMULATION_RUN
+                || multiSimulationRuntimeStore.contains(simulationId);
         try {
             orientDBService.dropDatabase(simulationId);
         } catch (Exception e) {
             logger.warn("Failed to drop simulation database {}: {}", simulationId, e.getMessage());
         }
-        try {
-            liveItemRepository.cleanupSimulationData(simulationId);
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup Redis data for simulation {}: {}", simulationId, e.getMessage());
+        if (!multiRuntime) {
+            try {
+                liveItemRepository.cleanupSimulationData(simulationId);
+            } catch (Exception e) {
+                logger.warn("Failed to cleanup Redis data for simulation {}: {}", simulationId, e.getMessage());
+            }
+            try {
+                pathCacheRepository.cleanupSimulationData(simulationId);
+            } catch (Exception e) {
+                logger.warn("Failed to cleanup path cache for simulation {}: {}", simulationId, e.getMessage());
+            }
+            liveSimulationRepository.deleteState(simulationId);
         }
-        try {
-            pathCacheRepository.cleanupSimulationData(simulationId);
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup path cache for simulation {}: {}", simulationId, e.getMessage());
-        }
-        liveSimulationRepository.deleteState(simulationId);
         throughputBucketService.cleanupSimulationHistory(simulationId);
-        try {
-            clickHouseService.deleteOperationalAnalyticsForSimulation(simulationId);
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup ClickHouse analytics for simulation {}: {}", simulationId, e.getMessage());
+        if (!multiRuntime) {
+            try {
+                clickHouseService.deleteOperationalAnalyticsForSimulation(simulationId);
+            } catch (Exception e) {
+                logger.warn("Failed to cleanup ClickHouse analytics for simulation {}: {}", simulationId, e.getMessage());
+            }
         }
         routingCoordinator.cleanupSimulation(simulationId);
-        anomalyObservationRepository.cleanupSimulationData(simulationId);
+        if (!multiRuntime) anomalyObservationRepository.cleanupSimulationData(simulationId);
+        multiSimulationRuntimeStore.remove(simulationId);
 
         if (state != null) {
             logger.info("Successfully destroyed simulation: {}", simulationId);
@@ -839,6 +850,9 @@ public class SimulationService {
     }
 
     private void persistState(SimulationState state) {
+        if (state.getKind() == SimulationKind.MULTI_SIMULATION_RUN) {
+            return;
+        }
         liveSimulationRepository.saveState(new SimulationMetadata(
                 state.getId(),
                 state.getTimestamp(),

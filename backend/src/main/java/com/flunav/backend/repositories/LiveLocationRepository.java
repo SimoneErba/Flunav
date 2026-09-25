@@ -1,6 +1,7 @@
 package com.flunav.backend.repositories;
 
 import com.flunav.backend.repositories.support.RedisKeyNamespace;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -17,9 +18,11 @@ public class LiveLocationRepository {
     private static final Logger logger = LoggerFactory.getLogger(LiveLocationRepository.class);
 
     private final StringRedisTemplate redis;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public LiveLocationRepository(StringRedisTemplate redis) {
+    public LiveLocationRepository(StringRedisTemplate redis, MultiSimulationRuntimeStore runtimeStore) {
         this.redis = redis;
+        this.runtimeStore = runtimeStore;
     }
 
     // --- WRITE OPERATIONS ---
@@ -34,7 +37,8 @@ public class LiveLocationRepository {
         // Score = Current Time (allows us to pop the "oldest" item later)
         double score = Instant.now().toEpochMilli();
 
-        redis.opsForZSet().add(key, itemId, score);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.sortedSetAdd(key, itemId, score); else redis.opsForZSet().add(key, itemId, score);
     }
 
     /**
@@ -44,7 +48,8 @@ public class LiveLocationRepository {
      */
     public void removeItemFromLocation(String locationId, String itemId) {
         String key = getNamespacedKey(locationId);
-        redis.opsForZSet().remove(key, itemId);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.sortedSetRemove(key, itemId); else redis.opsForZSet().remove(key, itemId);
     }
 
     /**
@@ -54,10 +59,11 @@ public class LiveLocationRepository {
      */
     public String popOldestItem(String locationId) {
         String key = getNamespacedKey(locationId);
-        Set<String> items = redis.opsForZSet().range(key, 0, 0);
+        var memory = runtimeStore.current();
+        Set<String> items = memory != null ? memory.sortedSetRange(key, 0, 0) : redis.opsForZSet().range(key, 0, 0);
         if (items != null && !items.isEmpty()) {
             String itemId = items.iterator().next();
-            redis.opsForZSet().remove(key, itemId);
+            if (memory != null) memory.sortedSetRemove(key, itemId); else redis.opsForZSet().remove(key, itemId);
             return itemId;
         }
         return null;
@@ -73,7 +79,8 @@ public class LiveLocationRepository {
     public Set<String> getItemsAtLocation(String locationId) {
         String key = getNamespacedKey(locationId);
         // Returns items ordered by arrival time
-        return redis.opsForZSet().range(key, 0, -1);
+        var memory = runtimeStore.current();
+        return memory != null ? memory.sortedSetRange(key, 0, -1) : redis.opsForZSet().range(key, 0, -1);
     }
 
     /**
@@ -83,7 +90,8 @@ public class LiveLocationRepository {
      */
     public Long getItemCount(String locationId) {
         String key = getNamespacedKey(locationId);
-        Long count = redis.opsForZSet().zCard(key);
+        var memory = runtimeStore.current();
+        Long count = memory != null ? memory.sortedSetSize(key) : redis.opsForZSet().zCard(key);
         return count != null ? count : 0L;
     }
 
@@ -104,7 +112,8 @@ public class LiveLocationRepository {
      */
     public void deleteLocation(String locationId) {
         String key = getNamespacedKey(locationId);
-        redis.delete(key);
+        var memory = runtimeStore.current();
+        if (memory != null) memory.delete(key); else redis.delete(key);
     }
 
     /**
@@ -115,6 +124,11 @@ public class LiveLocationRepository {
     public void cleanupSimulationData(String simulationId) {
         if (simulationId == null)
             return;
+        var memory = runtimeStore.get(simulationId);
+        if (memory != null) {
+            memory.deleteMatching(RedisKeyNamespace.simulation(simulationId, "loc:"));
+            return;
+        }
         String pattern = RedisKeyNamespace.simulation(simulationId, "loc:*");
         Set<String> keys = redis.keys(pattern);
         if (keys != null && !keys.isEmpty()) {

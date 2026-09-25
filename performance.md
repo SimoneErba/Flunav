@@ -15,3 +15,8 @@
   substantial speedup. Reaching five minutes for 500 runs would require much more than the current caching changes.
 
   The representative benchmark and a focused two-run integration test passed. The running backend needs a restart to emit the new logs.
+
+  Multi-simulation runs now keep their temporary item state, occupancy queues, path caches, routing mappings,
+  anomaly state, and lifecycle metadata in a per-run in-memory store. Capacity checks maintain assigned-exit and
+  waiting-for-capacity indexes, so they no longer reload every active item. Redis remains the backend for live,
+  replay, and interactive what-if contexts; a multi-run store is discarded when its run completes or fails.
