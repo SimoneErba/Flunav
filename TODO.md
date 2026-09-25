@@ -2,6 +2,11 @@
 
 TODO:
 
+- Benchmark multi-simulations across graph sizes and item counts to measure runtime and memory use.
+- Investigate speeding up standard simulation builds using techniques from multi-simulations.
+- Compare simulation results with Redis and OrientDB restored to the multi-simulation path.
+- Investigate caching OrientDB data for live and standard simulations, refreshing it only when relevant data changes.
+
 simulation pause: itemds jump behind
 when a conveyour stop, only new items in dc gets corrcet routing, onld ones stop. 
 investihgate conveyour capacoty. if its null will ti work?
