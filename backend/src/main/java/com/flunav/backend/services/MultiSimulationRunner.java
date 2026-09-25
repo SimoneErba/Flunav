@@ -72,6 +72,10 @@ public class MultiSimulationRunner {
         cancellations.computeIfAbsent(id, ignored -> new AtomicBoolean()).set(true);
     }
 
+    public int maximumConcurrentRuns() {
+        return maximumConcurrentRuns;
+    }
+
     /** Executes isolated runs concurrently while each run advances only virtual timestamps. */
     @Async("taskExecutor")
     public void run(String id) {
@@ -97,6 +101,9 @@ public class MultiSimulationRunner {
             int nextRunIndex = 0;
             int inFlight = 0;
             int totalRuns = simulation.configuration().numberOfRuns();
+            long progressStartedNanos = System.nanoTime();
+            logger.info("Multi-simulation {} started totalRuns={} maxConcurrentRuns={}",
+                    id, totalRuns, maximumConcurrentRuns);
             while (nextRunIndex < totalRuns || inFlight > 0) {
                 while (!cancelled(cancellation) && nextRunIndex < totalRuns
                         && inFlight < maximumConcurrentRuns) {
@@ -119,6 +126,15 @@ public class MultiSimulationRunner {
                 }
                 saveSimulation(simulation, MultiSimulationStatus.RUNNING, completed, failed,
                         startedAt, null, cancellation.get(), null);
+                if (completed + failed == totalRuns
+                        || (completed + failed) % 25 == 0) {
+                    long elapsedNanos = System.nanoTime() - progressStartedNanos;
+                    double runsPerSecond = (completed + failed) / (elapsedNanos / 1_000_000_000.0);
+                    logger.info("Multi-simulation {} progress finishedRuns={}/{} completedRuns={} failedRuns={} "
+                                    + "elapsedMs={} runsPerSecond={}",
+                            id, completed + failed, totalRuns, completed, failed,
+                            elapsedNanos / 1_000_000, String.format(java.util.Locale.ROOT, "%.2f", runsPerSecond));
+                }
             }
 
             List<MultiSimulationRun> runs = clickHouseService.getMultiSimulationRuns(id);
@@ -130,6 +146,9 @@ public class MultiSimulationRunner {
                     ? MultiSimulationStatus.CANCELLED
                     : failed > 0 ? MultiSimulationStatus.COMPLETED_WITH_FAILURES : MultiSimulationStatus.COMPLETED;
             saveSimulation(simulation, status, completed, failed, startedAt, completedAt, wasCancelled, null);
+            logger.info("Multi-simulation {} finished status={} completedRuns={} failedRuns={} elapsedMs={}",
+                    id, status, completed, failed,
+                    (timeService.physicalNow().toEpochMilli() - startedAt.toEpochMilli()));
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

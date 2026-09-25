@@ -9,6 +9,7 @@ import {
   type DestinationProbability,
   type MetricDistribution,
   type MultiSimulationConfiguration,
+  type MultiSimulationEstimate,
   type MultiSimulationReport,
   type MultiSimulationResponse,
 } from '../../api/multiSimulation';
@@ -23,6 +24,14 @@ interface TopologyData { locations: TopologyLocation[]; conveyors: TopologyConve
 interface DestinationExitMapping { destination: string; exits: string[]; }
 
 const terminalStatuses = new Set(['COMPLETED', 'COMPLETED_WITH_FAILURES', 'CANCELLED', 'FAILED']);
+
+const formatDuration = (seconds: number) => {
+  if (seconds < 60) return `${seconds} sec`;
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)} min`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.ceil((seconds % 3600) / 60);
+  return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+};
 
 export const MultiSimulationsPage = () => {
   const { user } = useAuth();
@@ -162,6 +171,8 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   const [failures, setFailures] = useState<ConveyorFailureConfiguration[]>([]);
   const [includeActiveItems, setIncludeActiveItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [estimate, setEstimate] = useState<MultiSimulationEstimate>();
+  const [estimating, setEstimating] = useState(false);
 
   useEffect(() => {
     if (!source && topology.locations.length) setSource(topology.locations.find(location => location.active)?.id ?? '');
@@ -190,16 +201,34 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
     });
   };
 
+  const configuration = useMemo<MultiSimulationConfiguration>(() => ({
+    name, simulationDurationSeconds: Math.round(durationHours * 3600), numberOfRuns: runs,
+    arrival: { ratePerHour: rate, distribution, rateVariationPercent: variation },
+    sourceLocationId: source, destinations, conveyorFailures: failures,
+    baseSeed: seed.trim() ? Number(seed) : null, simulationStartTime: null, includeActiveItems,
+  }), [name, durationHours, runs, rate, distribution, variation, source, destinations, failures, seed, includeActiveItems]);
+
+  useEffect(() => {
+    if (runs < 1 || durationHours <= 0 || rate <= 0 || !Number.isFinite(rate)) {
+      setEstimate(undefined);
+      setEstimating(false);
+      return;
+    }
+    let active = true;
+    setEstimating(true);
+    const timer = window.setTimeout(() => {
+      multiSimulationApi.estimate(configuration)
+        .then(value => { if (active) setEstimate(value); })
+        .catch(() => { if (active) setEstimate(undefined); })
+        .finally(() => { if (active) setEstimating(false); });
+    }, 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [configuration, runs, durationHours, rate]);
+
   const submit = async () => {
     if (Math.abs(probabilityTotal - 1) > 0.000001) {
       toast.error('Destination probabilities must total 100%'); return;
     }
-    const configuration: MultiSimulationConfiguration = {
-      name, simulationDurationSeconds: Math.round(durationHours * 3600), numberOfRuns: runs,
-      arrival: { ratePerHour: rate, distribution, rateVariationPercent: variation },
-      sourceLocationId: source, destinations, conveyorFailures: failures,
-      baseSeed: seed.trim() ? Number(seed) : null, simulationStartTime: null, includeActiveItems,
-    };
     setSubmitting(true);
     try {
       const created = await multiSimulationApi.create(configuration);
@@ -247,6 +276,16 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
             <Field label="Repair seconds"><input type="number" min="1" value={failure?.repairDurationSeconds ?? ''} onChange={event => updateFailure(conveyor.id, failure?.failuresPerHour ?? 0, event.target.value ? Number(event.target.value) : null)} className="input" /></Field>
           </div>;
         })}</div>
+      </div>
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/30" aria-live="polite">
+        <h2 className="font-bold">Estimated completion time</h2>
+        {estimate ? <>
+          <p className="mt-2 text-2xl font-bold">About {formatDuration(estimate.estimatedSeconds)}</p>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Planning range {formatDuration(estimate.lowerSeconds)}–{formatDuration(estimate.upperSeconds)}{estimating ? ' · Updating…' : ''}</p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{estimate.parallelRuns} parallel runs (backend limit {estimate.configuredParallelRuns}) · ~{estimate.expectedItemsPerRun.toLocaleString()} items/run ({estimate.expectedItemsTotal.toLocaleString()} total) · {estimate.locationCount} locations + {estimate.conveyorCount} conveyors</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Calibrated from local benchmarks; recirculation, failures, other load, and machine speed can change the actual time.</p>
+          {includeActiveItems && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Existing active items are not included in the item-count estimate.</p>}
+        </> : <p className="mt-2 text-sm text-gray-500">{estimating ? 'Calculating…' : 'Estimate unavailable; check runs, duration, and arrival rate.'}</p>}
       </div>
       <button type="button" disabled={submitting || destinations.length === 0} onClick={() => void submit()} className="rounded-lg bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{submitting ? 'Starting…' : 'Run multi-simulation'}</button>
     </div>

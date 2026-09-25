@@ -435,10 +435,19 @@ public class HistoricalGraphBuilder {
         pathCacheRepository.invalidateCurrentNamespace();
     }
 
-    /**
-     * Rehydrates a snapshot item into Redis hot state.
-     * Snapshot and Redis positions both use percentage progress.
-     */
+    /** Restores the hot position side of a multi-run baseline without creating an OrientDB database. */
+    public void restoreMultiRunItems(GraphData graphData) {
+        if (graphData.getItems() == null) return;
+        Map<String, ConveyorResponse> conveyors = new HashMap<>();
+        if (graphData.getConveyors() != null) {
+            graphData.getConveyors().forEach(conveyor -> conveyors.put(conveyor.getId(), conveyor));
+        }
+        for (ItemResponse item : graphData.getItems()) {
+            restoreItemToRedis(item, conveyors, graphData.getTimestamp());
+        }
+    }
+
+    /** Rehydrates a snapshot item into hot state using percentage progress. */
     private void restoreItemToRedis(ItemResponse itemData, Map<String, ConveyorResponse> conveyorMap,
             Instant snapshotTimestamp) {
         String positionId;

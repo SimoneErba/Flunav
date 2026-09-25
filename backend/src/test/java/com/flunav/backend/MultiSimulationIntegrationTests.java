@@ -3,6 +3,7 @@ package com.flunav.backend;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -11,12 +12,24 @@ import java.util.HashMap;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flunav.backend.domain.Role;
+import com.flunav.backend.utils.JwtUtils;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.context.SimulationBuildCacheContext;
+import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.multisimulation.ArrivalConfiguration;
 import com.flunav.backend.models.multisimulation.ArrivalDistribution;
 import com.flunav.backend.models.multisimulation.DestinationProbability;
@@ -25,6 +38,10 @@ import com.flunav.backend.models.multisimulation.MultiSimulationStatus;
 import com.flunav.backend.services.EventProcessor;
 import com.flunav.backend.services.ItemService;
 import com.flunav.backend.services.MultiSimulationService;
+import com.flunav.backend.services.MultiSimulationRunner;
+import com.flunav.backend.services.OrientDBService;
+import com.flunav.backend.services.PathfindingService;
+import com.flunav.backend.services.RoutingDecisionService;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.TopologyProvider;
 import com.flunav.backend.repositories.SimulationItemMetadataRepository;
@@ -50,6 +67,7 @@ import flunav.types.RoutingStatus;
         "graph-snapshot.enabled=false",
         "metric-snapshot.enabled=false"
 })
+@AutoConfigureMockMvc
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     private final EventProcessor eventProcessor;
@@ -61,6 +79,13 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     private final TopologyProvider topologyProvider;
     private final MultiSimulationRuntimeStore runtimeStore;
     private final LiveItemRepository liveItemRepository;
+    private final OrientDBService orientDBService;
+    private final PathfindingService pathfindingService;
+    private final RoutingDecisionService routingDecisionService;
+    private final MockMvc mockMvc;
+    private final ObjectMapper objectMapper;
+    private final JwtUtils jwtUtils;
+    private final MultiSimulationRunner multiSimulationRunner;
 
     MultiSimulationIntegrationTests(
             EventProcessor eventProcessor,
@@ -71,7 +96,14 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
             SimulationItemMetadataRepository itemMetadataCache,
             TopologyProvider topologyProvider,
             MultiSimulationRuntimeStore runtimeStore,
-            LiveItemRepository liveItemRepository) {
+            LiveItemRepository liveItemRepository,
+            OrientDBService orientDBService,
+            PathfindingService pathfindingService,
+            RoutingDecisionService routingDecisionService,
+            MockMvc mockMvc,
+            ObjectMapper objectMapper,
+            JwtUtils jwtUtils,
+            MultiSimulationRunner multiSimulationRunner) {
         this.eventProcessor = eventProcessor;
         this.multiSimulationService = multiSimulationService;
         this.simulationService = simulationService;
@@ -81,6 +113,103 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
         this.topologyProvider = topologyProvider;
         this.runtimeStore = runtimeStore;
         this.liveItemRepository = liveItemRepository;
+        this.orientDBService = orientDBService;
+        this.pathfindingService = pathfindingService;
+        this.routingDecisionService = routingDecisionService;
+        this.mockMvc = mockMvc;
+        this.objectMapper = objectMapper;
+        this.jwtUtils = jwtUtils;
+        this.multiSimulationRunner = multiSimulationRunner;
+    }
+
+    @Test
+    void estimateUsesCurrentGraphAndConfiguredWorkersWithRoleProtection() throws Exception {
+        var source = createRunnableMultiSimulation("Estimate integration " + System.nanoTime(), 500);
+        var configuration = source.configuration();
+        byte[] body = objectMapper.writeValueAsBytes(configuration);
+        var request = post("/api/multi-simulations/estimate")
+                .contentType(MediaType.APPLICATION_JSON).content(body);
+        mockMvc.perform(request).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/multi-simulations/estimate")
+                        .header("Authorization", "Bearer " + jwtUtils.generateToken("estimate-viewer", Role.VIEWER))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/multi-simulations/estimate")
+                        .header("Authorization", "Bearer " + jwtUtils.generateToken("estimate-admin", Role.ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.parallelRuns").value(multiSimulationRunner.maximumConcurrentRuns()))
+                .andExpect(jsonPath("$.configuredParallelRuns").value(multiSimulationRunner.maximumConcurrentRuns()))
+                .andExpect(jsonPath("$.locationCount").value(source.baseline().graph().getLocations().size()))
+                .andExpect(jsonPath("$.conveyorCount").value(source.baseline().graph().getConveyors().size()))
+                .andExpect(jsonPath("$.expectedItemsPerRun").value(6))
+                .andExpect(jsonPath("$.expectedItemsTotal").value(3_000))
+                .andExpect(jsonPath("$.estimatedSeconds").isNumber());
+    }
+
+    @Test
+    void runsUseIndependentMemoryGraphsAndDijkstraWithoutOrientSessions() {
+        String firstId = "memory-first-" + System.nanoTime();
+        String secondId = "memory-second-" + System.nanoTime();
+        var source = createRunnableMultiSimulation("Memory isolation " + firstId, 2);
+        String locationId = source.configuration().sourceLocationId();
+        String conveyorId = source.baseline().graph().getConveyors().stream()
+                .filter(conveyor -> locationId.equals(conveyor.getSourceId()))
+                .findFirst().orElseThrow().getId();
+        String exitId = source.baseline().graph().getConveyors().stream()
+                .filter(conveyor -> conveyorId.equals(conveyor.getId()))
+                .findFirst().orElseThrow().getTargetId();
+        Instant start = source.configuration().simulationStartTime();
+        Item probe = new Item("route-probe", "Probe", true, 0.5, java.util.Map.of());
+
+        simulationService.createMultiSimulationRuntime(firstId, start, source.baseline());
+        simulationService.createMultiSimulationRuntime(secondId, start, source.baseline());
+        try {
+            try (var context = DatabaseContextHolder.enterSimulationContext(firstId);
+                    var cache = SimulationBuildCacheContext.enterMultiRun(firstId)) {
+                assertThrows(IllegalStateException.class, orientDBService::getSession);
+                assertEquals(List.of(locationId, exitId),
+                        pathfindingService.calculateShortestPath(locationId, PositionType.LOCATION, exitId));
+                assertEquals(RoutingStatus.ASSIGNED,
+                        routingDecisionService.selectRouteToExit(probe, locationId, PositionType.LOCATION,
+                                exitId, start).routingStatus());
+                eventProcessor.processEventWithoutBroadcast(new ConnectionDeactivatedEvent(conveyorId,
+                        start.plusSeconds(1)));
+                assertFalse(topologyProvider.getConveyorById(conveyorId).isActive());
+                assertEquals(RoutingStatus.FAILED,
+                        routingDecisionService.selectRouteToExit(probe, locationId, PositionType.LOCATION,
+                                exitId, start.plusSeconds(1)).routingStatus());
+                String viaId = firstId + "-via";
+                eventProcessor.processEventWithoutBroadcast(new LocationCreatedEvent(viaId, "Via", true,
+                        0.5, 0.0, LocationType.JUNCTION, 100, new HashMap<>()));
+                eventProcessor.processEventWithoutBroadcast(new ConnectionCreatedEvent(firstId + "-in",
+                        locationId, viaId, 0.1, 1.0, 0.0, null, true, "Via in", true,
+                        ConveyorType.BELT, 100, new HashMap<>()));
+                eventProcessor.processEventWithoutBroadcast(new ConnectionCreatedEvent(firstId + "-out",
+                        viaId, exitId, 0.1, 1.0, 0.0, null, true, "Via out", true,
+                        ConveyorType.BELT, 100, new HashMap<>()));
+                assertEquals(List.of(locationId, viaId, exitId),
+                        pathfindingService.calculateShortestPath(locationId, PositionType.LOCATION, exitId));
+                assertEquals(RoutingStatus.ASSIGNED,
+                        routingDecisionService.selectRouteToExit(probe, locationId, PositionType.LOCATION,
+                                exitId, start.plusSeconds(2)).routingStatus());
+            }
+            try (var context = DatabaseContextHolder.enterSimulationContext(secondId);
+                    var cache = SimulationBuildCacheContext.enterMultiRun(secondId)) {
+                assertThrows(IllegalStateException.class, orientDBService::getSession);
+                assertTrue(topologyProvider.getConveyorById(conveyorId).isActive());
+                assertEquals(List.of(locationId, exitId),
+                        pathfindingService.calculateShortestPath(locationId, PositionType.LOCATION, exitId));
+                assertEquals(RoutingStatus.ASSIGNED,
+                        routingDecisionService.selectRouteToExit(probe, locationId, PositionType.LOCATION,
+                                exitId, start).routingStatus());
+            }
+        } finally {
+            simulationService.destroySimulation(firstId);
+            simulationService.destroySimulation(secondId);
+        }
+        assertFalse(runtimeStore.contains(firstId));
+        assertFalse(runtimeStore.contains(secondId));
     }
 
     @Test

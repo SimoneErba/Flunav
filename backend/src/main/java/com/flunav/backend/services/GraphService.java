@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import com.flunav.backend.context.DatabaseContextHolder;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -45,6 +46,7 @@ public class GraphService {
     private final StopwatchService stopwatchService;
     private final DestinationMappingService destinationMappingService;
     private final SensorMappingService sensorMappingService;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
     public GraphService(OrientDBService orientDBService,
             LiveItemRepository redisRepository,
@@ -57,7 +59,8 @@ public class GraphService {
             TopologyProvider topologyProvider,
             StopwatchService stopwatchService,
             DestinationMappingService destinationMappingService,
-            SensorMappingService sensorMappingService) {
+            SensorMappingService sensorMappingService,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.orientDBService = orientDBService;
         this.redisRepository = redisRepository;
         this.liveConveyorRepository = liveConveyorRepository;
@@ -70,6 +73,7 @@ public class GraphService {
         this.stopwatchService = stopwatchService;
         this.destinationMappingService = destinationMappingService;
         this.sensorMappingService = sensorMappingService;
+        this.runtimeStore = runtimeStore;
     }
 
     public GraphData getGraphData() {
@@ -368,6 +372,13 @@ public class GraphService {
      */
     private Map<String, Map<String, Object>> fetchItemProperties() {
         Map<String, Map<String, Object>> propertiesMap = new HashMap<>();
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            for (var item : memory.graph().items()) {
+                propertiesMap.put(item.getId(), item.getProperties() != null ? item.getProperties() : Map.of());
+            }
+            return propertiesMap;
+        }
         try (ODatabaseSession session = orientDBService.getSession()) {
             if (session == null)
                 return propertiesMap;
@@ -585,6 +596,13 @@ public class GraphService {
      */
     private Map<String, Double> fetchItemPriorities() {
         Map<String, Double> priorities = new HashMap<>();
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            for (var item : memory.graph().items()) {
+                if (item.getPriority() != null) priorities.put(item.getId(), item.getPriority());
+            }
+            return priorities;
+        }
         try (ODatabaseSession session = orientDBService.getSession()) {
             if (session == null) {
                 return priorities;

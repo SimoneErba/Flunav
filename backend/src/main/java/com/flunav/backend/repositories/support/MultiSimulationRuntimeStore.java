@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import com.flunav.backend.context.DatabaseContextHolder;
 
 /**
- * Owns the Redis-equivalent state of short-lived multi-simulation runs.
+ * Owns the graph and Redis-equivalent state of short-lived multi-simulation runs.
  * Ordinary live and interactive simulation contexts are deliberately absent from
  * this registry and continue to use Redis through their existing repositories.
  */
@@ -52,10 +52,15 @@ public class MultiSimulationRuntimeStore {
     }
 
     public static final class State {
+        private final MultiSimulationGraph graph = new MultiSimulationGraph();
         private final Map<String, String> values = new ConcurrentHashMap<>();
         private final Map<String, Map<String, String>> hashes = new ConcurrentHashMap<>();
         private final Map<String, Set<String>> sets = new ConcurrentHashMap<>();
         private final Map<String, Map<String, Double>> sortedSets = new ConcurrentHashMap<>();
+
+        public MultiSimulationGraph graph() {
+            return graph;
+        }
 
         public String getValue(String key) {
             return values.get(key);

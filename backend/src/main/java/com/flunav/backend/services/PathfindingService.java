@@ -8,7 +8,11 @@ import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import com.flunav.backend.repositories.PathCacheRepository;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
+import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.domain.Location;
 import flunav.types.PositionType;
+import flunav.types.LocationType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +23,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashMap;
+import java.util.PriorityQueue;
+import java.util.Comparator;
 
 /**
- * Calculates topology-only shortest paths in OrientDB.
+ * Calculates topology-only shortest paths in OrientDB, or in the per-run graph
+ * for short-lived multi-simulations.
  *
  * This service is used when connectivity and static shortest paths are needed.
  * Capacity-aware route assignment uses {@link RoutingDecisionService}, which also
@@ -33,10 +41,13 @@ public class PathfindingService {
     private static final Logger logger = LoggerFactory.getLogger(PathfindingService.class);
     private final OrientDBService orientDBService;
     private final PathCacheRepository pathCacheRepository;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
-    public PathfindingService(OrientDBService orientDBService, PathCacheRepository pathCacheRepository) {
+    public PathfindingService(OrientDBService orientDBService, PathCacheRepository pathCacheRepository,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.orientDBService = orientDBService;
         this.pathCacheRepository = pathCacheRepository;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -50,6 +61,16 @@ public class PathfindingService {
         var cached = pathCacheRepository.getShortestPath(sourceId, type, destinationNodeId);
         if (cached.isPresent()) {
             return cached.get();
+        }
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            var graph = memory.graph();
+            String start = type == PositionType.CONVEYOR
+                    ? graph.conveyor(sourceId) == null ? null : graph.conveyor(sourceId).getTargetLocationId()
+                    : sourceId;
+            List<String> path = shortestInMemory(graph, start, destinationNodeId);
+            if (!path.isEmpty()) pathCacheRepository.putShortestPath(sourceId, type, destinationNodeId, path);
+            return path;
         }
 
         // Conveyor positions start at the already-committed segment's target;
@@ -166,6 +187,17 @@ public class PathfindingService {
      */
     public boolean arePositionsConnected(String positionId1, PositionType type1, String positionId2,
             PositionType type2) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            var graph = memory.graph();
+            String first = type1 == PositionType.CONVEYOR
+                    ? graph.conveyor(positionId1) == null ? null : graph.conveyor(positionId1).getTargetLocationId()
+                    : positionId1;
+            String second = type2 == PositionType.CONVEYOR
+                    ? graph.conveyor(positionId2) == null ? null : graph.conveyor(positionId2).getSourceLocationId()
+                    : positionId2;
+            return first != null && first.equals(second);
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             String resolvedPosition1 = resolveConnectivityAnchor(db, positionId1, type1, true);
             String resolvedPosition2 = resolveConnectivityAnchor(db, positionId2, type2, false);
@@ -176,6 +208,51 @@ public class PathfindingService {
                     type2, e);
         }
         return false;
+    }
+
+    /** Uses the run's directed adjacency index and the same static weight as OrientDB Dijkstra. */
+    private List<String> shortestInMemory(
+            com.flunav.backend.repositories.support.MultiSimulationGraph graph, String source, String destination) {
+        if (source == null || destination == null || graph.location(source) == null
+                || graph.location(destination) == null) return List.of();
+        record Node(String id, double distance) {}
+        PriorityQueue<Node> queue = new PriorityQueue<>(Comparator.comparingDouble(Node::distance));
+        Map<String, Double> distances = new HashMap<>();
+        Map<String, String> previous = new HashMap<>();
+        distances.put(source, 0.0);
+        queue.add(new Node(source, 0.0));
+        while (!queue.isEmpty()) {
+            Node current = queue.poll();
+            if (current.distance() > distances.getOrDefault(current.id(), Double.POSITIVE_INFINITY)) continue;
+            if (current.id().equals(destination)) {
+                List<String> path = new ArrayList<>();
+                for (String at = destination; at != null; at = previous.get(at)) path.add(at);
+                Collections.reverse(path);
+                return path;
+            }
+            for (Conveyor conveyor : graph.outgoing(current.id())) {
+                double cost = 0.1;
+                Object fixed = conveyor.getProperties() == null ? null : conveyor.getProperties().get("fixedTransitTime");
+                if (fixed instanceof Number duration && duration.doubleValue() > 0) {
+                    cost = duration.doubleValue() / 1000.0;
+                } else if (conveyor.getLength() != null && conveyor.getSpeed() != null
+                        && conveyor.getSpeed() > 0) {
+                    cost = conveyor.getLength() / conveyor.getSpeed();
+                }
+                Location target = graph.location(conveyor.getTargetLocationId());
+                if (target != null && target.getType() == LocationType.TIMED_NODE
+                        && target.getTimeToProcessMs() != null && target.getTimeToProcessMs() > 0) {
+                    cost += target.getTimeToProcessMs() / 1000.0;
+                }
+                double next = current.distance() + cost;
+                if (next < distances.getOrDefault(conveyor.getTargetLocationId(), Double.POSITIVE_INFINITY)) {
+                    distances.put(conveyor.getTargetLocationId(), next);
+                    previous.put(conveyor.getTargetLocationId(), current.id());
+                    queue.add(new Node(conveyor.getTargetLocationId(), next));
+                }
+            }
+        }
+        return List.of();
     }
 
     /**

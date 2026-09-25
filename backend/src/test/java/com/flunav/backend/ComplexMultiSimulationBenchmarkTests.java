@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,7 +42,7 @@ import flunav.types.LocationType;
         "state-recovery.enabled=false",
         "graph-snapshot.enabled=false",
         "metric-snapshot.enabled=false",
-        "multi-simulation.max-concurrent-runs=4"
+        "multi-simulation.max-concurrent-runs=${flunav.benchmark.concurrent-runs:20}"
 })
 @Tag("stress")
 @Tag("benchmark")
@@ -55,6 +58,7 @@ class ComplexMultiSimulationBenchmarkTests extends BaseIntegrationTest {
     private static final long REPAIR_DURATION_SECONDS = 60;
     private static final int CONVEYOR_COUNT = 15;
     private static final Duration COMPLETION_TIMEOUT = Duration.ofMinutes(45);
+    private static final Duration PROGRESS_LOG_INTERVAL = Duration.ofSeconds(10);
 
     private final EventProcessor eventProcessor;
     private final MultiSimulationService multiSimulationService;
@@ -93,8 +97,9 @@ class ComplexMultiSimulationBenchmarkTests extends BaseIntegrationTest {
                 Instant.parse("2035-01-01T00:00:00Z")));
 
         long startedNanos = System.nanoTime();
+        logHostMemory("start", 0, 0, 0, startedNanos);
         multiSimulationService.start(simulation.id());
-        waitForCompletion(simulation.id(), COMPLETION_TIMEOUT);
+        waitForCompletion(simulation.id(), COMPLETION_TIMEOUT, startedNanos);
         long elapsedNanos = System.nanoTime() - startedNanos;
 
         var completed = multiSimulationService.get(simulation.id());
@@ -138,6 +143,7 @@ class ComplexMultiSimulationBenchmarkTests extends BaseIntegrationTest {
                 recirculations,
                 TimeUnit.NANOSECONDS.toMillis(elapsedNanos),
                 String.format(Locale.ROOT, "%.2f", generated / elapsedSeconds));
+        logHostMemory("complete", completed.completedRuns(), completed.failedRuns(), elapsedNanos, startedNanos);
 
         assertEquals(MultiSimulationStatus.COMPLETED, completed.status());
         assertEquals(RUN_COUNT, completed.completedRuns());
@@ -217,10 +223,18 @@ class ComplexMultiSimulationBenchmarkTests extends BaseIntegrationTest {
         return id;
     }
 
-    private void waitForCompletion(String id, Duration timeout) throws InterruptedException {
+    private void waitForCompletion(String id, Duration timeout, long startedNanos) throws InterruptedException {
         long deadline = System.nanoTime() + timeout.toNanos();
+        long nextProgressLog = System.nanoTime();
         while (System.nanoTime() < deadline) {
-            MultiSimulationStatus status = multiSimulationService.get(id).status();
+            var simulation = multiSimulationService.get(id);
+            MultiSimulationStatus status = simulation.status();
+            long now = System.nanoTime();
+            if (now >= nextProgressLog) {
+                logHostMemory("progress", simulation.completedRuns(), simulation.failedRuns(), now - startedNanos,
+                        startedNanos);
+                nextProgressLog = now + PROGRESS_LOG_INTERVAL.toNanos();
+            }
             if (status == MultiSimulationStatus.COMPLETED
                     || status == MultiSimulationStatus.COMPLETED_WITH_FAILURES
                     || status == MultiSimulationStatus.CANCELLED
@@ -230,6 +244,36 @@ class ComplexMultiSimulationBenchmarkTests extends BaseIntegrationTest {
             Thread.sleep(250);
         }
         throw new AssertionError("Complex multi-simulation benchmark did not finish before " + timeout);
+    }
+
+    /** Logs memory from /proc/meminfo so the benchmark reflects the whole host, not only the JVM. */
+    private void logHostMemory(String phase, int completedRuns, int failedRuns, long elapsedNanos, long startedNanos) {
+        try {
+            List<String> lines = Files.readAllLines(Path.of("/proc/meminfo"));
+            long totalKiB = memoryValueKiB(lines, "MemTotal:");
+            long availableKiB = memoryValueKiB(lines, "MemAvailable:");
+            long usedKiB = totalKiB - availableKiB;
+            logger.info("COMPLEX_MULTI_SIMULATION_MEMORY phase={} completedRuns={} failedRuns={} elapsedMs={} "
+                            + "hostTotalMiB={} hostUsedMiB={} hostAvailableMiB={}",
+                    phase, completedRuns, failedRuns, TimeUnit.NANOSECONDS.toMillis(elapsedNanos),
+                    toMiB(totalKiB), toMiB(usedKiB), toMiB(availableKiB));
+        } catch (IOException | IllegalArgumentException error) {
+            logger.warn("Could not read host memory while complex benchmark phase={} elapsedMs={}",
+                    phase, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos), error);
+        }
+    }
+
+    private long memoryValueKiB(List<String> lines, String key) {
+        return lines.stream()
+                .filter(line -> line.startsWith(key))
+                .findFirst()
+                .map(line -> line.substring(key.length()).trim().split("\\s+")[0])
+                .map(Long::parseLong)
+                .orElseThrow(() -> new IllegalArgumentException("Missing " + key + " in /proc/meminfo"));
+    }
+
+    private long toMiB(long kibibytes) {
+        return kibibytes / 1024;
     }
 
     private record BenchmarkTopology(String source, List<String> exits, List<String> conveyors) {

@@ -2,6 +2,7 @@ package com.flunav.backend.exception;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -47,6 +48,11 @@ public class GlobalExceptionHandler {
         String message = ex.getReason() != null ? ex.getReason() : resolvedStatus.getReasonPhrase();
         logger.warn("Request rejected with {}: {}", resolvedStatus, message);
         return buildErrorResponse(ex, message, resolvedStatus);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Object> handleAccessDenied(AccessDeniedException ex) {
+        return buildErrorResponse(ex, "Access denied.", HttpStatus.FORBIDDEN);
     }
 
     /**

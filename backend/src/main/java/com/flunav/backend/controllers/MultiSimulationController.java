@@ -16,6 +16,7 @@ import com.flunav.backend.models.multisimulation.MultiSimulationConfiguration;
 import com.flunav.backend.models.multisimulation.MultiSimulationReport;
 import com.flunav.backend.models.multisimulation.MultiSimulationRun;
 import com.flunav.backend.models.response.MultiSimulationResponse;
+import com.flunav.backend.models.response.MultiSimulationEstimateResponse;
 import com.flunav.backend.services.MultiSimulationService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -43,6 +44,13 @@ public class MultiSimulationController {
     @GetMapping
     public List<MultiSimulationResponse> list() {
         return multiSimulationService.list().stream().map(MultiSimulationResponse::from).toList();
+    }
+
+    @PostMapping("/estimate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERADMIN')")
+    @Operation(summary = "Estimate multi-simulation wall time using current topology and worker capacity")
+    public MultiSimulationEstimateResponse estimate(@RequestBody MultiSimulationConfiguration configuration) {
+        return multiSimulationService.estimate(configuration);
     }
 
     @GetMapping("/{id}")

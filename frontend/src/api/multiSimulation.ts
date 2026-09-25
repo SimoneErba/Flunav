@@ -33,6 +33,18 @@ export interface MultiSimulationConfiguration {
   includeActiveItems: boolean;
 }
 
+export interface MultiSimulationEstimate {
+  expectedItemsPerRun: number;
+  expectedItemsTotal: number;
+  locationCount: number;
+  conveyorCount: number;
+  configuredParallelRuns: number;
+  parallelRuns: number;
+  estimatedSeconds: number;
+  lowerSeconds: number;
+  upperSeconds: number;
+}
+
 export interface MultiSimulationResponse {
   id: string;
   configuration: MultiSimulationConfiguration;
@@ -76,6 +88,8 @@ export const multiSimulationApi = {
   list: async () => (await axiosInstance.get<MultiSimulationResponse[]>('/api/multi-simulations')).data,
   create: async (configuration: MultiSimulationConfiguration) =>
     (await axiosInstance.post<MultiSimulationResponse>('/api/multi-simulations', configuration)).data,
+  estimate: async (configuration: MultiSimulationConfiguration) =>
+    (await axiosInstance.post<MultiSimulationEstimate>('/api/multi-simulations/estimate', configuration)).data,
   get: async (id: string) =>
     (await axiosInstance.get<MultiSimulationResponse>(`/api/multi-simulations/${id}`)).data,
   run: async (id: string) =>

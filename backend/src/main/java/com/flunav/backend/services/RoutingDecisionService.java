@@ -8,6 +8,7 @@ import com.flunav.backend.domain.Location;
 import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveLocationRepository;
 import com.flunav.backend.repositories.PathCacheRepository;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
@@ -47,6 +48,7 @@ public class RoutingDecisionService {
     private final ItemService itemService;
     private final PathCacheRepository pathCacheRepository;
     private final DestinationMappingService destinationMappingService;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
     public RoutingDecisionService(
             TopologyProvider topologyProvider,
@@ -55,7 +57,8 @@ public class RoutingDecisionService {
             LiveLocationRepository liveLocationRepository,
             ItemService itemService,
             PathCacheRepository pathCacheRepository,
-            DestinationMappingService destinationMappingService) {
+            DestinationMappingService destinationMappingService,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.topologyProvider = topologyProvider;
         this.destinationExitMappingService = destinationExitMappingService;
         this.liveItemRepository = liveItemRepository;
@@ -63,6 +66,7 @@ public class RoutingDecisionService {
         this.itemService = itemService;
         this.pathCacheRepository = pathCacheRepository;
         this.destinationMappingService = destinationMappingService;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
@@ -236,10 +240,14 @@ public class RoutingDecisionService {
         }
 
         long searchStarted = SimulationRunTiming.tick();
-        Map<String, List<Conveyor>> outgoing = new HashMap<>();
-        for (Conveyor conveyor : topologyProvider.getAllConveyors()) {
-            if (isAvailable(conveyor)) {
-                outgoing.computeIfAbsent(conveyor.getSourceLocationId(), ignored -> new ArrayList<>()).add(conveyor);
+        var memory = runtimeStore.current();
+        Map<String, List<Conveyor>> outgoing = null;
+        if (memory == null) {
+            outgoing = new HashMap<>();
+            for (Conveyor conveyor : topologyProvider.getAllConveyors()) {
+                if (isAvailable(conveyor)) {
+                    outgoing.computeIfAbsent(conveyor.getSourceLocationId(), ignored -> new ArrayList<>()).add(conveyor);
+                }
             }
         }
 
@@ -264,7 +272,11 @@ public class RoutingDecisionService {
                 return result;
             }
 
-            for (Conveyor conveyor : outgoing.getOrDefault(current.locationId(), List.of())) {
+            List<Conveyor> edges = memory == null
+                    ? outgoing.getOrDefault(current.locationId(), List.of())
+                    : memory.graph().outgoing(current.locationId());
+            for (Conveyor conveyor : edges) {
+                if (!isAvailable(conveyor)) continue;
                 double nextDistance = current.distance() + travelSeconds(conveyor);
                 if (nextDistance < distances.getOrDefault(conveyor.getTargetLocationId(), Double.POSITIVE_INFINITY)) {
                     distances.put(conveyor.getTargetLocationId(), nextDistance);

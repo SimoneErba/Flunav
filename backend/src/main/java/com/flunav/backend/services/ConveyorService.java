@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Conveyor;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import com.flunav.backend.utils.OrientDBUtils;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.exception.OConcurrentModificationException;
@@ -31,17 +32,22 @@ public class ConveyorService {
     private static final Logger logger = LoggerFactory.getLogger(ConveyorService.class);
     private final OrientDBService orientDBService;
     private final com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository;
+    private final MultiSimulationRuntimeStore runtimeStore;
 
     public ConveyorService(OrientDBService orientDBService,
-            com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository) {
+            com.flunav.backend.repositories.LiveConveyorRepository liveConveyorRepository,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.orientDBService = orientDBService;
         this.liveConveyorRepository = liveConveyorRepository;
+        this.runtimeStore = runtimeStore;
     }
 
     /**
      * Retrieves all conveyors (edges) from the graph.
      */
     public List<Conveyor> getAllConveyors() {
+        var memory = runtimeStore.current();
+        if (memory != null) return memory.graph().conveyors();
         List<Conveyor> conveyors = new ArrayList<>();
         try (ODatabaseSession db = orientDBService.getSession()) {
             // Query all edges of class 'Conveyor'
@@ -61,6 +67,12 @@ public class ConveyorService {
      * Retrieves a specific conveyor by its custom ID.
      */
     public Conveyor getConveyorById(String id) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            Conveyor conveyor = memory.graph().conveyor(id);
+            if (conveyor == null) throw new IllegalArgumentException("Conveyor not found: " + id);
+            return conveyor;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             // We use a parameterized query to find the edge by customId
             String query = "SELECT FROM Conveyor WHERE customId.toLowerCase() = ?";
@@ -88,6 +100,25 @@ public class ConveyorService {
     public Conveyor createConveyor(String connectionId, String sourceId, String targetId, String name,
             Double length, Double speed, Double minDistance, Boolean mainPath, Boolean isActive,
             ConveyorType type, Integer capacity, Map<String, Object> properties) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (memory.graph().location(sourceId) == null || memory.graph().location(targetId) == null) {
+                throw new IllegalArgumentException("Conveyor endpoints do not exist: " + sourceId + " -> " + targetId);
+            }
+            for (Conveyor existing : memory.graph().outgoing(sourceId)) {
+                if (existing.getTargetLocationId().equals(targetId)) return existing;
+            }
+            String id = connectionId != null && !connectionId.isBlank() ? connectionId : sourceId + "_" + targetId;
+            ConveyorType effectiveType = type != null ? type : ConveyorType.BELT;
+            Double effectiveMinDistance = minDistance != null ? minDistance
+                    : effectiveType == ConveyorType.STAGING ? 0.1 : null;
+            Conveyor conveyor = new Conveyor(id, sourceId, targetId, length != null ? length : 10.0,
+                    speed != null ? speed : 1.0, effectiveMinDistance, effectiveType,
+                    isActive == null || isActive, isActive == null || isActive, List.of(), capacity,
+                    Boolean.TRUE.equals(mainPath), properties != null ? properties : Map.of());
+            memory.graph().putConveyor(conveyor);
+            return conveyor;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
 
@@ -147,6 +178,14 @@ public class ConveyorService {
      * Updates properties of an existing conveyor.
      */
     public void updateConveyor(Conveyor conveyor) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (memory.graph().conveyor(conveyor.getId()) == null) {
+                throw new IllegalArgumentException("Conveyor not found: " + conveyor.getId());
+            }
+            memory.graph().putConveyor(conveyor);
+            return;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             String query = "SELECT FROM Conveyor WHERE customId.toLowerCase() = ?";
             try (OResultSet rs = db.query(query, conveyor.getId().toLowerCase(Locale.ROOT))) {
@@ -181,6 +220,16 @@ public class ConveyorService {
      * hot Redis state by conveyor id.
      */
     public void deleteConveyor(String sourceId, String targetId) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            for (Conveyor conveyor : memory.graph().outgoing(sourceId)) {
+                if (conveyor.getTargetLocationId().equals(targetId)) {
+                    memory.graph().deleteConveyor(conveyor.getId());
+                    liveConveyorRepository.deleteConveyor(conveyor.getId());
+                }
+            }
+            return;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             List<OEdge> conveyorsToDelete = new ArrayList<>();
             List<String> conveyorIds = new ArrayList<>();
@@ -220,6 +269,8 @@ public class ConveyorService {
      * Retrieves all outgoing conveyors from a specific location.
      */
     public List<Conveyor> getOutgoingConveyors(String locationId) {
+        var memory = runtimeStore.current();
+        if (memory != null) return memory.graph().outgoing(locationId);
         List<Conveyor> conveyors = new ArrayList<>();
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex location = OrientDBUtils.loadAndValidateVertexByCustomId(db, locationId);

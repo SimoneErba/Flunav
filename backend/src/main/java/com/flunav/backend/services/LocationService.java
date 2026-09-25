@@ -1,6 +1,7 @@
 package com.flunav.backend.services;
 
 import com.flunav.backend.domain.Location;
+import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 import com.flunav.backend.models.UpdateModel;
 import com.flunav.backend.models.input.LocationInput;
 import com.flunav.backend.utils.OrientDBUtils;
@@ -34,17 +35,22 @@ public class LocationService {
     private final OrientDBService orientDBService;
     private final UpdateService updateService;
     private final TopologyProvider topologyProvider;
+    private final MultiSimulationRuntimeStore runtimeStore;
     private static final Logger logger = LoggerFactory.getLogger(LocationService.class);
 
     @Autowired
     public LocationService(OrientDBService orientDBService, UpdateService updateService,
-            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider) {
+            @org.springframework.context.annotation.Lazy TopologyProvider topologyProvider,
+            MultiSimulationRuntimeStore runtimeStore) {
         this.orientDBService = orientDBService;
         this.updateService = updateService;
         this.topologyProvider = topologyProvider;
+        this.runtimeStore = runtimeStore;
     }
 
     public List<Location> getAllLocations() {
+        var memory = runtimeStore.current();
+        if (memory != null) return memory.graph().locations();
         List<Location> locations = new ArrayList<>();
         try (ODatabaseSession db = orientDBService.getSession()) {
             try (OResultSet rs = db.query("SELECT * FROM Location")) {
@@ -62,6 +68,12 @@ public class LocationService {
     }
 
     public Location getLocationById(String id) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            Location location = memory.graph().location(id);
+            if (location == null) throw new IllegalArgumentException("Location not found: " + id);
+            return location;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             var vertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, id);
             return vertexToLocation(vertex);
@@ -71,6 +83,17 @@ public class LocationService {
     }
 
     public Location createLocation(LocationInput location) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (memory.graph().location(location.getId()) != null) {
+                throw new IllegalArgumentException("Location with ID " + location.getId() + " already exists.");
+            }
+            Location created = new Location(location.getId(), location.getName(), location.getType(),
+                    location.getActive(), location.getProperties(), location.getLatitude(),
+                    location.getLongitude(), location.getCapacity(), location.getTimeToProcessMs());
+            memory.graph().putLocation(created);
+            return created;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             if (OrientDBUtils.checkIfAlreadyExists(db, location.getId())) {
                 throw new IllegalArgumentException("Location with ID " + location.getId() + " already exists.");
@@ -102,6 +125,8 @@ public class LocationService {
     }
 
     public PositionType getPositionType(String id) {
+        var memory = runtimeStore.current();
+        if (memory != null) return memory.graph().positionType(id);
         try (ODatabaseSession db = orientDBService.getSession()) {
 
             // 1. Check if ID exists in Location (Vertex)
@@ -135,10 +160,38 @@ public class LocationService {
     }
 
     public Location updateLocation(UpdateModel model) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            Location previous = getLocationById(model.getId());
+            var updates = model.getProperties();
+            Location updated = new Location(previous.getId(),
+                    (String) updates.getOrDefault("name", previous.getName()),
+                    updates.containsKey("type")
+                            ? LocationType.fromString(String.valueOf(updates.get("type"))) : previous.getType(),
+                    (Boolean) updates.getOrDefault("active", previous.getActive()),
+                    updates.containsKey("properties") ? (java.util.Map<String, Object>) updates.get("properties")
+                            : previous.getProperties(),
+                    (Double) updates.getOrDefault("latitude", previous.getLatitude()),
+                    (Double) updates.getOrDefault("longitude", previous.getLongitude()),
+                    (Integer) updates.getOrDefault("capacity", previous.getCapacity()),
+                    updates.containsKey("timeToProcessMs")
+                            ? ((Number) updates.get("timeToProcessMs")).longValue() : previous.getTimeToProcessMs());
+            updated.setActiveAlarms(previous.getActiveAlarms());
+            memory.graph().putLocation(updated);
+            return updated;
+        }
         return vertexToLocation(this.updateService.updateVertex(model));
     }
 
     public Location fullUpdateLocation(Location location) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (memory.graph().location(location.getId()) == null) {
+                throw new IllegalArgumentException("Location not found: " + location.getId());
+            }
+            memory.graph().putLocation(location);
+            return location;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             OVertex locationVertex = OrientDBUtils.loadAndValidateVertexByCustomId(db, location.getId());
 
@@ -165,6 +218,12 @@ public class LocationService {
     }
 
     public void deleteLocation(String id) {
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (memory.graph().location(id) == null) throw new IllegalArgumentException("Location not found: " + id);
+            memory.graph().deleteLocation(id);
+            return;
+        }
         try (ODatabaseSession db = orientDBService.getSession()) {
             db.begin();
             try {

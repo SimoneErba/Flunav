@@ -169,10 +169,10 @@ public class SimulationService {
         }
         multiSimulationRuntimeStore.register(simulationId);
         try {
-            orientDBService.createInMemoryDatabase(simulationId);
+            multiSimulationRuntimeStore.get(simulationId).graph().restore(baseline.graph());
             try (var context = DatabaseContextHolder.enterSimulationContext(simulationId);
                     var virtualTime = timeService.enterVirtualTime(start)) {
-                historicalGraphBuilder.restoreFromSnapshotData(baseline.graph());
+                historicalGraphBuilder.restoreMultiRunItems(baseline.graph());
                 for (DomainEvent configurationEvent : baseline.configurationEvents()) {
                     eventProcessor.processEventWithoutBroadcast(configurationEvent);
                 }
@@ -485,8 +485,8 @@ public class SimulationService {
 
     /**
      * Destroys all isolated state for a simulation.
-     * Both the in-memory OrientDB database and Redis namespace must be removed so a
-     * later simulation id cannot inherit stale topology or hot item state.
+     * Standard simulations drop their OrientDB database and Redis namespace;
+     * multi-simulation runs discard their in-process graph and hot state instead.
      */
     public void destroySimulation(String simulationId) {
         requireNoWhatIfChild(simulationId);
@@ -496,10 +496,12 @@ public class SimulationService {
         SimulationState state = simulationCache.remove(simulationId);
         boolean multiRuntime = state != null && state.getKind() == SimulationKind.MULTI_SIMULATION_RUN
                 || multiSimulationRuntimeStore.contains(simulationId);
-        try {
-            orientDBService.dropDatabase(simulationId);
-        } catch (Exception e) {
-            logger.warn("Failed to drop simulation database {}: {}", simulationId, e.getMessage());
+        if (!multiRuntime) {
+            try {
+                orientDBService.dropDatabase(simulationId);
+            } catch (Exception e) {
+                logger.warn("Failed to drop simulation database {}: {}", simulationId, e.getMessage());
+            }
         }
         if (!multiRuntime) {
             try {

@@ -33,6 +33,7 @@ import com.flunav.backend.models.multisimulation.MultiSimulationRun;
 import com.flunav.backend.models.multisimulation.MultiSimulationStatus;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.LocationResponse;
+import com.flunav.backend.models.response.MultiSimulationEstimateResponse;
 
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.DomainEvent;
@@ -166,6 +167,39 @@ public class MultiSimulationService {
 
     public List<MultiSimulation> list() {
         return clickHouseService.getMultiSimulations();
+    }
+
+    /**
+     * Estimates wall time from the 500-run, 2,408-item/run, 13-location/15-conveyor
+     * benchmark. The worker exponent fits the measured 4- and 20-worker timings;
+     * topology scaling is deliberately modest because path length and recirculation
+     * cannot be inferred from graph size alone.
+     */
+    public MultiSimulationEstimateResponse estimate(MultiSimulationConfiguration request) {
+        if (request == null || request.numberOfRuns() <= 0 || request.numberOfRuns() > maximumRuns
+                || request.simulationDurationSeconds() <= 0 || request.arrival() == null
+                || !Double.isFinite(request.arrival().ratePerHour()) || request.arrival().ratePerHour() <= 0) {
+            throw badRequest("Valid runs, duration, and arrival rate are required for an estimate");
+        }
+        double expectedItems = request.arrival().ratePerHour()
+                * (request.simulationDurationSeconds() / 3600.0);
+        if (!Double.isFinite(expectedItems) || expectedItems > Long.MAX_VALUE / (double) request.numberOfRuns()) {
+            throw badRequest("Expected item count is too large to estimate");
+        }
+        GraphData graph = graphService.getTopologyData();
+        int locations = graph.getLocations() == null ? 0 : graph.getLocations().size();
+        int conveyors = graph.getConveyors() == null ? 0 : graph.getConveyors().size();
+        int parallelRuns = Math.min(request.numberOfRuns(), runner.maximumConcurrentRuns());
+        double graphFactor = 0.5 + 0.5 * Math.sqrt(Math.max(1, locations + conveyors) / 28.0);
+        double workerFactor = Math.pow(parallelRuns / 20.0, 0.474);
+        double itemWork = 0.883 * (expectedItems / 2408.0) * graphFactor;
+        double seconds = 0.5 + Math.ceil(request.numberOfRuns() / (double) parallelRuns)
+                * (0.1 + itemWork) * workerFactor;
+        long estimate = Math.max(1L, Math.round(seconds));
+        return new MultiSimulationEstimateResponse(
+                Math.round(expectedItems), Math.round(expectedItems * request.numberOfRuns()),
+                locations, conveyors, runner.maximumConcurrentRuns(), parallelRuns, estimate,
+                Math.max(1L, Math.round(seconds * 0.5)), Math.max(1L, Math.round(seconds * 2.0)));
     }
 
     public List<MultiSimulationRun> runs(String id) {
