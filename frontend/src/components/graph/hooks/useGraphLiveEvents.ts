@@ -1,4 +1,5 @@
-import { useEffect, useCallback, useRef } from "react";
+import type { ConveyorKeys } from "./useGraphRuntime";
+import { useEffect, useCallback } from "react";
 import { useSigma } from "@react-sigma/core";
 import { ItemPositionTypeEnum, ItemResponse } from "../../../api-client/api";
 import { useWebSocketEvents } from "../../../hooks/websocket/useWebSocketEvents";
@@ -6,6 +7,7 @@ import { hashToNumber } from "../utils/graphUtils";
 import { dischargeItemToChute } from "../utils/chuteUtils";
 import { EntityUpdateMessage } from "../../../websocket-types/websocket-types";
 import { isHighPriorityItem } from "../utils/itemPriority";
+import type { ClockReader } from "./useSimulationClock";
 import { useSimulationContext } from "../../../context/simulation.context";
 
 /**
@@ -24,8 +26,9 @@ const asNumber = (value: unknown): number | null => {
 
 export const useGraphLiveEvents = (
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
+    edgeKeysRef: React.MutableRefObject<ConveyorKeys>,
     simulationId: string | undefined,
-    simTime: number,
+    now: ClockReader,
     onHighPriorityCountChange?: (count: number) => void,
     onItemUpdated?: (itemId: string, item: ItemResponse) => void,
 ) => {
@@ -49,8 +52,7 @@ export const useGraphLiveEvents = (
 
     // WebSocket handlers are registered once per subscription set, so this ref
     // gives them current simulation time without constantly tearing down topics.
-    const simTimeRef = useRef(simTime);
-    simTimeRef.current = simTime;
+
 
     /**
      * Recounts high-priority items from the source-of-truth item ref.
@@ -77,7 +79,7 @@ export const useGraphLiveEvents = (
         const attrs = graph.getEdgeAttributes(edgeId);
         const oldSpeed = Number(attrs.speed);
         const length = Number(attrs.length);
-        const anchorTime = effectiveTime ?? simTimeRef.current;
+        const anchorTime = effectiveTime ?? now();
 
         if (!Number.isFinite(length) || length <= 0) return;
 
@@ -99,7 +101,7 @@ export const useGraphLiveEvents = (
                 activeItemsRef.current.set(itemId, { ...item, progress, entryTimestamp: newEntryTimestamp });
             }
         });
-    }, [activeItemsRef, sigma]);
+    }, [activeItemsRef, sigma, now]);
 
     useEffect(() => {
         if (!connected || !sigma) return;
@@ -194,12 +196,7 @@ export const useGraphLiveEvents = (
             let startX = 0;
             let startY = 0;
             let isHidden = true; // Default to invisible
-            const resolveEdgeKey = (edgeId?: string | null) => {
-                if (!edgeId) return undefined;
-                return graph.hasEdge(edgeId)
-                    ? edgeId
-                    : graph.findEdge((_edge, attrs) => attrs.id === edgeId);
-            };
+            const resolveEdgeKey = (edgeId?: string | null) => edgeId ? edgeKeysRef.current.get(edgeId) : undefined;
             const edgeKey = resolveEdgeKey(item.currentEdgeId) ?? (
                 item.locationId && !graph.hasNode(item.locationId) ? resolveEdgeKey(item.locationId) : undefined
             );
@@ -363,9 +360,10 @@ export const useGraphLiveEvents = (
         }
         unsubscribers.push(subscribeToLocationCreated((loc) => {
             if (graph.hasNode(loc.id)) return;
+            const color = (loc as typeof loc & { customColor?: string }).customColor;
             graph.addNode(loc.id, {
                 x: loc.latitude ?? hashToNumber(loc.id!), y: loc.longitude ?? hashToNumber(loc.id + "random"), locationType: loc.type,
-                label: loc.name, size: 10, color: loc.customColor || "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, timeToProcessMs: loc.timeToProcessMs, properties: loc.properties, customColor: loc.customColor
+                label: loc.name, size: 10, color: color || "#69b3a2", type: "circle", id: loc.id, capacity: loc.capacity, timeToProcessMs: loc.timeToProcessMs, properties: loc.properties, customColor: color
             });
         }, simulationId));
 
@@ -407,12 +405,20 @@ export const useGraphLiveEvents = (
                 const label = data?.name ?? "";
                 const id = data?.id;
                 const customColor = data?.customColor;
-                graph.addEdge(from, to, { id, type: 'arrow', conveyorType: data?.type ?? 'BELT', minDistance: data?.minDistance ?? (data?.type === 'STAGING' ? 0.1 : 0), flowStopped: false, size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor, properties: data?.properties });
+                const edgeKey = graph.addEdge(from, to, { id, type: 'arrow', conveyorType: data?.type ?? 'BELT', minDistance: data?.minDistance ?? (data?.type === 'STAGING' ? 0.1 : 0), flowStopped: false, size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor, properties: data?.properties });
+                if (id) edgeKeysRef.current.set(id, edgeKey);
             }
         }, simulationId));
 
         unsubscribers.push(subscribeToConnectionDeleted((conn) => {
-            if (graph.hasEdge(conn.from, conn.to)) graph.dropEdge(conn.from, conn.to);
+            if (graph.hasEdge(conn.from, conn.to)) {
+                const key = graph.edge(conn.from, conn.to);
+                if (key) {
+                    const id = graph.getEdgeAttribute(key, "id");
+                    if (id) edgeKeysRef.current.delete(id);
+                    graph.dropEdge(key);
+                }
+            }
         }, simulationId));
 
         if (!designMode) unsubscribers.push(subscribeToChuteEmptied((chuteId: string) => {
@@ -446,7 +452,7 @@ export const useGraphLiveEvents = (
         }));
 
         unsubscribers.push(subscribeToConnectionUpdated((update) => {
-            const edge = graph.findEdge((edge, attrs) => attrs.id === update.id);
+            const edge = edgeKeysRef.current.get(update.id);
             if (edge && update.properties) {
                 if (update.properties.active === false) {
                     // Edge deactivated - set color to red and stop items
@@ -465,6 +471,9 @@ export const useGraphLiveEvents = (
                     graph.setEdgeAttribute(edge, 'speed', originalSpeed);
                 } else if (update.properties.speed !== undefined) {
                     adjustItemsForSpeedChange(edge, Number(update.properties.speed), update.timestamp);
+                }
+                if (update.properties.type !== undefined || update.properties.minDistance !== undefined) {
+                    edgeKeysRef.current.touch();
                 }
                 Object.keys(update.properties).forEach(key => {
                     const val = update.properties![key];
@@ -506,6 +515,7 @@ export const useGraphLiveEvents = (
         return () => unsubscribers.forEach(u => u());
     }, [
         activeItemsRef,
+        edgeKeysRef,
         adjustItemsForSpeedChange,
         connected,
         refreshHighPriorityCount,

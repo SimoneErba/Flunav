@@ -4,6 +4,7 @@ import { NodeSquareProgram } from "@sigma/node-square";
 import "@react-sigma/core/lib/react-sigma.min.css";
 
 import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
+import type { ClockReader } from "./hooks/useSimulationClock";
 import { GraphEvents } from "./GraphEvents";
 import { GraphHighlighter } from "./GraphHighlighter";
 import { ItemEditorData } from "../editors/item.editor";
@@ -13,7 +14,7 @@ import { NodeTriangleProgram } from "./rendering/NodeTriangleProgram";
 interface DisplayGraphProps {
     initialGraphData: GraphData;
     simulationId?: string;
-    simTime: number;
+    now: ClockReader;
     colorOverrides?: DisplayRuleColorResult | null;
 }
 
@@ -27,7 +28,7 @@ export interface HoverTarget {
 export const DisplayGraph = ({ 
     initialGraphData, 
     simulationId,
-    simTime,
+    now,
     colorOverrides
 }: DisplayGraphProps) => {
     
@@ -69,7 +70,7 @@ export const DisplayGraph = ({
                 <GraphEvents 
                     initialGraphData={initialGraphData}
                     simulationId={simulationId}
-                    simTime={simTime}
+                    now={now}
                     hoverTarget={hoverTarget}
                     setHoverTarget={setHoverTarget}
                     selectedItemData={selectedItemData}

@@ -1,21 +1,17 @@
 package com.flunav.backend.services;
 
-import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ConveyorResponse;
 import com.flunav.backend.models.response.DisplayRuleColorResult;
 import com.flunav.backend.models.response.DisplayRuleVisualStyle;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.models.response.LocationResponse;
-import com.flunav.backend.repositories.LiveItemRepository;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
 import flunav.types.DisplayRule;
-import flunav.types.ConveyorType;
-import flunav.types.PositionType;
 import flunav.types.RoutingStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +20,6 @@ import org.springframework.stereotype.Service;
 import com.flunav.backend.context.DatabaseContextHolder;
 import com.flunav.backend.repositories.support.MultiSimulationRuntimeStore;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,45 +30,39 @@ public class GraphService {
     private static final Logger logger = LoggerFactory.getLogger(GraphService.class);
 
     private final OrientDBService orientDBService;
-    private final LiveItemRepository redisRepository;
     private final LiveConveyorRepository liveConveyorRepository;
-    private final PathfindingService pathfindingService;
     private final DisplayRulesService displayRulesService;
     private final SimulationService simulationService;
     private final TimeService timeService;
     private final org.modelmapper.ModelMapper modelMapper;
     private final TopologyProvider topologyProvider;
     private final StopwatchService stopwatchService;
-    private final DestinationMappingService destinationMappingService;
     private final SensorMappingService sensorMappingService;
     private final MultiSimulationRuntimeStore runtimeStore;
+    private final ItemPositionProjection itemPositionProjection;
 
     public GraphService(OrientDBService orientDBService,
-            LiveItemRepository redisRepository,
             LiveConveyorRepository liveConveyorRepository,
-            PathfindingService pathfindingService,
             DisplayRulesService displayRulesService,
             @Lazy SimulationService simulationService,
             TimeService timeService,
             org.modelmapper.ModelMapper modelMapper,
             TopologyProvider topologyProvider,
             StopwatchService stopwatchService,
-            DestinationMappingService destinationMappingService,
             SensorMappingService sensorMappingService,
-            MultiSimulationRuntimeStore runtimeStore) {
+            MultiSimulationRuntimeStore runtimeStore,
+            ItemPositionProjection itemPositionProjection) {
         this.orientDBService = orientDBService;
-        this.redisRepository = redisRepository;
         this.liveConveyorRepository = liveConveyorRepository;
-        this.pathfindingService = pathfindingService;
         this.displayRulesService = displayRulesService;
         this.simulationService = simulationService;
         this.timeService = timeService;
         this.modelMapper = modelMapper;
         this.topologyProvider = topologyProvider;
         this.stopwatchService = stopwatchService;
-        this.destinationMappingService = destinationMappingService;
         this.sensorMappingService = sensorMappingService;
         this.runtimeStore = runtimeStore;
+        this.itemPositionProjection = itemPositionProjection;
     }
 
     public GraphData getGraphData() {
@@ -115,15 +104,15 @@ public class GraphService {
             stopwatchService.stop(timer, "Fetch tipology");
             String timer2 = stopwatchService.start();
 
-            List<ItemResponse> activeItems = calculateAllItemStates(topology, now, shouldCleanup, simulationId,
-                    includeFinished);
+            List<ItemResponse> activeItems = itemPositionProjection.calculateAllItemStates(topology, now, shouldCleanup, simulationId,
+                    includeFinished, fetchItemProperties(), fetchItemPriorities());
             stopwatchService.stop(timer2, "All items state");
 
             var customDisplayRules = this.displayRulesService.getDisplayRules();
 
             for (var item : activeItems) {
                 DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                        itemRootFields(item), item.getProperties(), customDisplayRules);
+                        RuleFieldProjection.itemRootFields(item), item.getProperties(), customDisplayRules);
                 if (style != null) {
                     item.setCustomColor(style.getFillColor());
                     item.setCustomBorderColor(style.getBorderColor());
@@ -133,14 +122,14 @@ public class GraphService {
 
             for (var loc : topology.nodeMap.values()) {
                 DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                        locationRootFields(loc), loc.getProperties(), customDisplayRules);
+                        RuleFieldProjection.locationRootFields(loc), loc.getProperties(), customDisplayRules);
                 loc.setCustomColor(style != null ? style.getFillColor() : null);
             }
 
             for (var conv : topology.conveyorMap.values()) {
                 conv.setFlowStopped(liveConveyorRepository.isFlowStopped(conv.getId()));
                 DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                        conveyorRootFields(conv), conv.getProperties(), customDisplayRules);
+                        RuleFieldProjection.conveyorRootFields(conv), conv.getProperties(), customDisplayRules);
                 conv.setCustomColor(style != null ? style.getFillColor() : null);
             }
 
@@ -162,174 +151,8 @@ public class GraphService {
         var currentSimulation = simulationService.getCurrentSimulation();
         Instant now = currentSimulation != null ? simulationService.getSimulationClock(currentSimulation)
                 : timeService.now();
-        return calculateAllItemStates(fetchTopology(), now, true, DatabaseContextHolder.getSimulationId(),
-                false);
-    }
-
-    /**
-     * Projects Redis hot item state into frontend item DTOs at the requested clock.
-     * Cleanup is limited to live mode because simulation state must remain
-     * replayable while future projections are still being built.
-     */
-    private List<ItemResponse> calculateAllItemStates(Topology topology, Instant now, boolean shouldCleanup,
-            String simulationId, boolean includeFinished) {
-        Map<String, Map<String, Object>> itemPropertiesMap = fetchItemProperties();
-        Map<String, Double> itemPriorities = fetchItemPriorities();
-
-        List<RedisLiveItem> liveRawItems = redisRepository.getAllActiveItems();
-        Map<String, Integer> stagingOrders = new HashMap<>();
-        Map<String, Double> stagedDistances = calculateStagedDistances(liveRawItems, topology, now, stagingOrders);
-
-        List<ItemResponse> activeItems = new ArrayList<>();
-        List<String> itemsToRemove = new ArrayList<>();
-
-        for (RedisLiveItem rawItem : liveRawItems) {
-            String id = rawItem.getId();
-            try {
-                String positionId = rawItem.getPositionId();
-                PositionType type = rawItem.getType();
-                if (type == null)
-                    type = PositionType.LOCATION;
-
-                Instant entryTime = rawItem.getEntryTime();
-                List<String> destinations = rawItem.getDestinations();
-                String selectedExitId = rawItem.getSelectedExitId();
-                RoutingStatus routingStatus = effectiveRoutingStatus(rawItem.getRoutingStatus(), selectedExitId);
-                Instant routingStatusUpdatedAt = rawItem.getRoutingStatusUpdatedAt();
-                Double accDist = rawItem.getAccumulatedDistance();
-
-                if (positionId == null || entryTime == null)
-                    continue;
-
-                List<String> path = rawItem.getPath();
-
-                // --- PATHFINDING (If missing) ---
-                if (path == null && selectedExitId != null) {
-                    String startNode = null;
-                    if (type == PositionType.LOCATION) {
-                        startNode = positionId;
-                    } else if (type == PositionType.CONVEYOR && topology.conveyorMap.containsKey(positionId)) {
-                        startNode = topology.conveyorMap.get(positionId).getTargetId();
-                    }
-
-                    if (startNode != null) {
-                        path = pathfindingService.calculateShortestPath(startNode, type, selectedExitId);
-                    }
-                }
-
-                ItemResponse simulatedItem;
-                if ((rawItem.isMovementPaused() || rawItem.isFlowPaused()
-                        || (type == PositionType.CONVEYOR && liveConveyorRepository.isFlowStopped(positionId)))
-                        && type == PositionType.CONVEYOR) {
-                    simulatedItem = createItemResponse(id, positionId, null, entryTime,
-                            Math.min(1.0, Math.max(0.0, accDist / 100.0)));
-                } else if (stagedDistances.containsKey(id)) {
-                    ConveyorResponse staging = topology.conveyorMap.get(positionId);
-                    simulatedItem = createItemResponse(id, positionId, null, entryTime,
-                            stagedDistances.get(id) / staging.getLength());
-                } else {
-                    simulatedItem = calculateCurrentState(
-                            id, positionId, type, entryTime, path, topology, now, accDist);
-                }
-
-                if (simulatedItem != null) {
-                    simulatedItem.setActive(!rawItem.isMovementPaused());
-                    simulatedItem.setName(rawItem.getName());
-                    simulatedItem.setPriority(itemPriorities.get(id));
-                    simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
-                    simulatedItem.setDestinations(destinations);
-                    simulatedItem.setSelectedExitId(selectedExitId);
-                    simulatedItem.setRoutingStatus(routingStatus);
-                    simulatedItem.setRoutingStatusUpdatedAt(routingStatusUpdatedAt);
-                    simulatedItem.setPath(path);
-                    applyRushPriority(simulatedItem, now);
-                    simulatedItem.setPlannedPositionId(rawItem.getPlannedPositionId());
-                    simulatedItem.setPlannedPositionType(rawItem.getPlannedPositionType());
-                    simulatedItem.setPlannedTransitionTimestamp(rawItem.getPlannedTransitionTimestamp());
-                    simulatedItem.setStagingOrder(stagingOrders.get(id));
-                    simulatedItem.setFlowPaused(rawItem.isFlowPaused());
-                    simulatedItem.setMovementCheckTimestamp(rawItem.getMovementCheckTimestamp());
-                    activeItems.add(simulatedItem);
-                } else {
-                    if (includeFinished) {
-                        ItemResponse finished = new ItemResponse();
-                        finished.setId(id);
-                        finished.setName(rawItem.getName());
-                        finished.setPriority(itemPriorities.get(id));
-                        finished.setActive(false);
-                        finished.setProgress(1.0);
-                        finished.setCurrentEdgeId(positionId);
-                        finished.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
-                        finished.setEffectivePriority(finished.getPriority());
-                        finished.setRushActive(false);
-                        finished.setRoutingStatus(RoutingStatus.COMPLETED);
-                        finished.setRoutingStatusUpdatedAt(now);
-                        activeItems.add(finished);
-                    }
-                    if (shouldCleanup && simulationId == null) {
-                        itemsToRemove.add(id);
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to process live item state for item {}", id, e);
-                if (shouldCleanup && simulationId == null)
-                    itemsToRemove.add(id);
-            }
-        }
-
-        if (shouldCleanup && !itemsToRemove.isEmpty() && simulationId == null) {
-            logger.info("Lazy Cleanup: Removing {} finished items from Redis", itemsToRemove.size());
-            redisRepository.deleteItems(itemsToRemove);
-        }
-        return activeItems;
-    }
-
-    /**
-     * Projects staging queues from their physical checkpoints while clamping every
-     * follower behind the item ahead. Items beyond physical capacity overlap only
-     * at the conveyor entrance and retain FIFO order in Redis.
-     */
-    private Map<String, Double> calculateStagedDistances(List<RedisLiveItem> items, Topology topology, Instant now,
-            Map<String, Integer> stagingOrders) {
-        Map<String, List<RedisLiveItem>> byConveyor = items.stream()
-                .filter(item -> item.getType() == PositionType.CONVEYOR)
-                .filter(item -> item.getPositionId() != null && item.getEntryTime() != null)
-                .filter(item -> {
-                    ConveyorResponse conveyor = topology.conveyorMap.get(item.getPositionId());
-                    return conveyor != null && conveyor.getType() == ConveyorType.STAGING;
-                })
-                .collect(Collectors.groupingBy(RedisLiveItem::getPositionId));
-        Map<String, Double> result = new HashMap<>();
-        byConveyor.forEach((conveyorId, stagedItems) -> {
-            ConveyorResponse conveyor = topology.conveyorMap.get(conveyorId);
-            double length = Math.max(0.0, Objects.requireNonNullElse(conveyor.getLength(), 0.0));
-            double speed = Math.max(0.0, Objects.requireNonNullElse(conveyor.getSpeed(), 0.0));
-            double spacing = Math.max(0.0, Objects.requireNonNullElse(conveyor.getMinDistance(), 0.1));
-            Map<String, RedisLiveItem> byId = stagedItems.stream()
-                    .collect(Collectors.toMap(RedisLiveItem::getId, item -> item));
-            List<RedisLiveItem> orderedItems = liveConveyorRepository.getItemsOrderedByDistance(conveyorId).stream()
-                    .map(byId::get)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toCollection(ArrayList::new));
-            if (orderedItems.size() != stagedItems.size()) {
-                stagedItems.stream().filter(item -> !orderedItems.contains(item))
-                        .sorted(Comparator.comparing(RedisLiveItem::getEntryTime).thenComparing(RedisLiveItem::getId))
-                        .forEach(orderedItems::add);
-            }
-            for (int index = 0; index < orderedItems.size(); index++) {
-                RedisLiveItem item = orderedItems.get(index);
-                long elapsedMillis = item.isMovementPaused()
-                        ? 0L
-                        : Math.max(0L, Duration.between(item.getEntryTime(), now).toMillis());
-                double storedDistance = length * Math.min(100.0, Math.max(0.0, item.getAccumulatedDistance())) / 100.0;
-                double naturalDistance = storedDistance
-                        + elapsedMillis / 1000.0 * speed;
-                double slot = Math.max(0.0, length - index * spacing);
-                result.put(item.getId(), Math.min(naturalDistance, slot));
-                stagingOrders.put(item.getId(), index);
-            }
-        });
-        return result;
+        return itemPositionProjection.calculateAllItemStates(fetchTopology(), now, true, DatabaseContextHolder.getSimulationId(),
+                false, fetchItemProperties(), fetchItemPriorities());
     }
 
     /**
@@ -342,19 +165,19 @@ public class GraphService {
 
         Map<String, DisplayRuleVisualStyle> locationStyles = topology.nodeMap.entrySet().stream()
                 .filter(e -> fillStyle(displayRulesService.applyDisplayRules(
-                        locationRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
+                        RuleFieldProjection.locationRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> fillStyle(displayRulesService.applyDisplayRules(
-                                locationRootFields(e.getValue()), e.getValue().getProperties(), rules))));
+                                RuleFieldProjection.locationRootFields(e.getValue()), e.getValue().getProperties(), rules))));
 
         Map<String, DisplayRuleVisualStyle> conveyorStyles = topology.conveyorMap.entrySet().stream()
                 .filter(e -> fillStyle(displayRulesService.applyDisplayRules(
-                        conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
+                        RuleFieldProjection.conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules)) != null)
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> fillStyle(displayRulesService.applyDisplayRules(
-                                conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules))));
+                                RuleFieldProjection.conveyorRootFields(e.getValue()), e.getValue().getProperties(), rules))));
 
         Map<String, Map<String, Object>> items = fetchItemProperties();
         Map<String, Double> priorities = fetchItemPriorities();
@@ -408,159 +231,6 @@ public class GraphService {
     }
 
     /**
-     * Replays movement from the last checkpoint instead of trusting a stored screen
-     * position. This lets live, historical, and simulated graph reads derive the
-     * same visible state from timestamped movement data.
-     */
-    private ItemResponse calculateCurrentState(
-            String itemId, String startId, PositionType startType, Instant lastUpdate,
-            List<String> path, Topology topo, Instant now, Double accDist) {
-        Duration timeElapsed = Duration.between(lastUpdate, now);
-        if (timeElapsed.isNegative())
-            timeElapsed = Duration.ZERO;
-
-        ConveyorResponse currentEdge = null;
-        String lastNodeId = null;
-
-        // --- 1. DETERMINE INITIAL STATE ---
-
-        if (startType == PositionType.CONVEYOR && topo.conveyorMap.containsKey(startId)) {
-            // CASE A: Started on an Edge
-            currentEdge = topo.conveyorMap.get(startId);
-            double speed = Boolean.TRUE.equals(currentEdge.getActive()) && currentEdge.getSpeed() != null
-                    ? Math.max(0.0, currentEdge.getSpeed()) : 0.0;
-            double length = currentEdge.getLength() != null ? currentEdge.getLength() : 0.0;
-            double progress = Math.min(1.0, Math.max(0.0, accDist / 100.0));
-            if (length > 0) progress = Math.min(1.0,
-                    progress + timeElapsed.toMillis() / 1000.0 * speed / length);
-            return createItemResponse(itemId, currentEdge.getId(), null, now, progress);
-        } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
-            // CASE B: Started on a Node
-            lastNodeId = startId;
-            Duration processingDuration = processingDuration(topo.nodeMap.get(startId));
-            if (!processingDuration.isZero()) {
-                if (timeElapsed.compareTo(processingDuration) < 0) {
-                    return createItemResponse(itemId, null, startId, lastUpdate, 1.0);
-                }
-                timeElapsed = timeElapsed.minus(processingDuration);
-            }
-            currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
-
-            if (currentEdge == null) {
-                boolean terminalLocation = !topo.outgoingEdgesMap.containsKey(startId);
-                return createItemResponse(itemId, null, startId, lastUpdate,
-                        terminalLocation ? 1.0 : 0.0);
-            }
-        } else {
-            return null;
-        }
-
-        // --- 2. TRAVERSE GRAPH ---
-        while (currentEdge != null) {
-            double speed = currentEdge.getSpeed() != null ? currentEdge.getSpeed() : 0.0;
-            double length = currentEdge.getLength() != null ? currentEdge.getLength() : 1.0;
-
-            double startProgress = currentEdge.getId().equals(startId) && startType == PositionType.CONVEYOR
-                    ? Math.min(100.0, Math.max(0.0, accDist))
-                    : 0.0;
-
-            if (!Boolean.TRUE.equals(currentEdge.getActive()) || speed <= 0) {
-                return createItemResponse(itemId, currentEdge.getId(), null, lastUpdate, startProgress / 100.0);
-            }
-
-            long traversalTimeMillis = (long) ((length * (1.0 - startProgress / 100.0) / speed) * 1000);
-            Duration traversalDuration = Duration.ofMillis(traversalTimeMillis);
-
-            // CHECK: Is item still on this edge?
-            if (timeElapsed.compareTo(traversalDuration) < 0) {
-                double progressDelta = length > 0
-                        ? (timeElapsed.toMillis() / 1000.0) * speed / length * 100.0
-                        : 0.0;
-                double progress = Math.min(100.0, startProgress + progressDelta);
-                Instant currentEdgeEntryTime = now.minusMillis(
-                        (long) ((progress / 100.0 * length / speed) * 1000));
-                return createItemResponse(itemId, currentEdge.getId(), null, currentEdgeEntryTime, progress / 100.0);
-            }
-
-            // NO: Item finished this edge.
-            timeElapsed = timeElapsed.minus(traversalDuration);
-
-            // We have arrived at the target node
-            String arrivalNodeId = currentEdge.getTargetId();
-
-            lastNodeId = arrivalNodeId;
-            Duration processingDuration = processingDuration(topo.nodeMap.get(arrivalNodeId));
-            if (!processingDuration.isZero()) {
-                Instant arrivalTime = now.minus(timeElapsed);
-                if (timeElapsed.compareTo(processingDuration) < 0) {
-                    return createItemResponse(itemId, null, arrivalNodeId, arrivalTime, 1.0);
-                }
-                timeElapsed = timeElapsed.minus(processingDuration);
-            }
-            currentEdge = findNextEdge(arrivalNodeId, topo.outgoingEdgesMap, path);
-        }
-
-        return createItemResponse(itemId, null, lastNodeId, lastUpdate, 1.0);
-    }
-
-    /**
-     * Converts timed-node metadata into a graph-projection delay.
-     * Only timed nodes wait; all other location types remain pass-through for
-     * animation and snapshot projection.
-     */
-    private Duration processingDuration(LocationResponse location) {
-        long delayMillis = location == null
-                ? 0L
-                : processingDelayMillis(location);
-        return delayMillis <= 0L ? Duration.ZERO : Duration.ofMillis(delayMillis);
-    }
-
-    private long processingDelayMillis(LocationResponse location) {
-        Long delay = location.getTimeToProcessMs();
-        return location.getType() == flunav.types.LocationType.TIMED_NODE && delay != null && delay > 0L
-                ? delay
-                : 0L;
-    }
-
-    /**
-     * Finds the next edge from a node. Uses the Full Path List to decide direction.
-     * If no path applies, main-path selection keeps passive flow deterministic and
-     * ambiguous split points stay unresolved instead of guessing a random branch.
-     */
-    private ConveyorResponse findNextEdge(
-            String currentNodeId,
-            Map<String, List<ConveyorResponse>> outgoing,
-            List<String> path) {
-
-        List<ConveyorResponse> edges = outgoing.get(currentNodeId);
-        if (edges == null || edges.isEmpty())
-            return null;
-
-        // 1. Path Priority
-        if (path != null && !path.isEmpty()) {
-            int currentIndex = path.indexOf(currentNodeId);
-            if (currentIndex >= 0 && currentIndex < path.size() - 1) {
-                String nextTargetNodeId = path.get(currentIndex + 1);
-                Optional<ConveyorResponse> match = edges.stream()
-                        .filter(e -> e.getTargetId().equals(nextTargetNodeId))
-                        .findFirst();
-                if (match.isPresent())
-                    return match.get();
-            }
-        }
-
-        // 2. Main Path Priority
-        Optional<ConveyorResponse> main = edges.stream()
-                .filter(e -> Boolean.TRUE.equals(e.getMainPath()))
-                .findFirst();
-        if (main.isPresent())
-            return main.get();
-
-        // 3. Fallback
-        return edges.size() > 1 ? null : edges.get(0);
-    }
-
-    /**
      * Materializes topology once per graph read.
      * Item projection uses this stable node/edge view even though topology and hot
      * item state are loaded through different repositories.
@@ -584,24 +254,9 @@ public class GraphService {
         return new Topology(nodeMap, conveyorMap, outgoingEdgesMap);
     }
 
-    private ItemResponse createItemResponse(String id, String edgeId, String locId, Instant entry, Double progress) {
-        ItemResponse item = new ItemResponse();
-        item.setId(id);
-        item.setCurrentEdgeId(edgeId);
-        item.setLocationId(edgeId == null ? locId : null);
-        item.setEntryTimestamp(entry);
-        item.setProgress(Math.min(1.0, Math.max(0.0, progress)));
-        item.setActive(true);
-        return item;
-    }
 
-    private void applyRushPriority(ItemResponse response, Instant timestamp) {
-        DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(
-                itemRootFields(response), response.getProperties(), response.getDestinations(), response.getPriority(),
-                timestamp);
-        response.setEffectivePriority(rush.effectivePriority());
-        response.setRushActive(rush.rushActive());
-    }
+
+
 
     /**
      * Loads durable item priorities from OrientDB for routing and styling display.
@@ -637,84 +292,13 @@ public class GraphService {
         return priorities;
     }
 
-    /**
-     * Exposes first-class item fields to display-rule evaluation.
-     * These fields take precedence over custom properties with the same names.
-     */
-    private Map<String, Object> itemRootFields(ItemResponse item) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", item.getId());
-        fields.put("name", item.getName());
-        fields.put("active", item.getActive());
-        fields.put("priority", item.getPriority());
-        fields.put("effectivePriority", item.getEffectivePriority());
-        fields.put("rushActive", item.getRushActive());
-        fields.put("locationId", item.getLocationId());
-        fields.put("currentEdgeId", item.getCurrentEdgeId());
-        fields.put("entryTimestamp", item.getEntryTimestamp());
-        fields.put("progress", item.getProgress());
-        fields.put("destinations", item.getDestinations());
-        fields.put("selectedExitId", item.getSelectedExitId());
-        fields.put("routingStatus", item.getRoutingStatus());
-        fields.put("path", item.getPath());
-        return fields;
-    }
-
-    /**
-     * Exposes first-class location fields to display-rule evaluation.
-     * Keeping these separate from custom properties lets rules target topology
-     * attributes without relying on duplicated property values.
-     */
-    private Map<String, Object> locationRootFields(LocationResponse location) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", location.getId());
-        fields.put("name", location.getName());
-        fields.put("type", location.getType());
-        fields.put("active", location.getActive());
-        fields.put("capacity", location.getCapacity());
-        fields.put("latitude", location.getLatitude());
-        fields.put("longitude", location.getLongitude());
-        fields.put("timeToProcessMs", location.getTimeToProcessMs());
-        return fields;
-    }
-
-    /**
-     * Exposes first-class conveyor fields to display-rule evaluation.
-     * These values come from topology state rather than Redis hot state.
-     */
-    private Map<String, Object> conveyorRootFields(ConveyorResponse conveyor) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", conveyor.getId());
-        fields.put("name", conveyor.getName());
-        fields.put("sourceId", conveyor.getSourceId());
-        fields.put("targetId", conveyor.getTargetId());
-        fields.put("length", conveyor.getLength());
-        fields.put("speed", conveyor.getSpeed());
-        fields.put("active", conveyor.getActive());
-        fields.put("mainPath", conveyor.getMainPath());
-        fields.put("capacity", conveyor.getCapacity());
-        return fields;
-    }
-
     private DisplayRuleVisualStyle fillStyle(DisplayRuleVisualStyle style) {
         return style == null || style.getFillColor() == null
                 ? null
                 : new DisplayRuleVisualStyle(style.getFillColor(), null, null);
     }
 
-    /**
-     * Backfills routing status for older Redis item hashes.
-     * Historical or live state without the explicit field keeps the previous
-     * selected-exit semantics so graph reads remain compatible.
-     */
-    private RoutingStatus effectiveRoutingStatus(RoutingStatus status, String selectedExitId) {
-        if (status != null) {
-            return status;
-        }
-        return selectedExitId == null ? RoutingStatus.UNROUTED : RoutingStatus.ASSIGNED;
-    }
-
-    private record Topology(
+    static record Topology(
             Map<String, LocationResponse> nodeMap,
             Map<String, ConveyorResponse> conveyorMap,
             Map<String, List<ConveyorResponse>> outgoingEdgesMap) {

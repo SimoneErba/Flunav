@@ -22,3 +22,7 @@ declare module "node:child_process" {
     },
   ): ChildProcessWithoutNullStreams;
 }
+
+declare const Buffer: {
+  from(input: string): Buffer;
+};

@@ -463,12 +463,12 @@ public class EventProcessor {
                             ItemResponse response = modelMapper.map(item, ItemResponse.class);
                             applyCurrentItemCheckpoint(response);
                             DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(
-                                    itemRootFields(item), item.getProperties(), item.getDestinations(),
+                                    RuleFieldProjection.itemRootFields(item), item.getProperties(), item.getDestinations(),
                                     item.getPriority(), e.getTimestamp());
                             response.setEffectivePriority(rush.effectivePriority());
                             response.setRushActive(rush.rushActive());
                             DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                                    itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
+                                    RuleFieldProjection.itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
                             if (style != null) {
                                 response.setCustomColor(style.getFillColor());
                                 response.setCustomBorderColor(style.getBorderColor());
@@ -687,7 +687,7 @@ public class EventProcessor {
                     itemService.updateItem(updateModel);
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                                itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
+                                RuleFieldProjection.itemRootFields(item), item.getProperties(), this.displayRulesService.getDisplayRules());
                         map.put("customColor", style != null ? style.getFillColor() : null);
                         map.put("customBorderColor", style != null ? style.getBorderColor() : null);
                         map.put("customBorderWidth", style != null ? style.getBorderWidth() : null);
@@ -707,7 +707,7 @@ public class EventProcessor {
                     item.setPriority(e.getPriority());
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = displayRulesService.applyDisplayRules(
-                                itemRootFields(item), item.getProperties(), displayRulesService.getDisplayRules());
+                                RuleFieldProjection.itemRootFields(item), item.getProperties(), displayRulesService.getDisplayRules());
                         Map<String, Object> updates = new HashMap<>();
                         updates.put("priority", e.getPriority());
                         updates.put("customColor", style != null ? style.getFillColor() : null);
@@ -876,7 +876,7 @@ public class EventProcessor {
                     locationService.updateLocation(updateModel);
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                                locationRootFields(location),
+                                RuleFieldProjection.locationRootFields(location),
                                 location.getProperties(), this.displayRulesService.getDisplayRules());
                         map.put("customColor", style != null ? style.getFillColor() : null);
                         webSocketService.broadcastLocationPropertiesUpdated(updateModel, e.getTimestamp());
@@ -1014,7 +1014,7 @@ public class EventProcessor {
                             e, e.getConnectionId(), e.getIsActive(), e.getSpeed(), e.getSourceId(), e.getTargetId());
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                                connectionRootFields(e),
+                                RuleFieldProjection.connectionRootFields(e),
                                 e.getProperties(), this.displayRulesService.getDisplayRules());
                         String customColor = style != null ? style.getFillColor() : null;
                         webSocketService.broadcastConnectionCreated(new ConveyorResponse(e.getConnectionId(),
@@ -1113,7 +1113,7 @@ public class EventProcessor {
 
                     if (shouldBroadcast) {
                         DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
-                                conveyorRootFields(conveyor),
+                                RuleFieldProjection.conveyorRootFields(conveyor),
                                 conveyor.getProperties(), this.displayRulesService.getDisplayRules());
 
                         Map<String, Object> updates = new HashMap<>();
@@ -1744,7 +1744,7 @@ public class EventProcessor {
         List<String> explicitDestinations = normalizeDestinations(item.getDestinations());
         List<String> destinations = !explicitDestinations.isEmpty()
                 ? explicitDestinations
-                : destinationMappingService.resolveDestinations(itemRootFields(item), item.getProperties(), timestamp);
+                : destinationMappingService.resolveDestinations(RuleFieldProjection.itemRootFields(item), item.getProperties(), timestamp);
         item.setDestinations(destinations);
         if (destinations.isEmpty()) {
             item.setSelectedExitId(null);
@@ -1761,7 +1761,7 @@ public class EventProcessor {
 
         PositionType positionType = (item.getPositionType() != null) ? item.getPositionType() : PositionType.LOCATION;
         DestinationMappingService.RushPriority initialRush = destinationMappingService.evaluateRush(
-                itemRootFields(item), item.getProperties(), destinations, item.getPriority(), timestamp);
+                RuleFieldProjection.itemRootFields(item), item.getProperties(), destinations, item.getPriority(), timestamp);
         com.flunav.backend.domain.Item routingItem = new com.flunav.backend.domain.Item(
                 item.getId(), item.getName(), Boolean.TRUE.equals(item.getActive()), initialRush.effectivePriority(),
                 item.getProperties());
@@ -1909,103 +1909,10 @@ public class EventProcessor {
         }
     }
 
-    /**
-     * Builds the top-level fields used by destination mapping on item creation.
-     * These fields take precedence over custom properties during rule evaluation.
-     */
-    private Map<String, Object> itemRootFields(ItemInput item) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", item.getId());
-        fields.put("name", item.getName());
-        fields.put("speed", item.getSpeed());
-        fields.put("priority", item.getPriority());
-        fields.put("active", item.getActive());
-        fields.put("locationId", item.getLocationId());
-        fields.put("positionType", item.getPositionType());
-        fields.put("progress", item.getProgress());
-        fields.put("destinations", item.getDestinations());
-        fields.put("timestamp", item.getTimestamp());
-        return fields;
-    }
-
-    /**
-     * Builds the top-level fields used by mapping or display logic for saved items.
-     * Routing state comes from Redis overlay data on the domain item.
-     */
-    private Map<String, Object> itemRootFields(com.flunav.backend.domain.Item item) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", item.getId());
-        fields.put("name", item.getName());
-        fields.put("active", item.isActive());
-        fields.put("priority", item.getPriority());
-        fields.put("positionId", item.getPositionId());
-        fields.put("positionType", item.getPositionType());
-        fields.put("entryTimestamp", item.getEntryTimestamp());
-        fields.put("routingStatus", item.getRoutingStatus());
-        return fields;
-    }
-
     private void addRushFields(Map<String, Object> updates, com.flunav.backend.domain.Item item, Instant timestamp) {
         DestinationMappingService.RushPriority rush = destinationMappingService.evaluateRush(item, timestamp);
         updates.put("effectivePriority", rush.effectivePriority());
         updates.put("rushActive", rush.rushActive());
     }
 
-    /**
-     * Builds the top-level fields used when display rules target locations.
-     * These values are topology metadata rather than transient Redis occupancy.
-     */
-    private Map<String, Object> locationRootFields(com.flunav.backend.domain.Location location) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", location.getId());
-        fields.put("name", location.getName());
-        fields.put("type", location.getType());
-        fields.put("active", location.getActive());
-        fields.put("latitude", location.getLatitude());
-        fields.put("longitude", location.getLongitude());
-        fields.put("capacity", location.getCapacity());
-        fields.put("timeToProcessMs", location.getTimeToProcessMs());
-        return fields;
-    }
-
-    /**
-     * Builds the top-level fields used when display rules target conveyors.
-     * Conveyor speed, capacity, and main-path flags are included because they drive
-     * routing and movement behavior.
-     */
-    private Map<String, Object> conveyorRootFields(Conveyor conveyor) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", conveyor.getId());
-        fields.put("sourceId", conveyor.getSourceLocationId());
-        fields.put("targetId", conveyor.getTargetLocationId());
-        fields.put("length", conveyor.getLength());
-        fields.put("speed", conveyor.getSpeed());
-        fields.put("minDistance", conveyor.getMinDistance());
-        fields.put("type", conveyor.getType());
-        fields.put("active", conveyor.isActive());
-        fields.put("mainPath", conveyor.isMainPath());
-        fields.put("capacity", conveyor.getCapacity());
-        return fields;
-    }
-
-    /**
-     * Builds top-level fields for a connection before it exists as a conveyor.
-     * Creation events use this shape so destination/display rule evaluation can
-     * inspect the requested edge attributes.
-     */
-    private Map<String, Object> connectionRootFields(ConnectionCreatedEvent event) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("id", event.getConnectionId());
-        fields.put("sourceId", event.getSourceId());
-        fields.put("targetId", event.getTargetId());
-        fields.put("name", event.getName());
-        fields.put("length", event.getLength());
-        fields.put("speed", event.getSpeed());
-        fields.put("minDistance", event.getMinDistance());
-        fields.put("type", event.getType());
-        fields.put("active", event.getIsActive());
-        fields.put("mainPath", event.getMainPath());
-        fields.put("capacity", event.getCapacity());
-        return fields;
-    }
 }

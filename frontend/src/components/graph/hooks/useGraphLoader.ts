@@ -1,3 +1,4 @@
+import type { ConveyorKeys } from "./useGraphRuntime";
 import { useEffect, useLayoutEffect } from "react";
 import { useLoadGraph, useSigma } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
@@ -8,6 +9,7 @@ import { isHighPriorityItem } from "../utils/itemPriority";
 export const useGraphLoader = (
     initialGraphData: GraphData,
     activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>,
+    edgeKeysRef: React.MutableRefObject<ConveyorKeys>,
     onHighPriorityCountChange?: (count: number) => void,
     colorOverrides?: DisplayRuleColorResult | null
 ) => {
@@ -21,6 +23,7 @@ export const useGraphLoader = (
      */
     useLayoutEffect(() => {
         const graph = new MultiDirectedGraph();
+        edgeKeysRef.current.clear();
 
         // 1. Locations — add `itemsInChute: []` to all nodes upfront
         initialGraphData?.locations?.forEach((loc) => {
@@ -69,6 +72,7 @@ export const useGraphLoader = (
                     originalColor: color,
                     originalSpeed: speed
                 });
+                edgeKeysRef.current.set(conv.id!, conv.id!);
             }
         });
 
@@ -166,7 +170,7 @@ export const useGraphLoader = (
         onHighPriorityCountChange?.(highPriorityCount);
 
         loadGraph(graph);
-    }, [activeItemsRef, initialGraphData, loadGraph, onHighPriorityCountChange]);
+    }, [activeItemsRef, edgeKeysRef, initialGraphData, loadGraph, onHighPriorityCountChange]);
 
     /**
      * Applies display-rule color changes without reloading topology.

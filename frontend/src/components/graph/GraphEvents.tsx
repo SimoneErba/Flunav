@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl, useSigma } from "@react-sigma/core";
 import { DisplayRuleColorResult, GraphData, ItemResponse } from "../../api-client/api";
 import { EdgeEditor } from "../editors/edge.editor";
@@ -6,6 +6,8 @@ import { NodeEditor } from "../editors/node.editor";
 
 // Hooks
 import { useGraphLoader } from "./hooks/useGraphLoader";
+import type { ClockReader } from "./hooks/useSimulationClock";
+import { useGraphRuntime } from "./hooks/useGraphRuntime";
 import { useGraphAnimation } from "./hooks/useGraphAnimation";
 import { useGraphLiveEvents } from "./hooks/useGraphLiveEvents";
 import { useGraphInteractions } from "./hooks/useGraphInteractions";
@@ -18,7 +20,7 @@ import { useSimulationContext } from "../../context/simulation.context";
 interface GraphEventsProps {
   initialGraphData: GraphData;
   simulationId?: string;
-  simTime: number;
+  now: ClockReader;
   hoverTarget: HoverTarget | null;
   setHoverTarget: (t: HoverTarget | null) => void;
   selectedItemData: ItemEditorData | null;
@@ -33,10 +35,10 @@ const cloneAttributes = (value: unknown): Record<string, unknown> => {
 
 const GraphTestApiBridge = ({
   activeItemsRef,
-  simTime,
+  now,
 }: {
   activeItemsRef: React.MutableRefObject<Map<string, ItemResponse>>;
-  simTime: number;
+  now: ClockReader;
 }): null => {
   const sigma = useSigma();
 
@@ -93,7 +95,7 @@ const GraphTestApiBridge = ({
             id,
             cloneAttributes(item),
           ]),
-          simTime,
+          simTime: now(),
         };
       },
       getNode,
@@ -113,13 +115,13 @@ const GraphTestApiBridge = ({
         delete window.__graphTestApi;
       }
     };
-  }, [activeItemsRef, sigma, simTime]);
+  }, [activeItemsRef, sigma, now]);
 
   return null;
 };
 
 export const GraphEvents = ({ 
-    initialGraphData, simulationId, simTime,
+    initialGraphData, simulationId, now,
     hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData, colorOverrides
 }: GraphEventsProps) => {
   const { designMode } = useSimulationContext();
@@ -127,7 +129,7 @@ export const GraphEvents = ({
     setHoverTarget(null);
     setSelectedItemData(null);
   }, [simulationId, designMode, setHoverTarget, setSelectedItemData]);
-  const activeItemsRef = useRef<Map<string, ItemResponse>>(new Map());
+  const { activeItemsRef, edgeKeysRef } = useGraphRuntime();
   const updateSelectedItem = useCallback((itemId: string, item: ItemResponse) => {
     setSelectedItemData(current => current?.id === itemId
       ? { ...current, ...item, label: item.name ?? current.label }
@@ -135,13 +137,14 @@ export const GraphEvents = ({
   }, [setSelectedItemData]);
   
   // 1. Load Data
-  useGraphLoader(initialGraphData, activeItemsRef, undefined, colorOverrides);
+  useGraphLoader(initialGraphData, activeItemsRef, edgeKeysRef, undefined, colorOverrides);
 
   // 2. Handle WebSockets & Speed Adjustments
   const { adjustItemsForSpeedChange } = useGraphLiveEvents(
     activeItemsRef,
+    edgeKeysRef,
     simulationId,
-    simTime,
+    now,
     undefined,
     updateSelectedItem,
   );
@@ -151,10 +154,10 @@ export const GraphEvents = ({
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
       lineCoordinates, draggedNodeRef, setIsDetailsOpen, handleItemSubmit, handleItemDelete
-  } = useGraphInteractions(adjustItemsForSpeedChange, { hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
+  } = useGraphInteractions(adjustItemsForSpeedChange, { setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
-  useGraphAnimation(activeItemsRef, simTime, draggedNodeRef);
+  useGraphAnimation(activeItemsRef, edgeKeysRef, now, draggedNodeRef);
 
 
   const handleNodeClose = useCallback(() => setSelectedNodeData(null), [setSelectedNodeData]);
@@ -164,7 +167,7 @@ export const GraphEvents = ({
   return (
     <>
       {import.meta.env.VITE_GRAPH_TEST_API === "true" && (
-        <GraphTestApiBridge activeItemsRef={activeItemsRef} simTime={simTime} />
+        <GraphTestApiBridge activeItemsRef={activeItemsRef} now={now} />
       )}
 
       {!designMode && <LiveHud activeItemsRef={activeItemsRef} simulationId={simulationId} />}

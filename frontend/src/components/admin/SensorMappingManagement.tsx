@@ -158,7 +158,6 @@ export const SensorMappingManagement = () => {
 
       {sensorDraft && <AddSensorModal
         draft={sensorDraft}
-        conveyorIds={conveyorIds}
         onChange={setSensorDraft}
         onCancel={() => setSensorDraft(null)}
         onSave={addSensor}
@@ -185,9 +184,8 @@ export const SensorMappingManagement = () => {
   );
 };
 
-const AddSensorModal = ({ draft, conveyorIds, onChange, onCancel, onSave }: {
+const AddSensorModal = ({ draft, onChange, onCancel, onSave }: {
   draft: SensorRow;
-  conveyorIds: string[];
   onChange: (draft: SensorRow) => void;
   onCancel: () => void;
   onSave: () => void;

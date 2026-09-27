@@ -1,9 +1,10 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
+import type { ClockReader } from './graph/hooks/useSimulationClock';
 import { SimulationStateResponse, SimulationStateResponseStatusEnum } from '../api-client/api';
 
 interface PlaybackControlsProps {
   simulation: SimulationStateResponse | null;
-  simTime: number;
+  now: ClockReader;
   onTogglePlay?: () => void;
   onSetSpeed?: (speed: number) => void;
   currentSpeed?: number;
@@ -11,7 +12,7 @@ interface PlaybackControlsProps {
 
 export const PlaybackControls = ({
   simulation,
-  simTime,
+  now,
   onTogglePlay,
   onSetSpeed,
   currentSpeed = 1,
@@ -20,8 +21,15 @@ export const PlaybackControls = ({
   const isLive = !simulation;
   const isPlaying = simulation?.status === SimulationStateResponseStatusEnum.Playing;
 
+  const [displayTime, setDisplayTime] = useState(now);
+  useEffect(() => {
+    setDisplayTime(now());
+    const timer = window.setInterval(() => setDisplayTime(now()), 100);
+    return () => window.clearInterval(timer);
+  }, [now]);
+
   // Time Formatting
-  const date = new Date(simTime);
+  const date = new Date(displayTime);
   const timeStr = date.toLocaleTimeString('en-GB', { hour12: false });
   const msStr = date.getMilliseconds().toString().padStart(3, '0');
   const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });

@@ -71,10 +71,7 @@ public class SimulationService {
     private final AnomalyEngine anomalyEngine;
     private final AnomalyObservationRepository anomalyObservationRepository;
     private final MultiSimulationRuntimeStore multiSimulationRuntimeStore;
-    private final int maxActiveSimulations;
-    private final int maxBuildingSimulations;
-    private final long maxActiveItemsPerSimulation;
-    private final long minFreeMemoryBytes;
+    private final SimulationCapacityManager capacityManager;
 
     @org.springframework.beans.factory.annotation.Autowired
     @Lazy
@@ -87,12 +84,7 @@ public class SimulationService {
     private final SimulationInputService simulationInputService;
     private final LiveSystemScheduler liveSystemScheduler;
 
-    private final Map<String, SimulationState> simulationCache = new ConcurrentHashMap<>();
-    private final Map<String, Future<?>> activePlaybacks = new ConcurrentHashMap<>();
-    private final Map<String, PlaybackCancellationReason> playbackCancellationReasons = new ConcurrentHashMap<>();
-    private final Semaphore buildPermits;
-    private final Queue<SimulationRequest> waitingQueue = new ConcurrentLinkedQueue<>();
-    private final Object[] lifecycleLocks = new Object[256];
+    private final SimulationRuntimeState runtimeState;
 
     public SimulationService(OrientDBService orientDBService, HistoricalEventPlayer historicalEventPlayer,
             WebSocketService webSocketService,
@@ -111,10 +103,8 @@ public class SimulationService {
             @Lazy GraphService graphService,
             SimulationInputService simulationInputService,
             @Lazy LiveSystemScheduler liveSystemScheduler,
-            @Value("${simulation.capacity.max-active:3}") int maxActiveSimulations,
-            @Value("${simulation.capacity.max-building:1}") int maxBuildingSimulations,
-            @Value("${simulation.capacity.max-active-items:10000}") long maxActiveItemsPerSimulation,
-            @Value("${simulation.capacity.min-free-memory-bytes:536870912}") long minFreeMemoryBytes) {
+            SimulationCapacityManager capacityManager,
+            SimulationRuntimeState runtimeState) {
         this.orientDBService = orientDBService;
         this.historicalEventPlayer = historicalEventPlayer;
         this.historicalGraphBuilder = historicalGraphBuilder;
@@ -133,14 +123,8 @@ public class SimulationService {
         this.graphService = graphService;
         this.simulationInputService = simulationInputService;
         this.liveSystemScheduler = liveSystemScheduler;
-        this.maxActiveSimulations = maxActiveSimulations;
-        this.maxBuildingSimulations = maxBuildingSimulations;
-        this.maxActiveItemsPerSimulation = maxActiveItemsPerSimulation;
-        this.minFreeMemoryBytes = minFreeMemoryBytes;
-        this.buildPermits = new Semaphore(maxBuildingSimulations > 0 ? maxBuildingSimulations : Integer.MAX_VALUE);
-        for (int index = 0; index < lifecycleLocks.length; index++) {
-            lifecycleLocks[index] = new Object();
-        }
+        this.capacityManager = capacityManager;
+        this.runtimeState = runtimeState;
     }
 
     public SimulationState createSimulation(Instant timestamp) {
@@ -163,7 +147,7 @@ public class SimulationService {
                 100.0);
         state.setKind(SimulationKind.MULTI_SIMULATION_RUN);
         state.setLiveInputState(LiveInputState.FROZEN);
-        SimulationState previous = simulationCache.putIfAbsent(simulationId, state);
+        SimulationState previous = runtimeState.simulationCache.putIfAbsent(simulationId, state);
         if (previous != null) {
             throw new IllegalStateException("Simulation runtime already exists: " + simulationId);
         }
@@ -191,16 +175,16 @@ public class SimulationService {
      * progress even when they observe different service instances or threads.
      */
     public synchronized SimulationState createSimulation(String simulationId, Instant timestamp) {
-        enforceSimulationCapacity();
+        capacityManager.enforceAdmission();
         Instant createdAt = timeService.physicalNow();
         SimulationState state = new SimulationState(simulationId, timestamp, SimulationStatus.QUEUED,
                 createdAt, null, 1.0, 0.0);
-        simulationCache.put(simulationId, state);
+        runtimeState.simulationCache.put(simulationId, state);
         persistState(state);
         try (var context = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             anomalyObservationRepository.initializeForkTimestamp(createdAt);
         }
-        waitingQueue.add(new SimulationRequest(simulationId, timestamp));
+        runtimeState.waitingQueue.add(new SimulationRequest(simulationId, timestamp));
         processWaitingQueue();
         return state;
     }
@@ -211,15 +195,15 @@ public class SimulationService {
      * processor barrier so no committed live event can fall into a handoff gap.
      */
     public synchronized SimulationState createWhatIf(String sourceSimulationId) {
-        enforceSimulationCapacity();
-        if (!hasBuildingCapacity() || !buildPermits.tryAcquire()) {
-            rejectCapacity("A simulation is already being built");
+        capacityManager.enforceAdmission();
+        if (!capacityManager.hasBuildingCapacity() || !runtimeState.buildPermits.tryAcquire()) {
+            capacityManager.reject("A simulation is already being built");
         }
         try {
             if (sourceSimulationId == null || sourceSimulationId.isBlank()) {
                 return eventProcessor.withLiveSnapshotBarrier(() -> forkWhatIf(null));
             }
-            synchronized (lifecycleLock(sourceSimulationId)) {
+            synchronized (runtimeState.lifecycleLock(sourceSimulationId)) {
                 SimulationState source = getSimulationState(sourceSimulationId);
                 if (source.getKind() != SimulationKind.STANDARD
                         || (source.getStatus() != SimulationStatus.PLAYING && source.getStatus() != SimulationStatus.READY
@@ -242,7 +226,7 @@ public class SimulationService {
                 }
             }
         } finally {
-            buildPermits.release();
+            runtimeState.buildPermits.release();
             processWaitingQueue();
         }
     }
@@ -274,16 +258,14 @@ public class SimulationService {
         state.setSourceSimulationId(source == null ? null : source.getId());
         state.setForkTimestamp(fork);
         state.setLiveHandoffTimestamp(handoff);
-        simulationCache.put(id, state);
+        runtimeState.simulationCache.put(id, state);
         persistState(state);
         try {
             com.flunav.backend.models.graph.GraphData baseline;
             try (var context = DatabaseContextHolder.enterSimulationContext(source == null ? null : source.getId())) {
                 baseline = graphService.getGraphData(fork, false);
             }
-            if (maxActiveItemsPerSimulation > 0 && baseline.getItems().size() > maxActiveItemsPerSimulation) {
-                rejectCapacity("Source item count exceeds simulation limit " + maxActiveItemsPerSimulation);
-            }
+            capacityManager.validateSourceItemCount(baseline.getItems().size());
             orientDBService.createInMemoryDatabase(id);
             try (var context = DatabaseContextHolder.enterSimulationContext(id);
                     var virtualTime = timeService.enterVirtualTime(fork)) {
@@ -357,13 +339,13 @@ public class SimulationService {
 
     /** Detaches an isolated scenario from live intake while retaining its simulation lifecycle. */
     public void isolateFromLiveInput(String simulationId) {
-        synchronized (lifecycleLock(simulationId)) {
+        synchronized (runtimeState.lifecycleLock(simulationId)) {
             freezeLiveInput(getSimulationState(simulationId));
         }
     }
 
     public SimulationState getOrCreateSimulation(String simulationId, Instant timestamp) {
-        SimulationState cached = simulationCache.get(simulationId);
+        SimulationState cached = runtimeState.simulationCache.get(simulationId);
         if (cached != null) {
             return cached;
         }
@@ -379,7 +361,7 @@ public class SimulationService {
      * rebuilds do not restart from the original restore point.
      */
     public void startPlayback(String simulationId, double speedFactor) {
-        synchronized (lifecycleLock(simulationId)) {
+        synchronized (runtimeState.lifecycleLock(simulationId)) {
             requireNoWhatIfChild(simulationId);
             validateSpeedFactor(speedFactor);
             SimulationState state = getSimulationState(simulationId);
@@ -403,19 +385,19 @@ public class SimulationService {
         webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PLAYING, simulationStartTime);
         long generation = state.getPlaybackGeneration().incrementAndGet();
         var playbackFuture = historicalEventPlayer.playEvents(simulationId, simulationStartTime, speedFactor, generation);
-        activePlaybacks.put(simulationId, playbackFuture);
+        runtimeState.activePlaybacks.put(simulationId, playbackFuture);
     }
 
     public void cancelPlayback(String simulationId) {
-        synchronized (lifecycleLock(simulationId)) {
-            Future<?> playbackFuture = activePlaybacks.get(simulationId);
+        synchronized (runtimeState.lifecycleLock(simulationId)) {
+            Future<?> playbackFuture = runtimeState.activePlaybacks.get(simulationId);
             if (playbackFuture == null || playbackFuture.isDone()) {
-                activePlaybacks.remove(simulationId, playbackFuture);
-                playbackCancellationReasons.remove(simulationId);
+                runtimeState.activePlaybacks.remove(simulationId, playbackFuture);
+                runtimeState.playbackCancellationReasons.remove(simulationId);
                 return;
             }
 
-            SimulationState state = simulationCache.get(simulationId);
+            SimulationState state = runtimeState.simulationCache.get(simulationId);
             if (state != null) {
                 synchronized (state.getExecutionLock()) {
                     state.setStatus(SimulationStatus.STOPPED);
@@ -423,14 +405,14 @@ public class SimulationService {
                     persistState(state);
                 }
             }
-            cancelActivePlayback(simulationId, PlaybackCancellationReason.STOP);
+            cancelActivePlayback(simulationId, SimulationRuntimeState.PlaybackCancellationReason.STOP);
         }
     }
 
     public void pauseSimulation(String simulationId) {
-        synchronized (lifecycleLock(simulationId)) {
-            SimulationState state = simulationCache.get(simulationId);
-            Future<?> playbackTask = activePlaybacks.get(simulationId);
+        synchronized (runtimeState.lifecycleLock(simulationId)) {
+            SimulationState state = runtimeState.simulationCache.get(simulationId);
+            Future<?> playbackTask = runtimeState.activePlaybacks.get(simulationId);
             if (state == null || playbackTask == null) {
                 throw new IllegalStateException("Simulation " + simulationId + " does not exist or is not running.");
             }
@@ -444,7 +426,7 @@ public class SimulationService {
                 persistState(state);
                 webSocketService.broadcastSimulationUpdate(simulationId, SimulationStatus.PAUSED,
                         state.getLastProcessedTimestamp());
-                cancelActivePlayback(simulationId, PlaybackCancellationReason.PAUSE);
+                cancelActivePlayback(simulationId, SimulationRuntimeState.PlaybackCancellationReason.PAUSE);
             }
         }
     }
@@ -455,7 +437,7 @@ public class SimulationService {
      * virtual instant, and scheduling is rebuilt with the new wall-clock delay.
      */
     public void updatePlaybackSpeed(String simulationId, double newSpeedFactor) {
-        synchronized (lifecycleLock(simulationId)) {
+        synchronized (runtimeState.lifecycleLock(simulationId)) {
             validateSpeedFactor(newSpeedFactor);
             SimulationState state = getSimulationState(simulationId);
             state.setSpeedFactor(newSpeedFactor);
@@ -469,7 +451,7 @@ public class SimulationService {
             synchronized (state.getExecutionLock()) {
                 Instant restartTimestamp = getSimulationClock(state);
                 state.getPlaybackGeneration().incrementAndGet();
-                cancelActivePlayback(simulationId, PlaybackCancellationReason.RESCHEDULE);
+                cancelActivePlayback(simulationId, SimulationRuntimeState.PlaybackCancellationReason.RESCHEDULE);
                 state.setStatus(SimulationStatus.PLAYING);
                 state.setLastProcessedTimestamp(restartTimestamp);
                 persistState(state);
@@ -480,7 +462,7 @@ public class SimulationService {
     }
 
     public boolean consumePlaybackRescheduleInterruption(String simulationId) {
-        return playbackCancellationReasons.remove(simulationId) == PlaybackCancellationReason.RESCHEDULE;
+        return runtimeState.playbackCancellationReasons.remove(simulationId) == SimulationRuntimeState.PlaybackCancellationReason.RESCHEDULE;
     }
 
     /**
@@ -492,8 +474,8 @@ public class SimulationService {
         requireNoWhatIfChild(simulationId);
         simulationInputService.unregister(simulationId);
         cancelPlayback(simulationId);
-        waitingQueue.removeIf(request -> request.simulationId().equals(simulationId));
-        SimulationState state = simulationCache.remove(simulationId);
+        runtimeState.waitingQueue.removeIf(request -> request.simulationId().equals(simulationId));
+        SimulationState state = runtimeState.simulationCache.remove(simulationId);
         boolean multiRuntime = state != null && state.getKind() == SimulationKind.MULTI_SIMULATION_RUN
                 || multiSimulationRuntimeStore.contains(simulationId);
         if (!multiRuntime) {
@@ -612,14 +594,14 @@ public class SimulationService {
      * capacity from the worker that actually owns the build lifecycle.
      */
     public void processWaitingQueue() {
-        if (!waitingQueue.isEmpty() && hasBuildingCapacity() && buildPermits.tryAcquire()) {
-            SimulationRequest request = waitingQueue.poll();
+        if (!runtimeState.waitingQueue.isEmpty() && capacityManager.hasBuildingCapacity() && runtimeState.buildPermits.tryAcquire()) {
+            SimulationRequest request = runtimeState.waitingQueue.poll();
             if (request != null) {
                 updateSimulationStatus(request.simulationId(), SimulationStatus.BUILDING, request.timestamp());
                 orientDBService.createInMemoryDatabase(request.simulationId());
-                historicalGraphBuilder.build(request.simulationId(), request.timestamp(), buildPermits);
+                historicalGraphBuilder.build(request.simulationId(), request.timestamp(), runtimeState.buildPermits);
             } else {
-                buildPermits.release();
+                runtimeState.buildPermits.release();
             }
         }
     }
@@ -632,7 +614,7 @@ public class SimulationService {
         Instant now = timeService.physicalNow();
         for (var metadata : liveSimulationRepository.getAllSimulationStates()) {
             boolean activeMultiSimulationRuntime = metadata.kind() == SimulationKind.MULTI_SIMULATION_RUN
-                    && simulationCache.containsKey(metadata.simulationId());
+                    && runtimeState.simulationCache.containsKey(metadata.simulationId());
             if (!activeMultiSimulationRuntime
                     && metadata.lastHeartbeatTimestamp() != null
                     && Duration.between(metadata.lastHeartbeatTimestamp(), now).toMinutes() > 2
@@ -657,7 +639,7 @@ public class SimulationService {
     }
 
     private boolean hasWhatIfChild(String simulationId) {
-        return simulationCache.values().stream().anyMatch(state -> simulationId.equals(state.getSourceSimulationId()));
+        return runtimeState.simulationCache.values().stream().anyMatch(state -> simulationId.equals(state.getSourceSimulationId()));
     }
 
     private void requireNoWhatIfChild(String simulationId) {
@@ -831,7 +813,7 @@ public class SimulationService {
     }
 
     private SimulationState loadOrRefreshSimulationState(String simulationId) {
-        SimulationState cached = simulationCache.get(simulationId);
+        SimulationState cached = runtimeState.simulationCache.get(simulationId);
         // Redis contains lifecycle metadata, not the in-memory event queue. Once this
         // process owns a state, refreshing it would discard work or rewind its clock.
         if (cached != null) {
@@ -847,7 +829,7 @@ public class SimulationService {
                 metadata.lastHeartbeatTimestamp(), metadata.lastProcessedTimestamp(), metadata.speedFactor(),
                 metadata.buildProgress());
         restoreBranchMetadata(restored, metadata);
-        SimulationState existing = simulationCache.putIfAbsent(simulationId, restored);
+        SimulationState existing = runtimeState.simulationCache.putIfAbsent(simulationId, restored);
         return existing != null ? existing : restored;
     }
 
@@ -925,59 +907,6 @@ public class SimulationService {
         }
     }
 
-    /**
-     * Rejects new simulations before expensive in-memory graph state is allocated.
-     * These limits protect the shared backend, OrientDB, Redis, and ClickHouse
-     * containers from unbounded concurrent simulation growth.
-     */
-    private void enforceSimulationCapacity() {
-        SimulationCounts counts = countSimulations();
-        if (maxActiveSimulations > 0 && counts.active() >= maxActiveSimulations) {
-            rejectCapacity("Maximum active simulations reached: " + maxActiveSimulations);
-        }
-        long liveActiveItems = liveItemRepository.countActiveItems(null);
-        if (maxActiveItemsPerSimulation > 0 && liveActiveItems > maxActiveItemsPerSimulation) {
-            rejectCapacity("Active item count " + liveActiveItems + " exceeds simulation limit "
-                    + maxActiveItemsPerSimulation);
-        }
-
-        if (minFreeMemoryBytes > 0 && availableHeapBytes() < minFreeMemoryBytes) {
-            rejectCapacity("Backend free heap is below the simulation admission threshold");
-        }
-    }
-
-    private long availableHeapBytes() {
-        Runtime runtime = Runtime.getRuntime();
-        return runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory();
-    }
-
-    private boolean hasBuildingCapacity() {
-        return hasBuildingCapacity(countSimulations());
-    }
-
-    private boolean hasBuildingCapacity(SimulationCounts counts) {
-        return maxBuildingSimulations <= 0 || counts.building() < maxBuildingSimulations;
-    }
-
-    private SimulationCounts countSimulations() {
-        int active = 0;
-        int building = 0;
-        for (var metadata : liveSimulationRepository.getAllSimulationStates()) {
-            SimulationStatus status = metadata.status();
-            if (status == SimulationStatus.BUILDING) {
-                building++;
-            }
-            if (status != SimulationStatus.FAILED) {
-                active++;
-            }
-        }
-        return new SimulationCounts(active, building);
-    }
-
-    private void rejectCapacity(String reason) {
-        throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, reason);
-    }
-
     private void checkpointAllItems(String simulationId, Instant now) {
         try (var ctx = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             checkpointAllItemsInCurrentContext(now);
@@ -1040,25 +969,12 @@ public class SimulationService {
         }
     }
 
-    private void cancelActivePlayback(String simulationId, PlaybackCancellationReason reason) {
-        Future<?> playbackFuture = activePlaybacks.remove(simulationId);
+    private void cancelActivePlayback(String simulationId, SimulationRuntimeState.PlaybackCancellationReason reason) {
+        Future<?> playbackFuture = runtimeState.activePlaybacks.remove(simulationId);
         if (playbackFuture != null && !playbackFuture.isDone()) {
-            playbackCancellationReasons.put(simulationId, reason);
+            runtimeState.playbackCancellationReasons.put(simulationId, reason);
             playbackFuture.cancel(true);
         }
-    }
-
-    private Object lifecycleLock(String simulationId) {
-        return lifecycleLocks[Math.floorMod(simulationId.hashCode(), lifecycleLocks.length)];
-    }
-
-    private enum PlaybackCancellationReason {
-        STOP,
-        PAUSE,
-        RESCHEDULE
-    }
-
-    private record SimulationCounts(int active, int building) {
     }
 
     public record SimulationRequest(String simulationId, Instant timestamp) {

@@ -68,13 +68,14 @@ test(`new items traverse every conveyor without reload (clock lag ${clockLagMs}m
   });
   // Sample every rendered frame so a later successful poll cannot mask disappearance.
   const observation = page.evaluate(({ itemId, destination, firstEdge }) => new Promise<{
-    failures: string[]; visitedEdges: string[]; reachedDestination: boolean; movedOnFirst: boolean;
+    failures: string[]; visitedEdges: string[]; reachedDestination: boolean; movedOnFirst: boolean; workspaceRenders: number;
   }>(resolve => {
     const failures: string[] = [];
     const visitedEdges = new Set<string>();
     let seen = false;
     let movedOnFirst = false;
     const started = performance.now();
+    const renderStart = window.__workspaceRenderCount ?? 0;
     const sample = () => {
       const item = window.__graphTestApi!.getItem(itemId);
       const chuteItems = window.__graphTestApi!.getNode(destination)?.attributes.itemsInChute;
@@ -90,7 +91,8 @@ test(`new items traverse every conveyor without reload (clock lag ${clockLagMs}m
         }
       } else if (seen && !reachedDestination) failures.push('removed');
       if (reachedDestination || performance.now() - started > 20_000) {
-        resolve({ failures, visitedEdges: [...visitedEdges], reachedDestination, movedOnFirst });
+        resolve({ failures, visitedEdges: [...visitedEdges], reachedDestination, movedOnFirst,
+          workspaceRenders: (window.__workspaceRenderCount ?? 0) - renderStart });
       } else requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
@@ -104,6 +106,7 @@ test(`new items traverse every conveyor without reload (clock lag ${clockLagMs}m
   expect(result.visitedEdges).toEqual(edges);
   expect(result.movedOnFirst).toBe(true);
   expect(result.reachedDestination).toBe(true);
+  expect(result.workspaceRenders, 'playback should not render React at frame rate').toBeLessThan(20);
   expect(snapshotRequests, 'a REST reload must not hide missing websocket state').toBe(0);
   const creationIndex = messages.findIndex(message => message.operation === 'CREATED' && message.data?.id === itemId);
   const departureIndex = messages.findIndex(message => message.itemId === itemId && message.edgeId === edges[0]);

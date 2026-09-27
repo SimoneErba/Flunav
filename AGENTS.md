@@ -2,6 +2,8 @@
 
 This repository is a real-time digital twin for conveyor and sorting systems. Treat it as an event-driven simulation platform, not as a CRUD app. The important design constraint is that the system must be able to derive live state, historical state, and future simulation state from the same event model without letting those states leak into each other.
 
+See [CODE_MAP.md](CODE_MAP.md) for state owners, entry points, and verification paths. Update that map whenever ownership moves.
+
 ## Working Principles
 
 - Read the local code before changing behavior. The backend has several context-sensitive services where a small call-site change can affect live mode, replay mode, and simulation mode differently.

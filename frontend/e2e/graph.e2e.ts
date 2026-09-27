@@ -49,6 +49,29 @@ test.afterEach(async ({ request }) => {
   await updateSensorMappings(request, backendUrl, session, []);
 });
 
+test("URL and navigation share What If and Live transitions", async ({ page, request }) => {
+  const created = page.waitForResponse(response =>
+    response.url().endsWith('/api/simulations/what-if') && response.ok());
+  await page.goto('/live?mode=what-if');
+  const branch = await (await created).json() as { id: string };
+  try {
+    const modes = page.getByRole('navigation', { name: 'Operational modes' });
+    await expect(modes.getByRole('button', { name: 'What-if' })).toHaveClass(/bg-blue-600/);
+    await modes.getByRole('button', { name: 'Live' }).click();
+    await expect(modes.getByRole('button', { name: 'Live' })).toHaveClass(/bg-blue-600/);
+    await expect.poll(async () => {
+      const response = await request.get(`${backendUrl}/api/simulations/${branch.id}`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      return response.status();
+    }).toBe(404);
+  } finally {
+    await request.delete(`${backendUrl}/api/simulations/${branch.id}`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    });
+  }
+});
+
 test("websocket-created graph entities appear and animate without reload", async ({ page, request }) => {
   const id = uniqueE2eId("ws-create");
   const sourceId = `${id}-source`;

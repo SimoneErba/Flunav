@@ -33,4 +33,5 @@ type GraphTestApi = {
 
 interface Window {
   __graphTestApi?: GraphTestApi;
+  __workspaceRenderCount?: number;
 }

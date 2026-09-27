@@ -21,6 +21,7 @@ import com.flunav.backend.services.OperationalAnalyticsService;
 import com.flunav.backend.services.PathfindingService;
 import com.flunav.backend.services.PathAssignmentPublisher;
 import com.flunav.backend.services.RoutingDecisionService;
+import com.flunav.backend.services.RuleFieldProjection;
 import com.flunav.backend.services.SimulationService;
 import com.flunav.backend.services.StaleItemCleanupService;
 import com.flunav.backend.services.TimeService;
@@ -339,6 +340,36 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         assertNull(item.getLocationId());
         assertEquals("A-1", item.getProperties().get("sku"));
         assertTrue(item.getProgress() > 0.45 && item.getProgress() < 0.55);
+    }
+
+    @Test
+    void ruleFieldsSharedByEventAndSnapshotProjectionsAgree() {
+        Instant now = Instant.parse("2026-03-22T12:00:00Z");
+        createLocation("rule-start", "Start");
+        createLocation("rule-end", "End");
+        conveyorService.createConveyor("rule-conveyor", "rule-start", "rule-end", "Conveyor", 10.0, 1.0, 0.0,
+                false, true);
+        createItem("rule-item", "Item", "rule-start", now.minusSeconds(1), Map.of());
+
+        var graph = graphService.getGraphData(now, false, null, false);
+        var locationEventFields = RuleFieldProjection.locationRootFields(locationService.getLocationById("rule-start"));
+        var locationSnapshotFields = RuleFieldProjection.locationRootFields(graph.getLocations().stream()
+                .filter(location -> location.getId().equals("rule-start")).findFirst().orElseThrow());
+        assertEquals(locationEventFields, locationSnapshotFields);
+
+        var conveyorEventFields = RuleFieldProjection.conveyorRootFields(conveyorService.getConveyorById("rule-conveyor"));
+        var conveyorSnapshotFields = RuleFieldProjection.conveyorRootFields(graph.getConveyors().stream()
+                .filter(conveyor -> conveyor.getId().equals("rule-conveyor")).findFirst().orElseThrow());
+        for (String field : conveyorSnapshotFields.keySet()) {
+            if (!field.equals("name")) assertEquals(conveyorEventFields.get(field), conveyorSnapshotFields.get(field), field);
+        }
+
+        var itemEventFields = RuleFieldProjection.itemRootFields(itemService.getItemById("rule-item"));
+        var itemSnapshotFields = RuleFieldProjection.itemRootFields(graph.getItems().stream()
+                .filter(item -> item.getId().equals("rule-item")).findFirst().orElseThrow());
+        for (String field : List.of("id", "name", "active", "priority", "routingStatus")) {
+            assertEquals(itemEventFields.get(field), itemSnapshotFields.get(field), field);
+        }
     }
 
     @Test
