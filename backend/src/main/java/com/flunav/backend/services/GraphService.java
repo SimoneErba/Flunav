@@ -138,6 +138,7 @@ public class GraphService {
             }
 
             for (var conv : topology.conveyorMap.values()) {
+                conv.setFlowStopped(liveConveyorRepository.isFlowStopped(conv.getId()));
                 DisplayRuleVisualStyle style = this.displayRulesService.applyDisplayRules(
                         conveyorRootFields(conv), conv.getProperties(), customDisplayRules);
                 conv.setCustomColor(style != null ? style.getFillColor() : null);
@@ -217,7 +218,9 @@ public class GraphService {
                 }
 
                 ItemResponse simulatedItem;
-                if (rawItem.isMovementPaused() && type == PositionType.CONVEYOR) {
+                if ((rawItem.isMovementPaused() || rawItem.isFlowPaused()
+                        || (type == PositionType.CONVEYOR && liveConveyorRepository.isFlowStopped(positionId)))
+                        && type == PositionType.CONVEYOR) {
                     simulatedItem = createItemResponse(id, positionId, null, entryTime,
                             Math.min(1.0, Math.max(0.0, accDist / 100.0)));
                 } else if (stagedDistances.containsKey(id)) {
@@ -230,6 +233,7 @@ public class GraphService {
                 }
 
                 if (simulatedItem != null) {
+                    simulatedItem.setActive(!rawItem.isMovementPaused());
                     simulatedItem.setName(rawItem.getName());
                     simulatedItem.setPriority(itemPriorities.get(id));
                     simulatedItem.setProperties(itemPropertiesMap.getOrDefault(id, new HashMap<>()));
@@ -243,6 +247,8 @@ public class GraphService {
                     simulatedItem.setPlannedPositionType(rawItem.getPlannedPositionType());
                     simulatedItem.setPlannedTransitionTimestamp(rawItem.getPlannedTransitionTimestamp());
                     simulatedItem.setStagingOrder(stagingOrders.get(id));
+                    simulatedItem.setFlowPaused(rawItem.isFlowPaused());
+                    simulatedItem.setMovementCheckTimestamp(rawItem.getMovementCheckTimestamp());
                     activeItems.add(simulatedItem);
                 } else {
                     if (includeFinished) {
@@ -421,7 +427,13 @@ public class GraphService {
         if (startType == PositionType.CONVEYOR && topo.conveyorMap.containsKey(startId)) {
             // CASE A: Started on an Edge
             currentEdge = topo.conveyorMap.get(startId);
-            lastNodeId = currentEdge.getTargetId();
+            double speed = Boolean.TRUE.equals(currentEdge.getActive()) && currentEdge.getSpeed() != null
+                    ? Math.max(0.0, currentEdge.getSpeed()) : 0.0;
+            double length = currentEdge.getLength() != null ? currentEdge.getLength() : 0.0;
+            double progress = Math.min(1.0, Math.max(0.0, accDist / 100.0));
+            if (length > 0) progress = Math.min(1.0,
+                    progress + timeElapsed.toMillis() / 1000.0 * speed / length);
+            return createItemResponse(itemId, currentEdge.getId(), null, now, progress);
         } else if (startType == PositionType.LOCATION && topo.nodeMap.containsKey(startId)) {
             // CASE B: Started on a Node
             lastNodeId = startId;
@@ -435,7 +447,9 @@ public class GraphService {
             currentEdge = findNextEdge(startId, topo.outgoingEdgesMap, path);
 
             if (currentEdge == null) {
-                return createItemResponse(itemId, null, startId, lastUpdate, 0.0);
+                boolean terminalLocation = !topo.outgoingEdgesMap.containsKey(startId);
+                return createItemResponse(itemId, null, startId, lastUpdate,
+                        terminalLocation ? 1.0 : 0.0);
             }
         } else {
             return null;

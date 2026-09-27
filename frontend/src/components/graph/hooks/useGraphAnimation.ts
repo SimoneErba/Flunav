@@ -79,13 +79,15 @@ export const useGraphAnimation = (
                         const speed = Number(edgeAttrs.speed);
                         const checkpointProgress = Math.min(1, Math.max(0, item.progress ?? 0));
                         let progress = checkpointProgress;
-                        if (speed > 0 && length > 0) {
+                        const flowPaused = item.flowPaused;
+                        if (item.active !== false && !flowPaused && !edgeAttrs.flowStopped
+                            && speed > 0 && length > 0) {
                             const totalDuration = (length / speed) * 1000;
                             const entryTime = new Date(item.entryTimestamp).getTime();
-                            const timeElapsed = simTimeRef.current - entryTime;
+                            const timeElapsed = Math.max(0, simTimeRef.current - entryTime);
 
                             // A confirmed item stays visible even if the render clock trails its event.
-                            progress = Math.min(1, Math.max(0, timeElapsed / totalDuration));
+                            progress = Math.min(1, checkpointProgress + timeElapsed / totalDuration);
                         }
                         if (edgeAttrs.conveyorType === "STAGING") {
                             const spacing = Number(edgeAttrs.minDistance ?? 0.1);

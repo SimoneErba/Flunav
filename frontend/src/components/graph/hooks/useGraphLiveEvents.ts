@@ -85,16 +85,17 @@ export const useGraphLiveEvents = (
             if (item.currentEdgeId === attrs.id) {
                 const progress = oldSpeed > 0
                     ? Math.min(1, Math.max(0,
-                        (anchorTime - new Date(item.entryTimestamp).getTime()) / ((length / oldSpeed) * 1000)))
+                        (item.progress ?? 0) + Math.max(0, anchorTime - new Date(item.entryTimestamp).getTime())
+                        / ((length / oldSpeed) * 1000)))
                     : Math.min(1, Math.max(0, item.progress ?? 0));
 
                 if (newSpeed <= 0) {
-                    activeItemsRef.current.set(itemId, { ...item, progress });
+                    activeItemsRef.current.set(itemId, { ...item, progress,
+                        entryTimestamp: new Date(anchorTime).toISOString() });
                     return;
                 }
 
-                const newEntryTimestamp = new Date(anchorTime - progress * (length / newSpeed) * 1000)
-                    .toISOString();
+                const newEntryTimestamp = new Date(anchorTime).toISOString();
                 activeItemsRef.current.set(itemId, { ...item, progress, entryTimestamp: newEntryTimestamp });
             }
         });
@@ -148,25 +149,7 @@ export const useGraphLiveEvents = (
             }
 
             if (currentItem) {
-                let entryTimestamp = new Date(update.timestamp).toISOString();
-                const eventTime = update.timestamp;
-                
-                // Conveyor updates describe progress at the event timestamp, not at websocket arrival time.
-                if (isConveyor && positionId) {
-                    const edgeKey = graph.findEdge((_edge, attrs) => attrs.id === positionId);
-                    if (edgeKey) {
-                        const edgeAttrs = graph.getEdgeAttributes(edgeKey);
-                        if (edgeAttrs.speed > 0) {
-                            const totalDuration = (edgeAttrs.length / edgeAttrs.speed) * 1000;
-                            const offset = progress * totalDuration;
-                            
-                            const adjustedEntryTime = eventTime - offset;
-                            entryTimestamp = new Date(adjustedEntryTime).toISOString();
-                        }
-                    }
-                }
-
-
+                const entryTimestamp = new Date(update.timestamp).toISOString();
                 const updatedItem = {
                     ...currentItem,
                     currentEdgeId: isConveyor ? positionId : null,
@@ -424,7 +407,7 @@ export const useGraphLiveEvents = (
                 const label = data?.name ?? "";
                 const id = data?.id;
                 const customColor = data?.customColor;
-                graph.addEdge(from, to, { id, type: 'arrow', conveyorType: data?.type ?? 'BELT', minDistance: data?.minDistance ?? (data?.type === 'STAGING' ? 0.1 : 0), size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor, properties: data?.properties });
+                graph.addEdge(from, to, { id, type: 'arrow', conveyorType: data?.type ?? 'BELT', minDistance: data?.minDistance ?? (data?.type === 'STAGING' ? 0.1 : 0), flowStopped: false, size: mainPath ? 6 : 3, label, speed, length, mainPath, color: customColor, customColor, properties: data?.properties });
             }
         }, simulationId));
 

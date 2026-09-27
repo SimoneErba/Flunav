@@ -43,6 +43,9 @@ import flunav.types.LocationType;
 public class MultiSimulationService {
     private static final double PROBABILITY_TOLERANCE = 1.0e-9;
     private static final long MAX_SAFE_CLIENT_SEED = 9_007_199_254_740_991L;
+    private static final double BENCHMARK_CONVEYOR_COUNT = 15.0;
+    private static final double BENCHMARK_ROUTE_DEPTH = 5.0;
+    private static final double BENCHMARK_REACHABLE_EXIT_COUNT = 5.0;
 
     private final ClickHouseService clickHouseService;
     private final EventProcessor eventProcessor;
@@ -169,12 +172,7 @@ public class MultiSimulationService {
         return clickHouseService.getMultiSimulations();
     }
 
-    /**
-     * Estimates wall time from the 500-run, 2,408-item/run, 13-location/15-conveyor
-     * benchmark. The worker exponent fits the measured 4- and 20-worker timings;
-     * topology scaling is deliberately modest because path length and recirculation
-     * cannot be inferred from graph size alone.
-     */
+    /** Estimates wall time from the benchmark workload and the active route topology. */
     public MultiSimulationEstimateResponse estimate(MultiSimulationConfiguration request) {
         if (request == null || request.numberOfRuns() <= 0 || request.numberOfRuns() > maximumRuns
                 || request.simulationDurationSeconds() <= 0 || request.arrival() == null
@@ -188,9 +186,11 @@ public class MultiSimulationService {
         }
         GraphData graph = graphService.getTopologyData();
         int locations = graph.getLocations() == null ? 0 : graph.getLocations().size();
-        int conveyors = graph.getConveyors() == null ? 0 : graph.getConveyors().size();
+        TopologyProfile topology = profileTopology(request.sourceLocationId(), graph);
         int parallelRuns = Math.min(request.numberOfRuns(), runner.maximumConcurrentRuns());
-        double graphFactor = 0.5 + 0.5 * Math.sqrt(Math.max(1, locations + conveyors) / 28.0);
+        double graphFactor = Math.pow(Math.max(1, topology.activeConveyorCount()) / BENCHMARK_CONVEYOR_COUNT, 0.5)
+                * Math.pow(Math.max(1, topology.maximumRouteDepth()) / BENCHMARK_ROUTE_DEPTH, 0.5)
+                * Math.pow(Math.max(1, topology.reachableExitCount()) / BENCHMARK_REACHABLE_EXIT_COUNT, 0.2);
         double workerFactor = Math.pow(parallelRuns / 20.0, 0.474);
         double itemWork = 0.883 * (expectedItems / 2408.0) * graphFactor;
         double seconds = 0.5 + Math.ceil(request.numberOfRuns() / (double) parallelRuns)
@@ -198,8 +198,9 @@ public class MultiSimulationService {
         long estimate = Math.max(1L, Math.round(seconds));
         return new MultiSimulationEstimateResponse(
                 Math.round(expectedItems), Math.round(expectedItems * request.numberOfRuns()),
-                locations, conveyors, runner.maximumConcurrentRuns(), parallelRuns, estimate,
-                Math.max(1L, Math.round(seconds * 0.5)), Math.max(1L, Math.round(seconds * 2.0)));
+                locations, topology.activeConveyorCount(), topology.reachableExitCount(), topology.maximumRouteDepth(),
+                runner.maximumConcurrentRuns(), parallelRuns, estimate,
+                Math.max(1L, Math.round(seconds * 0.75)), Math.max(1L, Math.round(seconds * 1.5)));
     }
 
     public List<MultiSimulationRun> runs(String id) {
@@ -316,6 +317,55 @@ public class MultiSimulationService {
             }
         }
         return visited;
+    }
+
+    /** Profiles active directed routes so cycles do not increase the longest shortest route. */
+    private TopologyProfile profileTopology(String sourceId, GraphData graph) {
+        List<ConveyorResponse> conveyors = graph.getConveyors() == null ? List.of() : graph.getConveyors();
+        int activeConveyorCount = 0;
+        Map<String, Set<String>> outgoing = new HashMap<>();
+        for (ConveyorResponse conveyor : conveyors) {
+            if (Boolean.TRUE.equals(conveyor.getActive())) {
+                activeConveyorCount++;
+                outgoing.computeIfAbsent(conveyor.getSourceId(), ignored -> new HashSet<>()).add(conveyor.getTargetId());
+            }
+        }
+        if (sourceId == null || sourceId.isBlank()) {
+            return new TopologyProfile(activeConveyorCount, 0, 0);
+        }
+
+        Map<String, Integer> distances = new HashMap<>();
+        ArrayDeque<String> pending = new ArrayDeque<>();
+        distances.put(sourceId, 0);
+        pending.add(sourceId);
+        while (!pending.isEmpty()) {
+            String locationId = pending.removeFirst();
+            int nextDistance = distances.get(locationId) + 1;
+            for (String target : outgoing.getOrDefault(locationId, Set.of())) {
+                if (!distances.containsKey(target)) {
+                    distances.put(target, nextDistance);
+                    pending.addLast(target);
+                }
+            }
+        }
+
+        Set<String> activeChutes = (graph.getLocations() == null ? List.<LocationResponse>of() : graph.getLocations())
+                .stream()
+                .filter(location -> location.getType() == LocationType.CHUTE && Boolean.TRUE.equals(location.getActive()))
+                .map(LocationResponse::getId)
+                .collect(Collectors.toSet());
+        int reachableExitCount = 0;
+        int maximumRouteDepth = 0;
+        for (Map.Entry<String, Integer> entry : distances.entrySet()) {
+            if (activeChutes.contains(entry.getKey())) {
+                reachableExitCount++;
+                maximumRouteDepth = Math.max(maximumRouteDepth, entry.getValue());
+            }
+        }
+        return new TopologyProfile(activeConveyorCount, reachableExitCount, maximumRouteDepth);
+    }
+
+    private record TopologyProfile(int activeConveyorCount, int reachableExitCount, int maximumRouteDepth) {
     }
 
     private String hash(Object value) {

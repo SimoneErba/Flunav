@@ -11,7 +11,7 @@ export interface EdgeEditorData {
   speed: number;
   length: number;
   mainPath?: boolean;
-  conveyorType?: "BELT" | "ROLLER" | "ACCUMULATION" | "CHUTE" | "STAGING";
+  conveyorType?: "BELT" | "ROLLER" | "CHUTE" | "STAGING";
   properties?: Record<string, unknown>;
 }
 
@@ -139,7 +139,6 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
             >
               <option value="BELT">Belt</option>
               <option value="ROLLER">Roller</option>
-              <option value="ACCUMULATION">Accumulation</option>
               <option value="CHUTE">Chute</option>
               <option value="STAGING">Staging</option>
             </select>

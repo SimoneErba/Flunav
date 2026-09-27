@@ -44,6 +44,8 @@ public class ItemResponse {
     private PositionType plannedPositionType;
     private Instant plannedTransitionTimestamp;
     private Integer stagingOrder;
+    private Boolean flowPaused;
+    private Instant movementCheckTimestamp;
 
     public ItemResponse(String id, String name, Boolean active, Double priority, Map<String, Object> properties,
             String locationId, String currentEdgeId, Instant entryTimestamp, Double progress,
@@ -54,7 +56,7 @@ public class ItemResponse {
         this(id, name, active, priority, priority, false, properties, locationId, currentEdgeId, entryTimestamp,
                 progress, destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor,
                 customBorderColor, customBorderWidth, plannedPositionId, plannedPositionType, plannedTransitionTimestamp,
-                stagingOrder);
+                stagingOrder, false, null);
     }
 
     public ItemResponse(String id, String name, Boolean active, Map<String, Object> properties,
@@ -63,6 +65,6 @@ public class ItemResponse {
             Instant routingStatusUpdatedAt, List<String> path, String customColor) {
         this(id, name, active, 0.0, 0.0, false, properties, locationId, currentEdgeId, entryTimestamp, progress,
                 destinations, selectedExitId, routingStatus, routingStatusUpdatedAt, path, customColor, null, null,
-                null, null, null, null);
+                null, null, null, null, false, null);
     }
 }

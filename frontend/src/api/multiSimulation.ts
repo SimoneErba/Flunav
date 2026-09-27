@@ -38,6 +38,8 @@ export interface MultiSimulationEstimate {
   expectedItemsTotal: number;
   locationCount: number;
   conveyorCount: number;
+  reachableExitCount: number;
+  maximumRouteDepth: number;
   configuredParallelRuns: number;
   parallelRuns: number;
   estimatedSeconds: number;

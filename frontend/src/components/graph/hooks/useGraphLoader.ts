@@ -61,6 +61,7 @@ export const useGraphLoader = (
                     advisory: hasAdvisory,
                     speed: isActive ? speed : 0, length, mainPath: conv.mainPath,
                     conveyorType: conv.type,
+                    flowStopped: conv.flowStopped ?? false,
                     minDistance: conv.minDistance ?? (conv.type === "STAGING" ? 0.1 : 0),
                     properties: conv.properties,
                     color: isActive ? color : '#FF0000',

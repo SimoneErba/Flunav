@@ -525,6 +525,9 @@ public class EventProcessor {
                 }
 
                 case ItemPositionChangedEvent e -> {
+                    itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
+                    liveItemRepository.setMovementCheck(e.getEntityId(), null);
+                    liveItemRepository.setFlowPaused(e.getEntityId(), false);
                     long stepStarted = SimulationRunTiming.tick();
                     ResolvedPosition resolvedPosition = resolvePosition(e);
                     String positionId = resolvedPosition.positionId();
@@ -573,6 +576,9 @@ public class EventProcessor {
                         itemMovementProcessor.processLocationEntry(e.getEntityId(), positionId,
                                 e.getTimestamp(), shouldBroadcast);
                     }
+                    if (lastPositionType == PositionType.CONVEYOR && previousPosId != null) {
+                        itemMovementProcessor.onConveyorOccupancyChanged(previousPosId, e.getTimestamp(), shouldBroadcast);
+                    }
                     SimulationRunTiming.record("position.movement-routing", stepStarted);
 
                     stepStarted = SimulationRunTiming.tick();
@@ -583,6 +589,12 @@ public class EventProcessor {
                         broadcastCurrentItemCheckpoint(e.getEntityId());
                     }
 
+                    yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+                }
+
+                case ItemMovementCheckEvent e -> {
+                    itemMovementProcessor.processMovementCheck(e, shouldBroadcast,
+                            position -> processEvent(position, shouldBroadcast));
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
                 }
 
@@ -598,6 +610,10 @@ public class EventProcessor {
                     // robust
                     itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
+                    if (lastState != null && lastState.getType() == PositionType.CONVEYOR) {
+                        itemMovementProcessor.onConveyorOccupancyChanged(
+                                lastState.getPositionId(), e.getTimestamp(), shouldBroadcast);
+                    }
                     if (shouldBroadcast)
                         webSocketService.broadcastPositionLost(e.getEntityId(), e.getTimestamp());
                     yield Map.of("status", "PROCESSED_SUCCESSFULLY");
@@ -720,6 +736,10 @@ public class EventProcessor {
                     itemMovementProcessor.cancelScheduledEvent(e.getEntityId());
                     itemService.deleteItem(e.getEntityId());
                     liveItemRepository.deleteItem(e.getEntityId());
+                    if (lastState != null && lastState.getType() == PositionType.CONVEYOR) {
+                        itemMovementProcessor.onConveyorOccupancyChanged(
+                                lastState.getPositionId(), e.getTimestamp(), shouldBroadcast);
+                    }
 
                     if (shouldBroadcast)
                         webSocketService.broadcastItemDeleted(e.getEntityId(), e.getTimestamp());
@@ -763,6 +783,7 @@ public class EventProcessor {
                     recordCurrentPathTraversal(item.getId(), decision.path(), e.getTimestamp());
                     operationalAnalyticsService.recordRecirculation(
                             item.getId(), previousPath, decision.path(), e.getTimestamp());
+                    itemMovementProcessor.refreshItemMovement(e.getEntityId(), e.getTimestamp(), shouldBroadcast);
 
                     if (shouldBroadcast) {
                         Map<String, Object> updates = new HashMap<>();
@@ -827,6 +848,7 @@ public class EventProcessor {
                     operationalAnalyticsService.recordRecirculation(
                             e.getEntityId(), previousState != null ? previousState.getPath() : null,
                             e.getPath(), e.getTimestamp());
+                    itemMovementProcessor.refreshItemMovement(e.getEntityId(), e.getTimestamp(), shouldBroadcast);
                     if (shouldBroadcast) {
                         webSocketService.broadcastItemUpdated(
                                 new UpdateModel(e.getEntityId(), Map.of("path", e.getPath())), e.getTimestamp());

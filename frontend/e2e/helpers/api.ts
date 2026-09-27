@@ -24,7 +24,7 @@ export type ConveyorSeed = {
   speed?: number;
   active?: boolean;
   mainPath?: boolean;
-  type?: "BELT" | "ROLLER" | "ACCUMULATION" | "CHUTE" | "STAGING";
+  type?: "BELT" | "ROLLER" | "CHUTE" | "STAGING";
   minDistance?: number;
 };
 

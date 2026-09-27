@@ -5,6 +5,8 @@ public record MultiSimulationEstimateResponse(
         long expectedItemsTotal,
         int locationCount,
         int conveyorCount,
+        int reachableExitCount,
+        int maximumRouteDepth,
         int configuredParallelRuns,
         int parallelRuns,
         long estimatedSeconds,

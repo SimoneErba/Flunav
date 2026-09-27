@@ -158,10 +158,10 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   destinationMappings: DestinationExitMapping[];
   onCreated: (value: MultiSimulationResponse) => void;
 }) => {
-  const [name, setName] = useState('Peak traffic test');
-  const [durationHours, setDurationHours] = useState(2);
-  const [runs, setRuns] = useState(500);
-  const [rate, setRate] = useState(1200);
+  const [name, setName] = useState('Small analysis');
+  const [durationHours, setDurationHours] = useState(1);
+  const [runs, setRuns] = useState(50);
+  const [rate, setRate] = useState(250);
   const [distribution, setDistribution] = useState<ArrivalDistribution>('POISSON');
   const [variation, setVariation] = useState(10);
   const [source, setSource] = useState('');
@@ -282,7 +282,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
         {estimate ? <>
           <p className="mt-2 text-2xl font-bold">About {formatDuration(estimate.estimatedSeconds)}</p>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Planning range {formatDuration(estimate.lowerSeconds)}–{formatDuration(estimate.upperSeconds)}{estimating ? ' · Updating…' : ''}</p>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{estimate.parallelRuns} parallel runs (backend limit {estimate.configuredParallelRuns}) · ~{estimate.expectedItemsPerRun.toLocaleString()} items/run ({estimate.expectedItemsTotal.toLocaleString()} total) · {estimate.locationCount} locations + {estimate.conveyorCount} conveyors</p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{estimate.parallelRuns} parallel runs (backend limit {estimate.configuredParallelRuns}) · ~{estimate.expectedItemsPerRun.toLocaleString()} items/run ({estimate.expectedItemsTotal.toLocaleString()} total) · {estimate.locationCount} locations + {estimate.conveyorCount} active conveyors · {estimate.reachableExitCount} reachable exits · {estimate.maximumRouteDepth}-hop maximum route</p>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Calibrated from local benchmarks; recirculation, failures, other load, and machine speed can change the actual time.</p>
           {includeActiveItems && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Existing active items are not included in the item-count estimate.</p>}
         </> : <p className="mt-2 text-sm text-gray-500">{estimating ? 'Calculating…' : 'Estimate unavailable; check runs, duration, and arrival rate.'}</p>}

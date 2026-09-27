@@ -13,6 +13,7 @@ import com.flunav.backend.services.LocationService;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.TimeService;
 import flunav.events.ItemPositionChangedEvent;
+import flunav.events.ItemMovementCheckEvent;
 import flunav.types.LocationType;
 import flunav.types.PositionType;
 import org.junit.jupiter.api.AfterEach;
@@ -103,9 +104,9 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
         assertTrue(liveConveyorRepository.getItemsOrderedByDistance("checkpoint-first")
                 .contains("checkpoint-item"));
 
-        var scheduledEvent = assertInstanceOf(ItemPositionChangedEvent.class,
+        var scheduledEvent = assertInstanceOf(ItemMovementCheckEvent.class,
                 liveSystemScheduler.getScheduledEvent("checkpoint-item"));
-        assertEquals("checkpoint-second", scheduledEvent.getLocationId());
+        assertEquals("checkpoint-first", scheduledEvent.getConveyorId());
         assertEquals(recoveryTime.plusSeconds(6), scheduledEvent.getTimestamp());
     }
 
@@ -141,10 +142,10 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
         assertTrue(liveConveyorRepository.getItemsOrderedByDistance("C").contains("A"));
         assertFalse(liveConveyorRepository.getItemsOrderedByDistance("B").contains("A"));
 
-        var scheduledEvent = assertInstanceOf(ItemPositionChangedEvent.class,
+        var scheduledEvent = assertInstanceOf(ItemMovementCheckEvent.class,
                 liveSystemScheduler.getScheduledEvent("A"));
         assertEquals("A", scheduledEvent.getEntityId());
-        assertEquals("D", scheduledEvent.getLocationId());
+        assertEquals("C", scheduledEvent.getConveyorId());
         assertEquals(startupTime.plusSeconds(8), scheduledEvent.getTimestamp());
     }
 
@@ -171,8 +172,8 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
             var nextEvent = liveSystemScheduler.getScheduledEvent("scheduler-chain-item");
             return state != null
                     && "chain-second".equals(state.getPositionId())
-                    && nextEvent instanceof ItemPositionChangedEvent positionChanged
-                    && "chain-exit".equals(positionChanged.getLocationId());
+                    && nextEvent instanceof ItemMovementCheckEvent check
+                    && "chain-second".equals(check.getConveyorId());
         });
 
         assertFalse(liveConveyorRepository.getItemsOrderedByDistance("chain-first")

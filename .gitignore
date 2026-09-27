@@ -68,6 +68,7 @@ Icon?
 **/test-output/
 **/surefire-reports/
 **/jacoco.exec
+/backend/target/benchmark-results/
 
 # === Environment Files (keep safe) ===
 **/.env

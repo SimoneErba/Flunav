@@ -151,6 +151,18 @@ public class LiveItemRepository {
         }
     }
 
+    public void setFlowPaused(String itemId, boolean paused) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        if (paused) hashPut(itemKey, "fp", "true");
+        else hashDelete(itemKey, "fp");
+    }
+
+    public void setMovementCheck(String itemId, Instant timestamp) {
+        String itemKey = getNamespacedKey("item:" + itemId);
+        if (timestamp == null) hashDelete(itemKey, "mct");
+        else hashPut(itemKey, "mct", String.valueOf(timestamp.toEpochMilli()));
+    }
+
     /**
      * Deletes every active item in the current Redis namespace.
      * This follows the active set so simulation cleanup and live cleanup remove the

@@ -122,6 +122,7 @@ public class LiveMovementRecoveryService {
         if (conveyor == null || conveyor.getLength() == null || conveyor.getLength() <= 0) {
             return false;
         }
+        if (item.isMovementPaused()) return false;
 
         if (item.getPlannedPositionId() != null && item.getPlannedTransitionTimestamp() != null) {
             double progress = item.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
@@ -130,10 +131,25 @@ public class LiveMovementRecoveryService {
             return true;
         }
 
+        if (item.getMovementCheckTimestamp() != null) {
+            Instant retryAt = item.getMovementCheckTimestamp().isBefore(recoveryTime)
+                    ? recoveryTime.plusMillis(1) : item.getMovementCheckTimestamp();
+            itemMovementProcessor.scheduleMovementCheck(item.getId(), item.getPositionId(), retryAt);
+            return true;
+        }
+
+        if (item.isFlowPaused()) {
+            if (liveConveyorRepository.isFlowStopped(conveyor.getId())) return false;
+            itemMovementProcessor.scheduleMovementCheck(item.getId(), item.getPositionId(),
+                    recoveryTime.plusMillis(1000));
+            return true;
+        }
+
         double storedProgress = Math.min(100.0, Math.max(0.0, item.getAccumulatedDistance()));
         double speed = conveyor.getSpeed() != null ? conveyor.getSpeed() : 0.0;
         long elapsedMillis = Math.max(0L, recoveryTime.toEpochMilli() - item.getEntryTime().toEpochMilli());
-        double progressDelta = (elapsedMillis / 1000.0) * Math.max(0.0, speed) / conveyor.getLength() * 100.0;
+        double progressDelta = liveConveyorRepository.isFlowStopped(conveyor.getId()) ? 0.0
+                : (elapsedMillis / 1000.0) * Math.max(0.0, speed) / conveyor.getLength() * 100.0;
         double currentProgress = storedProgress + progressDelta;
 
         Instant schedulingTime = item.getEntryTime();

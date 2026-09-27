@@ -26,6 +26,17 @@ SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexe
 SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="priority-capacity"
 ```
 
+### Conveyor spacing merge
+
+From `simulator/`, run a bounded burst of four items per feeder:
+
+```bash
+SIMULATION_MODE=rabbit mvn compile exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="conveyor-spacing"
+SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="conveyor-spacing"
+```
+
+The `CS-` topology merges a BELT and a ROLLER feeder into a slower shared conveyor. Even-numbered items declare `lengthCm=20` (and a lower-priority `length=40`); odd-numbered items use the backend's 15 cm fallback. The run ends after 27 seconds. Destroy removes the eight items and its topology.
+
 ### One-minute priority demo
 
 From `simulator/`, with the backend and RabbitMQ running:

@@ -35,6 +35,7 @@ import flunav.events.ConnectionDeletedEvent;
 import flunav.events.ConnectionLengthChangedEvent;
 import flunav.events.ConnectionTypeChangedEvent;
 import flunav.events.ItemCreatedEvent;
+import flunav.events.ItemMovementCheckEvent;
 import flunav.events.ItemDestinationEvent;
 import flunav.events.ItemPositionChangedEvent;
 import flunav.events.ItemPriorityUpdatedEvent;
@@ -1263,10 +1264,10 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         try {
             itemMovementProcessor.handleItemEntryToConveyor("guard-extra", "guard-cd", future, 0.0, null);
 
-            ItemPositionChangedEvent scheduled = assertInstanceOf(ItemPositionChangedEvent.class,
+            ItemMovementCheckEvent scheduled = assertInstanceOf(ItemMovementCheckEvent.class,
                     itemMovementProcessor.getScheduledEvent("guard-extra"));
-            assertEquals("guard-cd", scheduled.getLocationId());
-            assertTrue(scheduled.getProgress() < 100.0);
+            assertEquals("guard-cd", scheduled.getConveyorId());
+            assertEquals(future.plusSeconds(10), scheduled.getTimestamp());
         } finally {
             itemMovementProcessor.cancelScheduledEvent("guard-extra");
         }
@@ -1311,7 +1312,6 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
     @Test
     void scheduledDecisionPointTransitionRecalculatesFallbackLogicalDestinationRoute() {
-        Instant now = timeService.physicalNow();
         createLocation("scheduled-entry", "Entry", LocationType.JUNCTION, 0);
         createLocation("scheduled-decision", "Decision", LocationType.DECISION_POINT, 0);
         createLocation("scheduled-routing-buffer", "Routing Buffer", LocationType.JUNCTION, 0);
@@ -1328,6 +1328,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
 
         destinationExitMappingService.saveMappings(new MapDestinationExitsEvent(List.of(
                 new DestinationExitMappingRecord("scheduled-destination", List.of("scheduled-chute")))));
+        Instant now = timeService.physicalNow();
         ItemInput item = new ItemInput();
         item.setId("scheduled-item");
         item.setName("Scheduled Item");
@@ -1347,9 +1348,10 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         itemMovementProcessor.handleItemEntryToConveyor("scheduled-item", "scheduled-entry-decision", now, 0.0,
                 null);
 
-        var scheduled = assertInstanceOf(ItemPositionChangedEvent.class,
+        var scheduled = assertInstanceOf(ItemMovementCheckEvent.class,
                 itemMovementProcessor.getScheduledEvent("scheduled-item"));
-        assertEquals("scheduled-decision-buffer", scheduled.getLocationId());
+        assertEquals("scheduled-entry-decision", scheduled.getConveyorId());
+        eventProcessor.processEventWithoutBroadcast(scheduled);
 
         var routedItem = itemService.getItemById("scheduled-item");
         assertNotNull(routedItem);
@@ -1392,7 +1394,8 @@ class GraphServiceItemTests extends BaseIntegrationTest {
                 webSocketService,
                 operationalAnalyticsService,
                 multiSimulationMetricsService,
-                false);
+                false,
+                15.0);
         disabledProcessor.processLocationEntry("disabled-item", "disabled-decision", now);
 
         var item = itemService.getItemById("disabled-item");
@@ -1560,19 +1563,23 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         eventProcessor.processEventWithoutBroadcast(new ItemCreatedEvent(
                 "priority-stop-orange", "Orange", 1.0, true, "priority-stop-entry", PositionType.LOCATION, 0.0,
                 List.of("priority-stop-exit-3"), Map.of(), now));
-        assertEquals("priority-stop-exit-3-conveyor", assertInstanceOf(ItemPositionChangedEvent.class,
-                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getLocationId());
+        assertEquals("priority-stop-entry-decision", assertInstanceOf(ItemMovementCheckEvent.class,
+                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getConveyorId());
 
         eventProcessor.processEventWithoutBroadcast(
                 new ConnectionDeactivatedEvent("priority-stop-exit-1-conveyor"));
         eventProcessor.processEventWithoutBroadcast(
                 new ConnectionDeactivatedEvent("priority-stop-exit-3-conveyor"));
 
+        ItemMovementCheckEvent check = assertInstanceOf(ItemMovementCheckEvent.class,
+                itemMovementProcessor.getScheduledEvent("priority-stop-orange"));
+        eventProcessor.processEventWithoutBroadcast(check);
+
         var rerouted = itemService.getItemById("priority-stop-orange");
         assertEquals(List.of("priority-stop-decision", "priority-stop-loop"), rerouted.getPath());
         assertEquals(RoutingStatus.UNROUTED, rerouted.getRoutingStatus());
-        assertEquals("priority-stop-loop-conveyor", assertInstanceOf(ItemPositionChangedEvent.class,
-                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getLocationId());
+        assertEquals("priority-stop-loop-conveyor", assertInstanceOf(ItemMovementCheckEvent.class,
+                itemMovementProcessor.getScheduledEvent("priority-stop-orange")).getConveyorId());
     }
 
     @Test
@@ -1611,7 +1618,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
         var resumedState = liveItemRepository.getItemState("stop-motion-item");
         assertEquals(25.0, resumedState.getAccumulatedDistance(), 0.0001);
         assertTrue(resumedState.getEntryTime().isAfter(frozenAt));
-        ItemPositionChangedEvent resumedEvent = assertInstanceOf(ItemPositionChangedEvent.class,
+        ItemMovementCheckEvent resumedEvent = assertInstanceOf(ItemMovementCheckEvent.class,
                 itemMovementProcessor.getScheduledEvent("stop-motion-item"));
         assertTrue(resumedEvent.getTimestamp().isAfter(resumedState.getEntryTime().plusSeconds(7_400)));
     }

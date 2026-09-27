@@ -32,11 +32,20 @@ public class ConveyorResponse {
     private String customColor;
     private Boolean operatorEnabled;
     private List<ActiveAlarm> activeAlarms;
+    private Boolean flowStopped;
+
+    public ConveyorResponse(String id, String sourceId, String targetId, String name, Double length, Double speed,
+            Double minDistance, ConveyorType type, Boolean active, Boolean mainPath, Integer capacity,
+            Map<String, Object> properties, String customColor, Boolean operatorEnabled,
+            List<ActiveAlarm> activeAlarms) {
+        this(id, sourceId, targetId, name, length, speed, minDistance, type, active, mainPath, capacity,
+                properties, customColor, operatorEnabled, activeAlarms, false);
+    }
 
     public ConveyorResponse(String id, String sourceId, String targetId, String name, Double length, Double speed,
             Double minDistance, ConveyorType type, Boolean active, Boolean mainPath, Integer capacity,
             Map<String, Object> properties, String customColor) {
         this(id, sourceId, targetId, name, length, speed, minDistance, type, active, mainPath, capacity, properties,
-                customColor, active, List.of());
+                customColor, active, List.of(), false);
     }
 }

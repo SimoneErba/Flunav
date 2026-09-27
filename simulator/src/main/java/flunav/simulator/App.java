@@ -8,7 +8,7 @@ public class App {
         if (args.length == 0) {
             SimulatorUtils.logger.severe(
                     "Please specify a simulation to run. Usage: java App "
-                            + "<line|loop|multi|large|perf|future|sorting-hub|hub|airport-baggage|airport|priority-capacity|priority-demo>");
+                            + "<line|loop|multi|large|perf|future|sorting-hub|hub|airport-baggage|airport|priority-capacity|priority-demo|conveyor-spacing>");
             return;
         }
 
@@ -67,6 +67,9 @@ public class App {
                 case "priority-demo":
                     simulation = new PriorityDemoSimulation();
                     break;
+                case "conveyor-spacing":
+                    simulation = new ConveyorSpacingSimulation();
+                    break;
                 case "priority":
                 case "priority-capacity":
                 case "reserved-capacity":
@@ -90,7 +93,7 @@ public class App {
         } catch (Exception e) {
             SimulatorUtils.logger.log(Level.SEVERE, "A critical error occurred in the simulation", e);
         } finally {
-            if (args[0].equalsIgnoreCase("priority-demo")) {
+            if (args[0].equalsIgnoreCase("priority-demo") || args[0].equalsIgnoreCase("conveyor-spacing")) {
                 SimulatorUtils.closeRabbit();
             }
             if ("destroy".equalsIgnoreCase(SimulatorUtils.ACTION)) {

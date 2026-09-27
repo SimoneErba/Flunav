@@ -126,6 +126,40 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
     void estimateUsesCurrentGraphAndConfiguredWorkersWithRoleProtection() throws Exception {
         var source = createRunnableMultiSimulation("Estimate integration " + System.nanoTime(), 500);
         var configuration = source.configuration();
+        var baselineEstimate = multiSimulationService.estimate(new MultiSimulationConfiguration(
+                "Topology estimate", 3600, 100,
+                new ArrivalConfiguration(2408, ArrivalDistribution.FIXED, 0),
+                configuration.sourceLocationId(), configuration.destinations(), List.of(), 1234L,
+                Instant.parse("2035-01-01T00:00:00Z")));
+        String suffix = String.valueOf(System.nanoTime());
+        String firstJunction = "estimate-junction-1-" + suffix;
+        String secondJunction = "estimate-junction-2-" + suffix;
+        String deeperChute = "estimate-chute-" + suffix;
+        eventProcessor.process(new LocationCreatedEvent(firstJunction, "Estimate junction 1", true,
+                1.0, 0.0, LocationType.JUNCTION, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new LocationCreatedEvent(secondJunction, "Estimate junction 2", true,
+                2.0, 0.0, LocationType.JUNCTION, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new LocationCreatedEvent(deeperChute, "Estimate chute", true,
+                3.0, 0.0, LocationType.CHUTE, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent("estimate-in-" + suffix, configuration.sourceLocationId(),
+                firstJunction, 1.0, 1.0, 0.0, null, true, "Estimate in", true,
+                ConveyorType.BELT, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent("estimate-middle-" + suffix, firstJunction,
+                secondJunction, 1.0, 1.0, 0.0, null, true, "Estimate middle", true,
+                ConveyorType.BELT, 100, new HashMap<>()), false).join();
+        eventProcessor.process(new ConnectionCreatedEvent("estimate-out-" + suffix, secondJunction,
+                deeperChute, 1.0, 1.0, 0.0, null, true, "Estimate out", true,
+                ConveyorType.BELT, 100, new HashMap<>()), false).join();
+        var expandedEstimate = multiSimulationService.estimate(new MultiSimulationConfiguration(
+                "Topology estimate", 3600, 100,
+                new ArrivalConfiguration(2408, ArrivalDistribution.FIXED, 0),
+                configuration.sourceLocationId(), configuration.destinations(), List.of(), 1234L,
+                Instant.parse("2035-01-01T00:00:00Z")));
+        assertEquals(baselineEstimate.conveyorCount() + 3, expandedEstimate.conveyorCount());
+        assertEquals(2, expandedEstimate.reachableExitCount());
+        assertEquals(3, expandedEstimate.maximumRouteDepth());
+        assertTrue(expandedEstimate.estimatedSeconds() > baselineEstimate.estimatedSeconds());
+
         byte[] body = objectMapper.writeValueAsBytes(configuration);
         var request = post("/api/multi-simulations/estimate")
                 .contentType(MediaType.APPLICATION_JSON).content(body);
@@ -140,8 +174,9 @@ class MultiSimulationIntegrationTests extends BaseIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.parallelRuns").value(multiSimulationRunner.maximumConcurrentRuns()))
                 .andExpect(jsonPath("$.configuredParallelRuns").value(multiSimulationRunner.maximumConcurrentRuns()))
-                .andExpect(jsonPath("$.locationCount").value(source.baseline().graph().getLocations().size()))
-                .andExpect(jsonPath("$.conveyorCount").value(source.baseline().graph().getConveyors().size()))
+                .andExpect(jsonPath("$.conveyorCount").value(expandedEstimate.conveyorCount()))
+                .andExpect(jsonPath("$.reachableExitCount").value(2))
+                .andExpect(jsonPath("$.maximumRouteDepth").value(3))
                 .andExpect(jsonPath("$.expectedItemsPerRun").value(6))
                 .andExpect(jsonPath("$.expectedItemsTotal").value(3_000))
                 .andExpect(jsonPath("$.estimatedSeconds").isNumber());

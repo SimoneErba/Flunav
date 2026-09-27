@@ -100,6 +100,20 @@ public class LiveConveyorRepository {
         return val != null ? Double.parseDouble(val) : null;
     }
 
+    public void setFlowStopped(String conveyorId, boolean stopped) {
+        String key = getNamespacedKey(conveyorId + ":flow-stopped");
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            if (stopped) memory.setValue(key, "true"); else memory.delete(key);
+        } else if (stopped) redis.opsForValue().set(key, "true"); else redis.delete(key);
+    }
+
+    public boolean isFlowStopped(String conveyorId) {
+        String key = getNamespacedKey(conveyorId + ":flow-stopped");
+        var memory = runtimeStore.current();
+        return "true".equals(memory != null ? memory.getValue(key) : redis.opsForValue().get(key));
+    }
+
     /**
      * Increments the legacy chute occupancy counter.
      * Current routing primarily uses location ZSET occupancy, but this method is

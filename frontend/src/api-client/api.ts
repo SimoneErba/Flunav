@@ -538,6 +538,39 @@ export interface ApiError {
 /**
  *
  * @export
+ * @interface ArrivalConfiguration
+ */
+export interface ArrivalConfiguration {
+    /**
+     *
+     * @type {number}
+     * @memberof ArrivalConfiguration
+     */
+    'ratePerHour'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof ArrivalConfiguration
+     */
+    'distribution'?: ArrivalConfigurationDistributionEnum;
+    /**
+     *
+     * @type {number}
+     * @memberof ArrivalConfiguration
+     */
+    'rateVariationPercent'?: number;
+}
+
+export const ArrivalConfigurationDistributionEnum = {
+    Fixed: 'FIXED',
+    Poisson: 'POISSON'
+} as const;
+
+export type ArrivalConfigurationDistributionEnum = typeof ArrivalConfigurationDistributionEnum[keyof typeof ArrivalConfigurationDistributionEnum];
+
+/**
+ *
+ * @export
  * @interface BackfillRequest
  */
 export interface BackfillRequest {
@@ -754,13 +787,37 @@ export interface Conveyor {
 export const ConveyorTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION',
     Chute: 'CHUTE',
     Staging: 'STAGING'
 } as const;
 
 export type ConveyorTypeEnum = typeof ConveyorTypeEnum[keyof typeof ConveyorTypeEnum];
 
+/**
+ *
+ * @export
+ * @interface ConveyorFailureConfiguration
+ */
+export interface ConveyorFailureConfiguration {
+    /**
+     *
+     * @type {string}
+     * @memberof ConveyorFailureConfiguration
+     */
+    'conveyorId'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorFailureConfiguration
+     */
+    'failuresPerHour'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ConveyorFailureConfiguration
+     */
+    'repairDurationSeconds'?: number;
+}
 /**
  *
  * @export
@@ -906,12 +963,17 @@ export interface ConveyorResponse {
      * @memberof ConveyorResponse
      */
     'activeAlarms'?: Array<ActiveAlarm>;
+    /**
+     *
+     * @type {boolean}
+     * @memberof ConveyorResponse
+     */
+    'flowStopped'?: boolean;
 }
 
 export const ConveyorResponseTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION',
     Chute: 'CHUTE',
     Staging: 'STAGING'
 } as const;
@@ -990,7 +1052,6 @@ export interface ConveyorTypeUpdateRequest {
 export const ConveyorTypeUpdateRequestTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION',
     Chute: 'CHUTE',
     Staging: 'STAGING'
 } as const;
@@ -1130,7 +1191,6 @@ export interface CreateConveyorInput {
 export const CreateConveyorInputTypeEnum = {
     Belt: 'BELT',
     Roller: 'ROLLER',
-    Accumulation: 'ACCUMULATION',
     Chute: 'CHUTE',
     Staging: 'STAGING'
 } as const;
@@ -1367,6 +1427,25 @@ export const DestinationMappingRecordSecondOperatorEnum = {
 
 export type DestinationMappingRecordSecondOperatorEnum = typeof DestinationMappingRecordSecondOperatorEnum[keyof typeof DestinationMappingRecordSecondOperatorEnum];
 
+/**
+ *
+ * @export
+ * @interface DestinationProbability
+ */
+export interface DestinationProbability {
+    /**
+     *
+     * @type {string}
+     * @memberof DestinationProbability
+     */
+    'destination'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof DestinationProbability
+     */
+    'probability'?: number;
+}
 /**
  *
  * @export
@@ -2472,6 +2551,18 @@ export interface ItemResponse {
      * @memberof ItemResponse
      */
     'stagingOrder'?: number;
+    /**
+     *
+     * @type {boolean}
+     * @memberof ItemResponse
+     */
+    'flowPaused'?: boolean;
+    /**
+     *
+     * @type {string}
+     * @memberof ItemResponse
+     */
+    'movementCheckTimestamp'?: string;
 }
 
 export const ItemResponseRoutingStatusEnum = {
@@ -2949,6 +3040,548 @@ export interface Meta {
 /**
  *
  * @export
+ * @interface MetricDistribution
+ */
+export interface MetricDistribution {
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'sampleCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'mean'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'median'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'standardDeviation'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'minimum'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'maximum'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'p5'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'p25'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'p75'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MetricDistribution
+     */
+    'p95'?: number;
+}
+/**
+ *
+ * @export
+ * @interface MultiSimulationConfiguration
+ */
+export interface MultiSimulationConfiguration {
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationConfiguration
+     */
+    'name'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationConfiguration
+     */
+    'simulationDurationSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationConfiguration
+     */
+    'numberOfRuns'?: number;
+    /**
+     *
+     * @type {ArrivalConfiguration}
+     * @memberof MultiSimulationConfiguration
+     */
+    'arrival'?: ArrivalConfiguration;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationConfiguration
+     */
+    'sourceLocationId'?: string;
+    /**
+     *
+     * @type {Array<DestinationProbability>}
+     * @memberof MultiSimulationConfiguration
+     */
+    'destinations'?: Array<DestinationProbability>;
+    /**
+     *
+     * @type {Array<ConveyorFailureConfiguration>}
+     * @memberof MultiSimulationConfiguration
+     */
+    'conveyorFailures'?: Array<ConveyorFailureConfiguration>;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationConfiguration
+     */
+    'baseSeed'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationConfiguration
+     */
+    'simulationStartTime'?: string;
+    /**
+     *
+     * @type {boolean}
+     * @memberof MultiSimulationConfiguration
+     */
+    'includeActiveItems'?: boolean;
+}
+/**
+ *
+ * @export
+ * @interface MultiSimulationEstimateResponse
+ */
+export interface MultiSimulationEstimateResponse {
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'expectedItemsPerRun'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'expectedItemsTotal'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'locationCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'conveyorCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'reachableExitCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'maximumRouteDepth'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'configuredParallelRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'parallelRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'estimatedSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'lowerSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationEstimateResponse
+     */
+    'upperSeconds'?: number;
+}
+/**
+ *
+ * @export
+ * @interface MultiSimulationReport
+ */
+export interface MultiSimulationReport {
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationReport
+     */
+    'multiSimulationId'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationReport
+     */
+    'completedRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationReport
+     */
+    'failedRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationReport
+     */
+    'cancelledRuns'?: number;
+    /**
+     *
+     * @type {{ [key: string]: MetricDistribution; }}
+     * @memberof MultiSimulationReport
+     */
+    'metrics'?: { [key: string]: MetricDistribution; };
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationReport
+     */
+    'generatedAt'?: string;
+}
+/**
+ *
+ * @export
+ * @interface MultiSimulationResponse
+ */
+export interface MultiSimulationResponse {
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'id'?: string;
+    /**
+     *
+     * @type {MultiSimulationConfiguration}
+     * @memberof MultiSimulationResponse
+     */
+    'configuration'?: MultiSimulationConfiguration;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationResponse
+     */
+    'baseSeed'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'status'?: MultiSimulationResponseStatusEnum;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationResponse
+     */
+    'completedRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationResponse
+     */
+    'failedRuns'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationResponse
+     */
+    'totalRuns'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'topologyVersion'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'configurationVersion'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'createdAt'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'startedAt'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'completedAt'?: string;
+    /**
+     *
+     * @type {boolean}
+     * @memberof MultiSimulationResponse
+     */
+    'cancelRequested'?: boolean;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationResponse
+     */
+    'error'?: string;
+}
+
+export const MultiSimulationResponseStatusEnum = {
+    Draft: 'DRAFT',
+    Queued: 'QUEUED',
+    Running: 'RUNNING',
+    Completed: 'COMPLETED',
+    CompletedWithFailures: 'COMPLETED_WITH_FAILURES',
+    Cancelling: 'CANCELLING',
+    Cancelled: 'CANCELLED',
+    Failed: 'FAILED'
+} as const;
+
+export type MultiSimulationResponseStatusEnum = typeof MultiSimulationResponseStatusEnum[keyof typeof MultiSimulationResponseStatusEnum];
+
+/**
+ *
+ * @export
+ * @interface MultiSimulationRun
+ */
+export interface MultiSimulationRun {
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationRun
+     */
+    'multiSimulationId'?: string;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRun
+     */
+    'runIndex'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRun
+     */
+    'seed'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationRun
+     */
+    'status'?: MultiSimulationRunStatusEnum;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRun
+     */
+    'effectiveArrivalRate'?: number;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationRun
+     */
+    'startedAt'?: string;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationRun
+     */
+    'completedAt'?: string;
+    /**
+     *
+     * @type {MultiSimulationRunMetrics}
+     * @memberof MultiSimulationRun
+     */
+    'metrics'?: MultiSimulationRunMetrics;
+    /**
+     *
+     * @type {string}
+     * @memberof MultiSimulationRun
+     */
+    'error'?: string;
+}
+
+export const MultiSimulationRunStatusEnum = {
+    Pending: 'PENDING',
+    Running: 'RUNNING',
+    Completed: 'COMPLETED',
+    Failed: 'FAILED',
+    Cancelled: 'CANCELLED'
+} as const;
+
+export type MultiSimulationRunStatusEnum = typeof MultiSimulationRunStatusEnum[keyof typeof MultiSimulationRunStatusEnum];
+
+/**
+ *
+ * @export
+ * @interface MultiSimulationRunMetrics
+ */
+export interface MultiSimulationRunMetrics {
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'itemsGenerated'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'itemsCompleted'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'itemsRemaining'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'throughputPerHour'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'averageJourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'p50JourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'p95JourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'p99JourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'minimumJourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'maximumJourneyTimeSeconds'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'recirculationCount'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'recirculationRatePercent'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'maximumSystemPopulation'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'conveyorFailureCount'?: number;
+    /**
+     *
+     * @type {{ [key: string]: number; }}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'generatedByDestination'?: { [key: string]: number; };
+    /**
+     *
+     * @type {{ [key: string]: number; }}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'completedByDestination'?: { [key: string]: number; };
+    /**
+     *
+     * @type {{ [key: string]: number; }}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'failuresByConveyor'?: { [key: string]: number; };
+    /**
+     *
+     * @type {{ [key: string]: number; }}
+     * @memberof MultiSimulationRunMetrics
+     */
+    'conveyorDowntimePercent'?: { [key: string]: number; };
+}
+/**
+ *
+ * @export
  * @interface PathUpdateRequest
  */
 export interface PathUpdateRequest {
@@ -3250,7 +3883,8 @@ export type SimulationStateResponseStatusEnum = typeof SimulationStateResponseSt
 export const SimulationStateResponseKindEnum = {
     Standard: 'STANDARD',
     WhatIfLive: 'WHAT_IF_LIVE',
-    WhatIfSimulation: 'WHAT_IF_SIMULATION'
+    WhatIfSimulation: 'WHAT_IF_SIMULATION',
+    MultiSimulationRun: 'MULTI_SIMULATION_RUN'
 } as const;
 
 export type SimulationStateResponseKindEnum = typeof SimulationStateResponseKindEnum[keyof typeof SimulationStateResponseKindEnum];
@@ -5097,7 +5731,7 @@ export const ClientDemoScenarioControllerApiAxiosParamCreator = function (config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        status: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        status1: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/client-demo`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -5169,10 +5803,10 @@ export const ClientDemoScenarioControllerApiFp = function(configuration?: Config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async status(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStatus>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.status(options);
+        async status1(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStatus>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.status1(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.status']?.[localVarOperationServerIndex]?.url;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.status1']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
     }
@@ -5214,8 +5848,8 @@ export const ClientDemoScenarioControllerApiFactory = function (configuration?: 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        status(options?: RawAxiosRequestConfig): AxiosPromise<DemoStatus> {
-            return localVarFp.status(options).then((request) => request(axios, basePath));
+        status1(options?: RawAxiosRequestConfig): AxiosPromise<DemoStatus> {
+            return localVarFp.status1(options).then((request) => request(axios, basePath));
         },
     };
 };
@@ -5263,8 +5897,8 @@ export class ClientDemoScenarioControllerApi extends BaseAPI {
      * @throws {RequiredError}
      * @memberof ClientDemoScenarioControllerApi
      */
-    public status(options?: RawAxiosRequestConfig) {
-        return ClientDemoScenarioControllerApiFp(this.configuration).status(options).then((request) => request(this.axios, this.basePath));
+    public status1(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).status1(options).then((request) => request(this.axios, this.basePath));
     }
 }
 
@@ -9892,6 +10526,635 @@ export class LocationControllerApi extends BaseAPI {
      */
     public updateLocationmainPath(id: string, mainPathUpdateRequest: MainPathUpdateRequest, options?: RawAxiosRequestConfig) {
         return LocationControllerApiFp(this.configuration).updateLocationmainPath(id, mainPathUpdateRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
+ * MultiSimulationsApi - axios parameter creator
+ * @export
+ */
+export const MultiSimulationsApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        cancel: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('cancel', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}/cancel`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @summary Capture the current topology and create a multi-simulation
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        create: async (multiSimulationConfiguration: MultiSimulationConfiguration, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'multiSimulationConfiguration' is not null or undefined
+            assertParamExists('create', 'multiSimulationConfiguration', multiSimulationConfiguration)
+            const localVarPath = `/api/multi-simulations`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(multiSimulationConfiguration, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @summary Estimate multi-simulation wall time using current topology and worker capacity
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        estimate: async (multiSimulationConfiguration: MultiSimulationConfiguration, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'multiSimulationConfiguration' is not null or undefined
+            assertParamExists('estimate', 'multiSimulationConfiguration', multiSimulationConfiguration)
+            const localVarPath = `/api/multi-simulations/estimate`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(multiSimulationConfiguration, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        get: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('get', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        list: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/multi-simulations`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        report: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('report', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}/report`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        run: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('run', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}/run`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        runs: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('runs', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}/runs`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        status: async (id: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'id' is not null or undefined
+            assertParamExists('status', 'id', id)
+            const localVarPath = `/api/multi-simulations/{id}/status`
+                .replace(`{${"id"}}`, encodeURIComponent(String(id)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * MultiSimulationsApi - functional programming interface
+ * @export
+ */
+export const MultiSimulationsApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = MultiSimulationsApiAxiosParamCreator(configuration)
+    return {
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async cancel(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.cancel(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.cancel']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @summary Capture the current topology and create a multi-simulation
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async create(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.create(multiSimulationConfiguration, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.create']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @summary Estimate multi-simulation wall time using current topology and worker capacity
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async estimate(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationEstimateResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.estimate(multiSimulationConfiguration, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.estimate']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async get(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.get(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.get']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async list(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<MultiSimulationResponse>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.list(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.list']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async report(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationReport>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.report(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.report']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async run(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.run(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.run']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async runs(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<Array<MultiSimulationRun>>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.runs(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.runs']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async status(id: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MultiSimulationResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.status(id, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['MultiSimulationsApi.status']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * MultiSimulationsApi - factory interface
+ * @export
+ */
+export const MultiSimulationsApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = MultiSimulationsApiFp(configuration)
+    return {
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        cancel(id: string, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationResponse> {
+            return localVarFp.cancel(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @summary Capture the current topology and create a multi-simulation
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        create(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationResponse> {
+            return localVarFp.create(multiSimulationConfiguration, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @summary Estimate multi-simulation wall time using current topology and worker capacity
+         * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        estimate(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationEstimateResponse> {
+            return localVarFp.estimate(multiSimulationConfiguration, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        get(id: string, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationResponse> {
+            return localVarFp.get(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        list(options?: RawAxiosRequestConfig): AxiosPromise<Array<MultiSimulationResponse>> {
+            return localVarFp.list(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        report(id: string, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationReport> {
+            return localVarFp.report(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        run(id: string, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationResponse> {
+            return localVarFp.run(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        runs(id: string, options?: RawAxiosRequestConfig): AxiosPromise<Array<MultiSimulationRun>> {
+            return localVarFp.runs(id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {string} id
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        status(id: string, options?: RawAxiosRequestConfig): AxiosPromise<MultiSimulationResponse> {
+            return localVarFp.status(id, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * MultiSimulationsApi - object-oriented interface
+ * @export
+ * @class MultiSimulationsApi
+ * @extends {BaseAPI}
+ */
+export class MultiSimulationsApi extends BaseAPI {
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public cancel(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).cancel(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @summary Capture the current topology and create a multi-simulation
+     * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public create(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).create(multiSimulationConfiguration, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @summary Estimate multi-simulation wall time using current topology and worker capacity
+     * @param {MultiSimulationConfiguration} multiSimulationConfiguration
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public estimate(multiSimulationConfiguration: MultiSimulationConfiguration, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).estimate(multiSimulationConfiguration, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public get(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).get(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public list(options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).list(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public report(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).report(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public run(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).run(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public runs(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).runs(id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof MultiSimulationsApi
+     */
+    public status(id: string, options?: RawAxiosRequestConfig) {
+        return MultiSimulationsApiFp(this.configuration).status(id, options).then((request) => request(this.axios, this.basePath));
     }
 }
 

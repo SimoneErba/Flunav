@@ -199,3 +199,11 @@ Use `./scripts/clear-items.sh` to clear live item state without removing locatio
 - Execute the cleanup with `./scripts/clear-items.sh --yes`.
 - The tool auto-detects the development or standard OrientDB and Redis containers. Use `--orient-container`, `--redis-container`, or `--database` only when targeting a different local Compose environment.
 - Avoid `--allow-running` unless the caller has separately stopped item scheduling and ingestion; it only bypasses the safety check and cannot cancel in-memory scheduled events.
+
+## Benchmarks
+
+Backend benchmark runners live under `backend/src/benchmark` and are separate from JUnit tests. They are not run by `mvn test`; use the Maven `benchmark` profile and `exec:java` as documented in `backend/src/benchmark/README.md`.
+
+The multi-simulation benchmark creates topology and captures the multi-simulation baseline before timing starts. Treat the reported wall time as the actual multi-simulation execution time from `multiSimulationService.start(...)` until terminal status. Do not add assertions to these runners.
+
+Use fixed presets for comparable results, and write outputs under `backend/target/benchmark-results/`. That directory is ignored by git. To compare scheduler pressure, rerun the same presets with `-Dflunav.benchmark.concurrent-runs=<n>`; when running several presets in one app lifetime, this value is an app startup property.

@@ -354,6 +354,9 @@ public class HistoricalGraphBuilder {
                 if (graphData.getConveyors() != null) {
                     for (ConveyorResponse convData : graphData.getConveyors()) {
                         conveyorMap.put(convData.getId(), convData);
+                        if (Boolean.TRUE.equals(convData.getFlowStopped())) {
+                            liveConveyorRepository.setFlowStopped(convData.getId(), true);
+                        }
                         ORID sourceRid = locationIdToRidMap.get(convData.getSourceId());
                         ORID targetRid = locationIdToRidMap.get(convData.getTargetId());
 
@@ -481,6 +484,14 @@ public class HistoricalGraphBuilder {
                     itemData.getPath());
             if (!Boolean.TRUE.equals(itemData.getActive())) {
                 liveItemRepository.setMovementPaused(itemData.getId(), true);
+            }
+            if (Boolean.TRUE.equals(itemData.getFlowPaused())) {
+                liveItemRepository.setFlowPaused(itemData.getId(), true);
+            }
+            if (itemData.getMovementCheckTimestamp() != null) {
+                liveItemRepository.setMovementCheck(itemData.getId(), itemData.getMovementCheckTimestamp());
+                simulationService.addInternalEvent(new flunav.events.ItemMovementCheckEvent(
+                        itemData.getId(), positionId, itemData.getMovementCheckTimestamp()));
             }
             if (itemData.getPlannedPositionId() != null
                     && itemData.getPlannedPositionType() != null

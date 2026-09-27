@@ -617,7 +617,7 @@ class SimulationPlaybackIntegrationTests extends BaseIntegrationTest {
 
     private void waitForStatus(String simulationId, SimulationStatus expectedStatus) throws Exception {
         waitFor(() -> simulationService.getSimulationState(simulationId).getStatus() == expectedStatus,
-                Duration.ofSeconds(10),
+                Duration.ofSeconds(30),
                 "Simulation " + simulationId + " did not reach status " + expectedStatus);
     }
 

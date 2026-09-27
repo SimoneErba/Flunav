@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://127.0.0.1:18080";
 const frontendUrl = process.env.E2E_FRONTEND_URL ?? "http://localhost:5173";
+const frontendPort = new URL(frontendUrl).port || "5173";
 const reuseServers = process.env.E2E_REUSE_SERVERS === "true";
 const allowNonIsolatedBackend = process.env.E2E_ALLOW_NON_ISOLATED_BACKEND === "true";
 
@@ -39,7 +40,7 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "pnpm dev --host 127.0.0.1 --port 5173",
+      command: `pnpm dev --host 127.0.0.1 --port ${frontendPort}`,
       cwd: ".",
       url: frontendUrl,
       timeout: 120_000,
