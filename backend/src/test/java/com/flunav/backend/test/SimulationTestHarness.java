@@ -6,6 +6,8 @@ import com.flunav.backend.services.GraphService;
 import com.flunav.backend.services.OrientDBService;
 import com.flunav.backend.services.TimeService;
 import com.flunav.backend.services.SimulationService;
+import com.flunav.backend.repositories.LiveSimulationRepository;
+import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.graph.GraphData;
 import com.flunav.backend.models.response.ItemResponse;
 import com.flunav.backend.domain.Conveyor;
@@ -34,6 +36,7 @@ public class SimulationTestHarness {
     private final GraphService graphService;
     private final TimeService timeService;
     private final SimulationService simulationService;
+    private final LiveSimulationRepository simulations;
     private final ConveyorService conveyorService;
     private final OrientDBService orientDBService;
     private final StringRedisTemplate redisTemplate;
@@ -45,6 +48,7 @@ public class SimulationTestHarness {
             GraphService graphService,
             TimeService timeService,
             SimulationService simulationService,
+            LiveSimulationRepository simulations,
             ConveyorService conveyorService,
             OrientDBService orientDBService,
             StringRedisTemplate redisTemplate) {
@@ -52,6 +56,7 @@ public class SimulationTestHarness {
         this.graphService = graphService;
         this.timeService = timeService;
         this.simulationService = simulationService;
+        this.simulations = simulations;
         this.conveyorService = conveyorService;
         this.orientDBService = orientDBService;
         this.redisTemplate = redisTemplate;
@@ -80,7 +85,9 @@ public class SimulationTestHarness {
     }
 
     public Conveyor getConveyor(String id) {
-        return conveyorService.getConveyorById(id);
+        try (var ctx = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            return conveyorService.getConveyorById(id);
+        }
     }
 
     /**
@@ -88,11 +95,13 @@ public class SimulationTestHarness {
      */
     public void startAt(Instant startTime) {
         this.currentTurnTime = startTime;
-        System.setProperty("simulation.id", "test-sim");
 
         orientDBService.createInMemoryDatabase("test-sim");
 
         timeService.useFixedClock(startTime);
+        // Eager storage avoids a historical build racing with the topology created by the test.
+        simulations.saveState(new LiveSimulationRepository.SimulationMetadata(
+                "test-sim", startTime, SimulationStatus.READY, startTime, startTime, 1.0, 100.0));
         simulationService.getOrCreateSimulation("test-sim", startTime);
     }
 

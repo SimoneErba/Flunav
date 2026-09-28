@@ -63,7 +63,7 @@ class WhatIfSimulationIntegrationTests extends BaseIntegrationTest {
     void setup() throws Exception {
         System.setProperty("disable-sim-cleanup", "true");
         reset();
-        now = Instant.now();
+        now = Instant.ofEpochMilli(Instant.now().toEpochMilli());
         time.useFixedClock(now);
         events.process(new LocationCreatedEvent("entry", "Entry", true, 0.0, 0.0, LocationType.GENERIC,
                 100, new HashMap<>()), false).join();

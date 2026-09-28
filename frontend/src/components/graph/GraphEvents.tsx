@@ -12,10 +12,12 @@ import { useGraphAnimation } from "./hooks/useGraphAnimation";
 import { useGraphLiveEvents } from "./hooks/useGraphLiveEvents";
 import { useGraphInteractions } from "./hooks/useGraphInteractions";
 import { HoverOverlay } from "./HoverOverlay";
-import { ItemEditor, ItemEditorData } from "../editors/item.editor";
+import { ItemEditor } from "../editors/item.editor";
 import { HoverTarget } from "./DisplayGraph";
 import { LiveHud } from "./LiveHud";
 import { useSimulationContext } from "../../context/simulation.context";
+
+import type { GraphSelectionState } from "./hooks/useGraphSelection";
 
 interface GraphEventsProps {
   initialGraphData: GraphData;
@@ -23,8 +25,7 @@ interface GraphEventsProps {
   now: ClockReader;
   hoverTarget: HoverTarget | null;
   setHoverTarget: (t: HoverTarget | null) => void;
-  selectedItemData: ItemEditorData | null;
-  setSelectedItemData: React.Dispatch<React.SetStateAction<ItemEditorData | null>>;
+  selection: GraphSelectionState;
   colorOverrides?: DisplayRuleColorResult | null;
 }
 
@@ -122,13 +123,14 @@ const GraphTestApiBridge = ({
 
 export const GraphEvents = ({ 
     initialGraphData, simulationId, now,
-    hoverTarget, setHoverTarget, selectedItemData, setSelectedItemData, colorOverrides
+    hoverTarget, setHoverTarget, selection, colorOverrides
 }: GraphEventsProps) => {
+  const { selectedItemData, setSelectedItemData, clearSelection } = selection;
   const { designMode } = useSimulationContext();
   useEffect(() => {
     setHoverTarget(null);
-    setSelectedItemData(null);
-  }, [simulationId, designMode, setHoverTarget, setSelectedItemData]);
+    clearSelection();
+  }, [simulationId, designMode, setHoverTarget, clearSelection]);
   const { activeItemsRef, edgeKeysRef } = useGraphRuntime();
   const updateSelectedItem = useCallback((itemId: string, item: ItemResponse) => {
     setSelectedItemData(current => current?.id === itemId
@@ -154,7 +156,7 @@ export const GraphEvents = ({
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
       lineCoordinates, draggedNodeRef, setIsDetailsOpen, handleItemSubmit, handleItemDelete
-  } = useGraphInteractions(adjustItemsForSpeedChange, { setHoverTarget, selectedItemData, setSelectedItemData }, simulationId);
+  } = useGraphInteractions(adjustItemsForSpeedChange, { setHoverTarget, ...selection }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
   useGraphAnimation(activeItemsRef, edgeKeysRef, now, draggedNodeRef);

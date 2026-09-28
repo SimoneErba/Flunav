@@ -16,7 +16,8 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
         responseType: 'blob',
       });
 
-      const blob = response.data as Blob; // Access blob from response.data
+      const exportedData: unknown = response.data;
+      const blob = exportedData instanceof Blob ? exportedData : new Blob([String(exportedData)]);
       const disposition = response.headers['content-disposition'] ?? ''; // Access headers as an object
       const filename = disposition.match(/filename="?([^"]+)"?/)?.[1] ?? 'graph.flugraph';
 

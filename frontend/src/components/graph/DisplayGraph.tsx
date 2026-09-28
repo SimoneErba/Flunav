@@ -6,6 +6,7 @@ import "@react-sigma/core/lib/react-sigma.min.css";
 import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
 import type { ClockReader } from "./hooks/useSimulationClock";
 import { GraphEvents } from "./GraphEvents";
+import { useGraphSelection } from "./hooks/useGraphSelection";
 import { GraphHighlighter } from "./GraphHighlighter";
 import { ItemEditorData } from "../editors/item.editor";
 import { NodeBorderedSquareProgram } from "./rendering/NodeBorderedSquareProgram";
@@ -33,9 +34,9 @@ export const DisplayGraph = ({
 }: DisplayGraphProps) => {
     
     const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null);
-    const [selectedItemData, setSelectedItemData] = useState<ItemEditorData | null>(null);
+    const selection = useGraphSelection();
     
-    const highlightedItem = selectedItemData;
+    const highlightedItem = selection.selectedItemData;
 
     /**
      * Keeps Sigma renderer settings stable across graph data updates.
@@ -73,8 +74,7 @@ export const DisplayGraph = ({
                     now={now}
                     hoverTarget={hoverTarget}
                     setHoverTarget={setHoverTarget}
-                    selectedItemData={selectedItemData}
-                    setSelectedItemData={setSelectedItemData}
+                    selection={selection}
                     colorOverrides={colorOverrides}
                 />
             </SigmaContainer>

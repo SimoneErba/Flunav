@@ -80,7 +80,7 @@ class SensorMappingIntegrationTests extends BaseIntegrationTest {
     void sensorPositionResolvesToConfiguredConveyorProgressAndIsIncludedInGraphData() {
         createTopology();
         createItem("item-1", "source");
-        Instant now = Instant.parse("2026-09-19T10:00:00Z");
+        Instant now = Instant.now().plusSeconds(60);
 
         eventProcessor.processEvent(new MapSensorMappingsEvent(
                 List.of(new SensorMappingRecord("Scanner-A", "belt", 25.0))), false);
@@ -100,7 +100,7 @@ class SensorMappingIntegrationTests extends BaseIntegrationTest {
     void topologyIdTakesPrecedenceOverMatchingSensorAlias() {
         createTopology();
         createItem("item-2", "source");
-        Instant now = Instant.parse("2026-09-19T10:00:00Z");
+        Instant now = Instant.now().plusSeconds(60);
 
         eventProcessor.processEvent(new MapSensorMappingsEvent(
                 List.of(new SensorMappingRecord("belt", "other-belt", 80.0))), false);

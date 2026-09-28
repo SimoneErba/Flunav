@@ -26,3 +26,7 @@ declare module "node:child_process" {
 declare const Buffer: {
   from(input: string): Buffer;
 };
+
+declare module "node:fs/promises" {
+  export function writeFile(path: string, data: string, encoding: "utf8"): Promise<void>;
+}

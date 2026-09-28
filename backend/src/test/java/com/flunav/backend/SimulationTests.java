@@ -135,12 +135,16 @@ class SimulationTests extends BaseIntegrationTest {
         var item = sim.getItem("checkpoint-item").orElseThrow();
         assertEquals("checkpoint-conveyor", item.getCurrentEdgeId());
         assertEquals(0.05, item.getProgress(), 0.001, "Item should have checkpointed conveyor progress");
-        assertEquals(start, item.getEntryTimestamp(), "Entry timestamp should describe the same conveyor position");
+        assertEquals(checkpoint, item.getEntryTimestamp(), "Entry timestamp should anchor the checkpoint progress");
 
-        double frontendDerivedProgress = (Duration.between(item.getEntryTimestamp(), checkpoint).toMillis() / 1000.0)
-                / 100.0;
-        assertEquals(item.getProgress(), frontendDerivedProgress, 0.001,
-                "Frontend-derived progress should match backend progress");
+        Instant nextCheckpoint = checkpoint.plusSeconds(5);
+        double frontendDerivedProgress = item.getProgress()
+                + (Duration.between(item.getEntryTimestamp(), nextCheckpoint).toMillis() / 1000.0) / 100.0;
+        sim.advanceTo(nextCheckpoint);
+        var advancedItem = sim.getItem("checkpoint-item").orElseThrow();
+        assertEquals(0.10, advancedItem.getProgress(), 0.001);
+        assertEquals(advancedItem.getProgress(), frontendDerivedProgress, 0.001,
+                "Frontend-derived progress should match backend progress after the checkpoint");
     }
 
     @Test

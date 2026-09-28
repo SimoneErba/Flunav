@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { GraphData, GraphApi, Configuration } from '../api-client';
 import { useApi } from './useApi';
 import { baseURL } from '../api/config';
@@ -16,6 +16,17 @@ export const useGraph = () => {
     const wasConnected = useRef(connected);
     const hasConnected = useRef(connected);
     const requestVersion = useRef(0);
+    const pendingRefresh = useRef<number | null>(null);
+    const snapshotReady = !activeSimulation || !['QUEUED', 'BUILDING', 'FAILED'].includes(activeSimulation.status ?? '');
+
+    // Invalidate in-flight requests even when the next simulation is still building.
+    useLayoutEffect(() => {
+        requestVersion.current++;
+        if (pendingRefresh.current !== null) {
+            window.clearTimeout(pendingRefresh.current);
+            pendingRefresh.current = null;
+        }
+    }, [activeSimulation?.id, designMode, snapshotReady]);
 
     /**
      * Fetches graph data.
@@ -66,21 +77,37 @@ export const useGraph = () => {
         }
     }, [graphApi, clientId, designMode]);
 
-    const snapshotReady = !activeSimulation || !['QUEUED', 'BUILDING', 'FAILED'].includes(activeSimulation.status ?? '');
+    // Coalesce READY, reconnect, and mutation triggers in the same browser turn.
+    const requestRefresh = useCallback(() => {
+        if (!snapshotReady || pendingRefresh.current !== null) return;
+        pendingRefresh.current = window.setTimeout(() => {
+            pendingRefresh.current = null;
+            void refetchGraphData(activeSimulation?.id ?? null).catch((): void => undefined);
+        }, 0);
+    }, [activeSimulation?.id, snapshotReady, refetchGraphData]);
+
+    useEffect(() => {
+        const version = requestVersion;
+        const pending = pendingRefresh;
+        return () => {
+            version.current++;
+            if (pending.current !== null) window.clearTimeout(pending.current);
+        };
+    }, []);
 
     // A mode transition or READY status establishes which snapshot is authoritative.
     // Keeping this trigger here prevents status, URL, and reconnect handlers from
     // each issuing a competing graph request.
     useEffect(() => {
         if (!snapshotReady) return;
-        void refetchGraphData(activeSimulation?.id ?? null).catch((): void => undefined);
-    }, [activeSimulation?.id, snapshotReady, designMode, refetchGraphData]);
+        requestRefresh();
+    }, [activeSimulation?.id, snapshotReady, designMode, requestRefresh]);
 
     useEffect(() => {
-        const refresh = () => { void refetchGraphData(activeSimulation?.id ?? null).catch(console.warn); };
+        const refresh = () => requestRefresh();
         window.addEventListener('scenario-mutated', refresh);
         return () => window.removeEventListener('scenario-mutated', refresh);
-    }, [activeSimulation?.id, refetchGraphData]);
+    }, [requestRefresh]);
 
     useEffect(() => {
         const reconnected = connected && !wasConnected.current;
@@ -93,8 +120,8 @@ export const useGraph = () => {
         if (!snapshotReady) return;
         // A socket reconnect can leave a short interval of missed entity events;
         // reconcile from the authoritative graph snapshot before live updates resume.
-        void refetchGraphData(activeSimulation?.id ?? null).catch((): void => undefined);
-    }, [activeSimulation?.id, connected, refetchGraphData, snapshotReady]);
+        requestRefresh();
+    }, [connected, requestRefresh, snapshotReady]);
 
     return { graphData, loading, error, refetchGraphData };
 };

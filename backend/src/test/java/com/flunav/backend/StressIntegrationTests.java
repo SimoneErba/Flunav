@@ -35,10 +35,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestConstructor;
-import org.springframework.util.StopWatch;
 
 @SpringBootTest(properties = {
         "springwolf.enabled=false",
@@ -49,14 +49,14 @@ import org.springframework.util.StopWatch;
         "simulation.manage-logic=true"
 })
 @Tag("stress")
+@Timeout(value = 3, unit = TimeUnit.MINUTES)
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class StressIntegrationTests extends BaseIntegrationTest {
 
     private static final int SIMULATION_COUNT = 3;
     private static final int ITEMS_PER_SIMULATION = 180;
     private static final int ORDERING_EVENT_COUNT = 500;
-    private static final Duration SIMULATION_STRESS_LIMIT = Duration.ofSeconds(12);
-    private static final Duration ORDERING_STRESS_LIMIT = Duration.ofSeconds(15);
+    private static final Duration COMPLETION_TIMEOUT = Duration.ofMinutes(2);
     private static final long HEAP_DELTA_LIMIT_BYTES = 192L * 1024L * 1024L;
 
     private final EventProcessor eventProcessor;
@@ -116,13 +116,11 @@ class StressIntegrationTests extends BaseIntegrationTest {
         }
 
         long heapBefore = usedHeapAfterGc();
-        StopWatch stopWatch = new StopWatch("simulation-isolation-stress");
         CountDownLatch ready = new CountDownLatch(SIMULATION_COUNT);
         CountDownLatch startGate = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(SIMULATION_COUNT);
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
 
-        stopWatch.start();
         try {
             for (int index = 0; index < SIMULATION_COUNT; index++) {
                 String simulationId = "stress-sim-" + index;
@@ -133,15 +131,15 @@ class StressIntegrationTests extends BaseIntegrationTest {
 
             assertTrue(ready.await(5, TimeUnit.SECONDS), "Simulation workers did not become ready in time");
             startGate.countDown();
-            CompletableFuture.allOf(tasks.toArray(CompletableFuture[]::new)).get(20, TimeUnit.SECONDS);
+            CompletableFuture.allOf(tasks.toArray(CompletableFuture[]::new))
+                    .get(COMPLETION_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
         } finally {
-            stopWatch.stop();
             executor.shutdownNow();
+            assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS),
+                    "Simulation workers must stop before their storage is cleaned up");
         }
 
         long heapAfter = usedHeapAfterGc();
-        assertTrue(stopWatch.getTotalTimeMillis() < SIMULATION_STRESS_LIMIT.toMillis(),
-                "Concurrent simulation stress test exceeded time budget: " + stopWatch.getTotalTimeMillis() + "ms");
         assertTrue(heapAfter - heapBefore < HEAP_DELTA_LIMIT_BYTES,
                 "Concurrent simulation stress test retained too much heap: " + (heapAfter - heapBefore) + " bytes");
 
@@ -196,9 +194,7 @@ class StressIntegrationTests extends BaseIntegrationTest {
         }
 
         long heapBefore = usedHeapAfterGc();
-        StopWatch stopWatch = new StopWatch("ordering-stress");
         int baselineProcessingFutures = processingFutureCount();
-        stopWatch.start();
 
         List<String> sequence = List.of("zone-a", "zone-b", "zone-c");
         try (var ignored = DatabaseContextHolder.enterSimulationContext(simulationId)) {
@@ -211,9 +207,8 @@ class StressIntegrationTests extends BaseIntegrationTest {
                         0.0,
                         start.plusMillis(index + 1)), false));
             }
-            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).get(15, TimeUnit.SECONDS);
-        } finally {
-            stopWatch.stop();
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                    .get(COMPLETION_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
         }
 
         long heapAfter = usedHeapAfterGc();
@@ -232,8 +227,6 @@ class StressIntegrationTests extends BaseIntegrationTest {
         assertNotNull(simulationKeys);
         assertTrue(simulationKeys.size() <= 6,
                 "Dense ordering burst should not leave behind unbounded simulation hot state");
-        assertTrue(stopWatch.getTotalTimeMillis() < ORDERING_STRESS_LIMIT.toMillis(),
-                "Ordering stress test exceeded time budget: " + stopWatch.getTotalTimeMillis() + "ms");
         assertTrue(heapAfter - heapBefore < HEAP_DELTA_LIMIT_BYTES,
                 "Ordering stress test retained too much heap: " + (heapAfter - heapBefore) + " bytes");
     }

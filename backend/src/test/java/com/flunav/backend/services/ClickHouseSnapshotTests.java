@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.clickhouse.ClickHouseContainer;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -121,6 +122,17 @@ class ClickHouseSnapshotTests {
                                 null)),
                 snapshotTimestamp);
 
+        graphData.getConveyors().getFirst().setFlowStopped(true);
+        ItemResponse stagedItem = graphData.getItems().getFirst();
+        stagedItem.setEffectivePriority(0.9);
+        stagedItem.setRushActive(true);
+        stagedItem.setPlannedPositionId("location-2");
+        stagedItem.setPlannedPositionType(PositionType.LOCATION);
+        stagedItem.setPlannedTransitionTimestamp(snapshotTimestamp.plusSeconds(2));
+        stagedItem.setStagingOrder(3);
+        stagedItem.setFlowPaused(true);
+        stagedItem.setMovementCheckTimestamp(snapshotTimestamp.plusSeconds(1));
+
         clickHouseService.saveSnapshot(UUID.randomUUID().toString(), snapshotTimestamp, graphData);
 
         Optional<ClickHouseService.Snapshot> restored =
@@ -155,6 +167,50 @@ class ClickHouseSnapshotTests {
             assertTrue(resultSet.getString(3).contains("routingStatusUpdatedAt Nullable(String)"));
             assertEquals("String", resultSet.getString(4));
             assertTrue(resultSet.getString(5).contains("Nullable(String)"));
+        }
+    }
+
+    @Test
+    void snapshotSchemaUpgradeIsRepeatableAndPreservesExistingRows() throws Exception {
+        String schema;
+        try (var input = getClass().getResourceAsStream("/init-clickhouse/001_init_snapshot.sql")) {
+            schema = new String(java.util.Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8)
+                    .replace("default.snapshots", "default.snapshot_upgrade_test");
+        }
+        String legacyCreate = schema.substring(0, schema.indexOf(';'));
+        for (String field : List.of("flowStopped", "effectivePriority", "rushActive", "plannedPositionId",
+                "plannedPositionType", "plannedTransitionTimestamp", "stagingOrder", "flowPaused",
+                "movementCheckTimestamp")) {
+            legacyCreate = legacyCreate.replaceAll("(?m)^\\s*" + field + " [^\\n]+\\n", "");
+        }
+        legacyCreate = legacyCreate.replace("customBorderWidth Nullable(Float64),", "customBorderWidth Nullable(Float64)");
+        try (Connection connection = DriverManager.getConnection(
+                CLICKHOUSE.getJdbcUrl(), CLICKHOUSE.getUsername(), CLICKHOUSE.getPassword());
+                Statement statement = connection.createStatement()) {
+            try {
+                statement.execute(legacyCreate);
+                statement.execute("""
+                        INSERT INTO snapshot_upgrade_test (snapshot_id, timestamp, graph_data)
+                        VALUES (generateUUIDv4(), '2026-06-13 10:15:30.123',
+                            '{"timestamp":"2026-06-13T10:15:30.123Z","items":[{"id":"legacy-item","priority":0.7}]}')
+                        """);
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    for (String sql : schema.split(";")) {
+                        if (!sql.isBlank()) statement.execute(sql);
+                    }
+                }
+                try (ResultSet result = statement.executeQuery("""
+                        SELECT count(), any(graph_data.items.id)[1], any(graph_data.items.priority)[1]
+                        FROM snapshot_upgrade_test
+                        """)) {
+                    assertTrue(result.next());
+                    assertEquals(1, result.getLong(1));
+                    assertEquals("legacy-item", result.getString(2));
+                    assertEquals(0.7, result.getDouble(3));
+                }
+            } finally {
+                statement.execute("DROP TABLE IF EXISTS snapshot_upgrade_test");
+            }
         }
     }
 

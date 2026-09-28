@@ -13,7 +13,7 @@ const STYLES = {
     dimmed: { color: "#d1d5db", size: 1, labelColor: "transparent" } 
 };
 
-export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps) => {
+export const GraphHighlighter = ({ highlightedItem }: GraphHighlighterProps): null => {
     const sigma = useSigma();
     const graph = sigma.getGraph();
 

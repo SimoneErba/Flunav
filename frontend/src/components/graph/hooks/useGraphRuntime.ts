@@ -7,8 +7,13 @@ export class ActiveItems extends Map<string, ItemResponse> {
     revision = 0;
 
     override set(key: string, value: ItemResponse): this {
+        const previous = this.get(key);
         super.set(key, value);
-        this.revision++;
+        if (!previous || previous.currentEdgeId !== value.currentEdgeId
+            || previous.stagingOrder !== value.stagingOrder
+            || previous.entryTimestamp !== value.entryTimestamp || previous.progress !== value.progress) {
+            this.revision++;
+        }
         return this;
     }
 

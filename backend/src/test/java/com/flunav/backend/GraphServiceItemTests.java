@@ -1298,7 +1298,7 @@ class GraphServiceItemTests extends BaseIntegrationTest {
             ItemMovementCheckEvent scheduled = assertInstanceOf(ItemMovementCheckEvent.class,
                     itemMovementProcessor.getScheduledEvent("guard-extra"));
             assertEquals("guard-cd", scheduled.getConveyorId());
-            assertEquals(future.plusSeconds(10), scheduled.getTimestamp());
+            assertEquals(Instant.ofEpochMilli(future.plusSeconds(10).toEpochMilli()), scheduled.getTimestamp());
         } finally {
             itemMovementProcessor.cancelScheduledEvent("guard-extra");
         }

@@ -10,6 +10,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.clickhouse.ClickHouseContainer;
@@ -18,6 +19,8 @@ import org.testcontainers.orientdb.OrientDBContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
+// Each class owns its Spring workers; cached schedulers must not outlive its database resets.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public abstract class BaseIntegrationTest {
 
         static final RedisContainer REDIS_CONTAINER = new RedisContainer(DockerImageName.parse("redis:7.0-alpine"));
@@ -43,6 +46,7 @@ public abstract class BaseIntegrationTest {
                 registry.add("spring.data.redis.host", REDIS_CONTAINER::getHost);
                 registry.add("spring.data.redis.port", () -> REDIS_CONTAINER.getMappedPort(6379));
                 registry.add("metric-snapshot.enabled", () -> "false");
+                registry.add("anomaly.live-scheduler.enabled", () -> "false");
 
                 registry.add("clickhouse.url",
                                 () -> String.format("http://%s:%d/default", CLICKHOUSE_CONTAINER.getHost(),

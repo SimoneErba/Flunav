@@ -305,8 +305,11 @@ public class ItemMovementProcessor {
                 || state.isMovementPaused()) return;
         Conveyor feeder = topologyProvider.getConveyorById(check.getConveyorId());
         if (feeder == null) return;
-        String nextId = calculateNextConveyor(check.getEntityId(), feeder.getTargetLocationId(),
-                feeder.getId(), shouldBroadcast, check.getTimestamp());
+        var targetLocation = topologyProvider.getLocationById(feeder.getTargetLocationId());
+        // Timed nodes own a dwell interval before selecting their outgoing conveyor.
+        String nextId = targetLocation != null && targetLocation.getType() == LocationType.TIMED_NODE
+                ? null : calculateNextConveyor(check.getEntityId(), feeder.getTargetLocationId(),
+                        feeder.getId(), shouldBroadcast, check.getTimestamp());
         String lockKey = DatabaseContextHolder.getSimulationId() + ":" +
                 (nextId != null ? nextId : feeder.getTargetLocationId());
         synchronized (admissionLocks[Math.floorMod(lockKey.hashCode(), admissionLocks.length)]) {

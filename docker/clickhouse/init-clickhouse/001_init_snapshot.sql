@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             properties JSON,
             customColor Nullable(String),
             operatorEnabled Nullable(Bool),
+            flowStopped Nullable(Bool),
             activeAlarms Array(Tuple(
                 alarmId Nullable(String),
                 conveyorId Nullable(String),
@@ -64,6 +65,8 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             name Nullable(String),
             active Nullable(Bool),
             priority Float64,
+            effectivePriority Nullable(Float64),
+            rushActive Nullable(Bool),
             properties JSON,
             locationId Nullable(String),
             currentEdgeId Nullable(String),
@@ -76,7 +79,13 @@ CREATE TABLE IF NOT EXISTS default.snapshots
             path Variant(Array(String), Nothing),
             customColor Nullable(String),
             customBorderColor Nullable(String),
-            customBorderWidth Nullable(Float64)
+            customBorderWidth Nullable(Float64),
+            plannedPositionId Nullable(String),
+            plannedPositionType Nullable(String),
+            plannedTransitionTimestamp Nullable(String),
+            stagingOrder Nullable(Int32),
+            flowPaused Nullable(Bool),
+            movementCheckTimestamp Nullable(String)
         ))
     )
 )
@@ -129,6 +138,7 @@ ALTER TABLE default.snapshots
             properties JSON,
             customColor Nullable(String),
             operatorEnabled Nullable(Bool),
+            flowStopped Nullable(Bool),
             activeAlarms Array(Tuple(
                 alarmId Nullable(String),
                 conveyorId Nullable(String),
@@ -148,6 +158,8 @@ ALTER TABLE default.snapshots
             name Nullable(String),
             active Nullable(Bool),
             priority Float64,
+            effectivePriority Nullable(Float64),
+            rushActive Nullable(Bool),
             properties JSON,
             locationId Nullable(String),
             currentEdgeId Nullable(String),
@@ -160,6 +172,12 @@ ALTER TABLE default.snapshots
             path Variant(Array(String), Nothing),
             customColor Nullable(String),
             customBorderColor Nullable(String),
-            customBorderWidth Nullable(Float64)
+            customBorderWidth Nullable(Float64),
+            plannedPositionId Nullable(String),
+            plannedPositionType Nullable(String),
+            plannedTransitionTimestamp Nullable(String),
+            stagingOrder Nullable(Int32),
+            flowPaused Nullable(Bool),
+            movementCheckTimestamp Nullable(String)
         ))
     );

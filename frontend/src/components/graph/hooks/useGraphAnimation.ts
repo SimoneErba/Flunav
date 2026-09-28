@@ -25,6 +25,15 @@ export const useGraphAnimation = (
             graph.setNodeAttribute(itemId, key, value);
             return true;
         };
+        const entryTimes = new WeakMap<ItemResponse, number>();
+        const entryTime = (item: ItemResponse) => {
+            let timestamp = entryTimes.get(item);
+            if (timestamp === undefined) {
+                timestamp = new Date(item.entryTimestamp ?? 0).getTime();
+                entryTimes.set(item, timestamp);
+            }
+            return timestamp;
+        };
         const updateStaging = () => {
             const items = activeItemsRef.current;
             if (staging.current.itemRevision === items.revision
@@ -44,8 +53,7 @@ export const useGraphAnimation = (
                     if (left.stagingOrder !== undefined && right.stagingOrder !== undefined) {
                         return left.stagingOrder - right.stagingOrder;
                     }
-                    const timeDifference = new Date(left.entryTimestamp ?? 0).getTime()
-                        - new Date(right.entryTimestamp ?? 0).getTime();
+                    const timeDifference = entryTime(left) - entryTime(right);
                     return timeDifference || (right.progress ?? 0) - (left.progress ?? 0)
                         || leftId.localeCompare(rightId);
                 });
@@ -60,22 +68,36 @@ export const useGraphAnimation = (
             let needsRefresh = false;
             const stagingIndexes = updateStaging();
             const virtualTime = now();
+            // Many items share a conveyor; read its visible geometry once per frame.
+            const edges = new Map<string, {
+                attrs: ReturnType<typeof graph.getEdgeAttributes>;
+                source: ReturnType<typeof graph.getNodeAttributes>;
+                target: ReturnType<typeof graph.getNodeAttributes>;
+            }>();
+            const resolveEdge = (id: string) => {
+                let resolved = edges.get(id);
+                if (resolved) return resolved;
+                const key = edgeKeysRef.current.get(id);
+                if (!key || !graph.hasEdge(key)) return undefined;
+                resolved = { attrs: graph.getEdgeAttributes(key),
+                    source: graph.getNodeAttributes(graph.source(key)),
+                    target: graph.getNodeAttributes(graph.target(key)) };
+                edges.set(id, resolved);
+                return resolved;
+            };
             activeItemsRef.current.forEach((item, itemId) => {
                 if (itemId === draggedNodeRef.current || !graph.hasNode(itemId)) return;
                 if (item.currentEdgeId) {
-                    const edge = edgeKeysRef.current.get(item.currentEdgeId);
-                    if (!edge || !graph.hasEdge(edge)) return;
-                    const attrs = graph.getEdgeAttributes(edge);
-                    const source = graph.getNodeAttributes(graph.source(edge));
-                    const target = graph.getNodeAttributes(graph.target(edge));
+                    const edge = resolveEdge(item.currentEdgeId);
+                    if (!edge) return;
+                    const { attrs, source, target } = edge;
                     const length = Number(attrs.length);
                     const speed = Number(attrs.speed);
                     const checkpointProgress = Math.min(1, Math.max(0, item.progress ?? 0));
                     let progress = checkpointProgress;
                     if (item.active !== false && !item.flowPaused && !attrs.flowStopped
                         && speed > 0 && length > 0) {
-                        const entryTime = new Date(item.entryTimestamp).getTime();
-                        const elapsed = Math.max(0, virtualTime - entryTime);
+                        const elapsed = Math.max(0, virtualTime - entryTime(item));
                         progress = Math.min(1, checkpointProgress + elapsed / ((length / speed) * 1000));
                     }
                     if (attrs.conveyorType === "STAGING" && length > 0) {

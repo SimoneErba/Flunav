@@ -72,7 +72,7 @@ class AccumulationTests extends BaseIntegrationTest {
                 // Create item that WANTS to go to chute
                 sim.applyEvent(new ItemCreatedEvent("item-1", "Box", 1.0, true, "start", PositionType.LOCATION, 0.0,
                                 new HashMap<>(), start));
-                sim.applyEvent(new flunav.events.ItemDestinationEvent("item-1", "chute"));
+                sim.applyEvent(new flunav.events.ItemDestinationEvent("item-1", "chute", start));
 
                 // Advance past junction (10s to reach junction)
                 sim.advanceSeconds(15);
@@ -153,5 +153,6 @@ class AccumulationTests extends BaseIntegrationTest {
                 if (sim != null) {
                         sim.reset();
                 }
+                System.clearProperty("disable-sim-cleanup");
         }
 }
