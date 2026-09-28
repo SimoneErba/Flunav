@@ -29,3 +29,5 @@ Snapshot JSON tuples include rush/effective priority, flow stops, staging plans,
 
 Integration classes close their Spring contexts after each class so background workers cannot race with the next class's storage resets. The deterministic simulation harness creates READY metadata directly instead of starting a historical build; anomaly detector tests drive ticks explicitly with the live anomaly scheduler disabled.
 Stress integration tests bound completion and verify isolation, ordering, heap retention, and state cleanup. Fixed execution-time comparisons belong in the separate benchmark runners. Conveyor checkpoint responses pair progress with the checkpoint timestamp; browser animation adds elapsed motion to that progress.
+
+The Commands panel launches the rollers and belt merge through `ClientDemoScenarioController.startConveyorSpacing` → `ConveyorSpacingDemoScenarioService`. Setup applies domain events inside an isolated What If context; the existing simulation queue owns all subsequent movement. `simulator/ConveyorSpacingSimulation` supplies the equivalent RabbitMQ scenario via `conveyor-spacing`.

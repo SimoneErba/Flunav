@@ -5731,6 +5731,35 @@ export const ClientDemoScenarioControllerApiAxiosParamCreator = function (config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
+        startConveyorSpacing: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            const localVarPath = `/api/client-demo/conveyor-spacing`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
         status1: async (options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/client-demo`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
@@ -5803,6 +5832,17 @@ export const ClientDemoScenarioControllerApiFp = function(configuration?: Config
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
+        async startConveyorSpacing(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<SimulationStateResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.startConveyorSpacing(options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ClientDemoScenarioControllerApi.startConveyorSpacing']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
         async status1(options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DemoStatus>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.status1(options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -5842,6 +5882,14 @@ export const ClientDemoScenarioControllerApiFactory = function (configuration?: 
          */
         startAirportRouting(options?: RawAxiosRequestConfig): AxiosPromise<AirportDemoStartResponse> {
             return localVarFp.startAirportRouting(options).then((request) => request(axios, basePath));
+        },
+        /**
+         *
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        startConveyorSpacing(options?: RawAxiosRequestConfig): AxiosPromise<SimulationStateResponse> {
+            return localVarFp.startConveyorSpacing(options).then((request) => request(axios, basePath));
         },
         /**
          *
@@ -5889,6 +5937,16 @@ export class ClientDemoScenarioControllerApi extends BaseAPI {
      */
     public startAirportRouting(options?: RawAxiosRequestConfig) {
         return ClientDemoScenarioControllerApiFp(this.configuration).startAirportRouting(options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ClientDemoScenarioControllerApi
+     */
+    public startConveyorSpacing(options?: RawAxiosRequestConfig) {
+        return ClientDemoScenarioControllerApiFp(this.configuration).startConveyorSpacing(options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

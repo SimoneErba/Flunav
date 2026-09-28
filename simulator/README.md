@@ -28,14 +28,14 @@ SIMULATION_MODE=rabbit mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexe
 
 ### Conveyor spacing merge
 
-From `simulator/`, run a bounded burst of four items per feeder:
+From `simulator/`, run the rollers and belt merge demo (also available under **Live interactions → Commands → Run rollers and belt merge**):
 
 ```bash
 SIMULATION_MODE=rabbit mvn compile exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="conveyor-spacing"
 SIMULATION_MODE=rabbit SIMULATION_ACTION=destroy mvn exec:java -Dexec.mainClass=flunav.simulator.App -Dexec.args="conveyor-spacing"
 ```
 
-The `CS-` topology merges a BELT and a ROLLER feeder into a slower shared conveyor. Even-numbered items declare `lengthCm=20` (and a lower-priority `length=40`); odd-numbered items use the backend's 15 cm fallback. The run ends after 27 seconds. Destroy removes the eight items and its topology.
+The `CS-` topology merges a BELT and a ROLLER feeder into a shared belt running at 0.05 m/s. Four 20 cm items start on each feeder, with a ninth item occupying the outlet. Both leaders wait at the merge: the belt freezes all occupants, while rollers allow followers to approach and queue. Items resume as the outlet clears. The producer waits 65 seconds, then exits; the backend continues moving remaining items. Destroy removes the nine items and its topology. The frontend launcher runs the same layout in an isolated What If workspace; exit What If to return to live mode.
 
 ### One-minute priority demo
 

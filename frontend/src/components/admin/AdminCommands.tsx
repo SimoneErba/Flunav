@@ -53,6 +53,8 @@ export const AdminCommands = ({
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [airportDemoLoading, setAirportDemoLoading] = useState(false);
+  const [spacingDemoLoading, setSpacingDemoLoading] = useState(false);
+  const demoStarting = demoLoading || airportDemoLoading || spacingDemoLoading;
   const isBottomEmbedded = embedded && dockSide === "bottom";
 
   const resolveConveyorId = async (value: string) => {
@@ -169,6 +171,24 @@ export const AdminCommands = ({
     }
   };
 
+  const startConveyorSpacingDemo = async () => {
+    if (activeSimulation?.id || demoStarting) return;
+    setSpacingDemoLoading(true);
+    try {
+      const response = await clientDemoApi.startConveyorSpacing();
+      setActiveSimulation(response.data);
+      persistentDemoToast(
+        "Merge demo started. Watch the belt stop as a whole while rollers let following items queue at the merge.",
+        "conveyor-spacing-demo-started",
+      );
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message?: string }>;
+      toast.error(axiosError.response?.data?.message || "Unable to start the merge demo");
+    } finally {
+      setSpacingDemoLoading(false);
+    }
+  };
+
   return (
     <div className={embedded ? "p-1" : "bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700 max-w-2xl"}>
       <div className={isBottomEmbedded ? "mb-4 flex items-baseline gap-3" : ""}>
@@ -219,14 +239,26 @@ export const AdminCommands = ({
       </form>
 
       <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Client demo</h3>
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Rollers and belt merge</h3>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Opens an isolated simulation with two feeders and a slow shared belt. At the merge, the belt stops all its items together; rollers stop individual items while followers continue to queue. Flow resumes as space opens.
+        </p>
+        <button
+          type="button"
+          onClick={() => void startConveyorSpacingDemo()}
+          disabled={demoStarting || Boolean(activeSimulation?.id)}
+          className="mt-3 rounded bg-teal-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
+        >
+          {spacingDemoLoading ? "Starting merge demo..." : "Run rollers and belt merge"}
+        </button>
+        <h3 className="mt-4 border-t border-gray-200 pt-4 text-sm font-semibold text-gray-800 dark:border-gray-700 dark:text-gray-100">Client demo</h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Opens an isolated simulation, generates one minute of reduced flow, and keeps the result open until you exit What If. The turbulence alarm appears after about 10 seconds.
         </p>
         <button
           type="button"
           onClick={() => void startClientDemo()}
-          disabled={demoLoading || Boolean(activeSimulation?.id)}
+          disabled={demoStarting || Boolean(activeSimulation?.id)}
           className="mt-3 rounded bg-violet-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-violet-700 disabled:opacity-50"
         >
           {demoLoading ? "Starting demo..." : "Run 1-minute client demo"}
@@ -239,7 +271,7 @@ export const AdminCommands = ({
           <button
             type="button"
             onClick={() => void startAirportRoutingDemo()}
-            disabled={airportDemoLoading || demoLoading || Boolean(activeSimulation?.id)}
+            disabled={demoStarting || Boolean(activeSimulation?.id)}
             className="mt-3 rounded bg-sky-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
           >
             {airportDemoLoading ? "Starting airport demo..." : "Run airport routing demo"}

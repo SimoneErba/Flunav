@@ -25,21 +25,21 @@ final class ConveyorSpacingSimulation implements Simulation {
         SimulatorUtils.createLocation(MERGE, 4, 8, LocationType.JUNCTION);
         SimulatorUtils.createLocation(EXIT, 4, 15, LocationType.CHUTE);
         Thread.sleep(1000);
-        conveyor(BELT_SOURCE, MERGE, 1.0, 0.5, ConveyorType.BELT);
-        conveyor(ROLLER_SOURCE, MERGE, 1.0, 0.5, ConveyorType.ROLLER);
-        conveyor(MERGE, EXIT, 1.5, 0.12, ConveyorType.BELT);
+        conveyor(BELT_SOURCE, MERGE, 3.0, 0.5, ConveyorType.BELT);
+        conveyor(ROLLER_SOURCE, MERGE, 3.0, 0.5, ConveyorType.ROLLER);
+        conveyor(MERGE, EXIT, 1.5, 0.05, ConveyorType.BELT);
         Thread.sleep(1000);
     }
 
     @Override
     public void run() throws Exception {
         requireRabbit();
+        item("OUTLET", conveyorId(MERGE, EXIT), 1, 0.0);
         for (int index = 1; index <= ITEMS_PER_FEEDER; index++) {
-            item("BELT", BELT_SOURCE, index);
-            item("ROLLER", ROLLER_SOURCE, index);
-            Thread.sleep(500);
+            item("BELT", conveyorId(BELT_SOURCE, MERGE), index, 90.0 - (index - 1) * 25.0);
+            item("ROLLER", conveyorId(ROLLER_SOURCE, MERGE), index, 90.0 - (index - 1) * 25.0);
         }
-        Thread.sleep(25000);
+        Thread.sleep(65000);
         SimulatorUtils.logger.info("Conveyor spacing burst finished; run destroy to remove its topology and items.");
     }
 
@@ -50,6 +50,7 @@ final class ConveyorSpacingSimulation implements Simulation {
             SimulatorUtils.sendEvent(new ItemDeletedEvent(itemId("BELT", index)), "DELETE");
             SimulatorUtils.sendEvent(new ItemDeletedEvent(itemId("ROLLER", index)), "DELETE");
         }
+        SimulatorUtils.sendEvent(new ItemDeletedEvent(itemId("OUTLET", 1)), "DELETE");
         SimulatorUtils.deleteConveyor(MERGE, EXIT);
         SimulatorUtils.deleteConveyor(BELT_SOURCE, MERGE);
         SimulatorUtils.deleteConveyor(ROLLER_SOURCE, MERGE);
@@ -60,18 +61,20 @@ final class ConveyorSpacingSimulation implements Simulation {
     }
 
     private void conveyor(String from, String to, double length, double speed, ConveyorType type) throws Exception {
-        String id = "Conveyor_" + from + "_" + to;
+        String id = conveyorId(from, to);
         SimulatorUtils.sendEvent(new ConnectionCreatedEvent(id, from, to, length, speed, 0.05,
-                (long) (length / speed * 1000), true, id, true, type, 0, Map.of()), "POST");
+                (long) (length / speed * 1000), true, id, true, type, 100, Map.of("scenario", "conveyor-spacing")), "POST");
     }
 
-    private void item(String feeder, String source, int index) throws Exception {
-        Map<String, Object> properties = index % 2 == 0
-                ? Map.of("lengthCm", 20, "length", 40, "scenario", "conveyor-spacing")
-                : Map.of("scenario", "conveyor-spacing");
+    private void item(String feeder, String conveyor, int index, double progress) throws Exception {
+        Map<String, Object> properties = Map.of("lengthCm", 20, "scenario", "conveyor-spacing");
         String id = itemId(feeder, index);
-        SimulatorUtils.sendEvent(new ItemCreatedEvent(id, id, 1.0, 0.0, true, source,
-                PositionType.LOCATION, 0.0, List.of(EXIT), properties), "POST");
+        SimulatorUtils.sendEvent(new ItemCreatedEvent(id, id, 1.0, 0.0, true, conveyor,
+                PositionType.CONVEYOR, progress, List.of(EXIT), properties), "POST");
+    }
+
+    private String conveyorId(String from, String to) {
+        return "Conveyor_" + from + "_" + to;
     }
 
     private String itemId(String feeder, int index) {
