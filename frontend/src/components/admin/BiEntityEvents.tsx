@@ -219,7 +219,7 @@ const formatTimestamp = (value?: string) => {
   return date.toLocaleString();
 };
 
-const formatEntityType = (value: EntityEventType) => value.charAt(0) + value.slice(1).toLowerCase();
+const formatEntityType = (value: GetEntityEventsEntityTypeEnum) => value.charAt(0) + value.slice(1).toLowerCase();
 
 const formatEventType = (value?: string) => {
   if (!value) return "";

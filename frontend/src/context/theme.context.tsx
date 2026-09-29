@@ -72,7 +72,7 @@ export const GraphThemeProvider = ({ children }: { children: React.ReactNode }) 
 };
 
 // Controller per aggiornare il Grafo (Sigma.js) quando il tema cambia
-export const GraphThemeController = () => {
+export const GraphThemeController = (): null => {
   const { mode } = useTheme();
   const sigma = useSigma();
 

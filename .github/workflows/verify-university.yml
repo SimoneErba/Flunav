@@ -28,6 +28,8 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: frontend
+      - run: pnpm exec tsc --noEmit -p tsconfig.app.json && pnpm exec tsc --noEmit -p tsconfig.node.json && pnpm exec tsc --noEmit -p tsconfig.e2e.json
+        working-directory: frontend
       - run: pnpm lint && pnpm build
         working-directory: frontend
   browser:

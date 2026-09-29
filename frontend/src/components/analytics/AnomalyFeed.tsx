@@ -82,10 +82,10 @@ export const AnomalyFeed = () => {
             <article key={finding.findingId} className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{finding.detector?.replaceAll('_', ' ') ?? 'ANOMALY'}</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">{finding.detector?.replace(/_/g, ' ') ?? 'ANOMALY'}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">{finding.componentType?.toLowerCase() ?? 'component'} {finding.componentId}</div>
                 </div>
-                <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">{finding.temporalMode?.replaceAll('_', ' ') ?? 'UNKNOWN'}</span>
+                <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">{finding.temporalMode?.replace(/_/g, ' ') ?? 'UNKNOWN'}</span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
                 <dt>Cadence</dt><dd className="text-right">{cadenceFor(finding.detector)}</dd>
@@ -94,7 +94,7 @@ export const AnomalyFeed = () => {
                 <dt>Baseline samples</dt><dd className="text-right tabular-nums">{finding.sampleCount}</dd>
                 <dt>Mean / median</dt><dd className="text-right tabular-nums">{score(finding.baselineMean)} / {score(finding.baselineMedian)}</dd>
                 <dt>Stddev / MAD</dt><dd className="text-right tabular-nums">{score(finding.baselineStddev)} / {score(finding.baselineMad)}</dd>
-                <dt>Alarm</dt><dd className="text-right">{finding.alarmState?.replaceAll('_', ' ') ?? 'NOT APPLICABLE'}</dd>
+                <dt>Alarm</dt><dd className="text-right">{finding.alarmState?.replace(/_/g, ' ') ?? 'NOT APPLICABLE'}</dd>
                 <dt>Virtual tick</dt><dd className="text-right">{finding.tickTimestamp ? new Date(finding.tickTimestamp).toLocaleString() : '—'}</dd>
               </dl>
               {(finding.expectedIntermediatePositions?.length ?? 0) > 0 && (

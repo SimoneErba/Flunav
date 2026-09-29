@@ -1827,10 +1827,10 @@ export interface DisplayRule {
     'operator'?: DisplayRuleOperatorEnum;
     /**
      * 
-     * @type {object}
+     * @type {DisplayRuleValue}
      * @memberof DisplayRule
      */
-    'value'?: object;
+    'value'?: DisplayRuleValue;
     /**
      * 
      * @type {string}
@@ -1839,10 +1839,10 @@ export interface DisplayRule {
     'secondOperator'?: DisplayRuleSecondOperatorEnum;
     /**
      * 
-     * @type {object}
+     * @type {DisplayRuleValue}
      * @memberof DisplayRule
      */
-    'secondValue'?: object;
+    'secondValue'?: DisplayRuleValue;
     /**
      * 
      * @type {string}
@@ -1920,6 +1920,13 @@ export interface DisplayRuleColorResult {
      * @memberof DisplayRuleColorResult
      */
     'conveyorStyles'?: { [key: string]: DisplayRuleVisualStyle; };
+}
+/**
+ * 
+ * @export
+ * @interface DisplayRuleValue
+ */
+export interface DisplayRuleValue {
 }
 /**
  * 
@@ -4650,6 +4657,25 @@ export interface TokenRefreshRequest {
 /**
  * 
  * @export
+ * @interface TokenRefreshResponse
+ */
+export interface TokenRefreshResponse {
+    /**
+     * 
+     * @type {string}
+     * @memberof TokenRefreshResponse
+     */
+    'accessToken'?: string;
+    /**
+     * 
+     * @type {string}
+     * @memberof TokenRefreshResponse
+     */
+    'refreshToken'?: string;
+}
+/**
+ * 
+ * @export
  * @interface TypeUpdateRequest
  */
 export interface TypeUpdateRequest {
@@ -6100,7 +6126,7 @@ export const AuthControllerApiFp = function(configuration?: Configuration) {
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async refreshtoken(tokenRefreshRequest: TokenRefreshRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<object>> {
+        async refreshtoken(tokenRefreshRequest: TokenRefreshRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<TokenRefreshResponse>> {
             const localVarAxiosArgs = await localVarAxiosParamCreator.refreshtoken(tokenRefreshRequest, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['AuthControllerApi.refreshtoken']?.[localVarOperationServerIndex]?.url;
@@ -6139,7 +6165,7 @@ export const AuthControllerApiFactory = function (configuration?: Configuration,
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        refreshtoken(tokenRefreshRequest: TokenRefreshRequest, options?: RawAxiosRequestConfig): AxiosPromise<object> {
+        refreshtoken(tokenRefreshRequest: TokenRefreshRequest, options?: RawAxiosRequestConfig): AxiosPromise<TokenRefreshResponse> {
             return localVarFp.refreshtoken(tokenRefreshRequest, options).then((request) => request(axios, basePath));
         },
     };

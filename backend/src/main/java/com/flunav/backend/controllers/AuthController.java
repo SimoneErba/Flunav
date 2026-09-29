@@ -5,6 +5,9 @@ import com.flunav.backend.domain.User;
 import com.flunav.backend.services.RefreshTokenService;
 import com.flunav.backend.services.UserService;
 import com.flunav.backend.utils.JwtUtils;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -69,6 +72,7 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid credentials");
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = TokenRefreshResponse.class)))
     @PostMapping("/refresh-token")
     public ResponseEntity<?> refreshtoken(@RequestBody TokenRefreshRequest request) {
         String requestRefreshToken = request.refreshToken();

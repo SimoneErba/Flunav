@@ -37,9 +37,9 @@ export const PropertiesEditor = ({ properties = {}, onChange, reservedKeys = [] 
   const handleFieldChange = (key: string, rawValue: string | boolean, type: PropertyType) => {
     let finalValue: unknown = rawValue;
 
-    if (type === "number") {
+    if (type === "number" && typeof rawValue === "string") {
       finalValue = parseFloat(rawValue);
-    } else if (type === "datetime") {
+    } else if (type === "datetime" && typeof rawValue === "string") {
       finalValue = new Date(rawValue).toISOString();
     }
 

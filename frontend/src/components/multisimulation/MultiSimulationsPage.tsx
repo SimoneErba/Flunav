@@ -124,7 +124,7 @@ export const MultiSimulationsPage = () => {
                 className={`w-full rounded-lg border p-3 text-left ${selected?.id === simulation.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800'}`}>
                 <div className="font-semibold">{simulation.configuration.name}</div>
                 <div className="mt-1 flex justify-between text-xs text-gray-500">
-                  <span>{simulation.status.replaceAll('_', ' ')}</span>
+                  <span>{simulation.status.replace(/_/g, ' ')}</span>
                   <span>{simulation.completedRuns}/{simulation.totalRuns}</span>
                 </div>
               </button>
@@ -301,7 +301,7 @@ const SimulationDetails = ({ simulation, report, canRun, onChanged }: { simulati
   return <div className="mx-auto max-w-5xl space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-bold">{simulation.configuration.name}</h1><p className="text-sm text-gray-500">Seed {simulation.baseSeed} · topology {simulation.topologyVersion.slice(0, 12)}</p></div>{canRun && simulation.status === 'DRAFT' ? <button type="button" onClick={() => void run()} className="rounded-lg bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700">Run</button> : canRun && !finished ? <button type="button" onClick={() => void cancel()} className="rounded-lg border border-red-500 px-4 py-2 font-bold text-red-600">Cancel</button> : null}</div>
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <div className="mb-2 flex justify-between text-sm"><span>{simulation.status.replaceAll('_', ' ')}</span><span>{simulation.completedRuns} completed · {simulation.failedRuns} failed · {simulation.totalRuns} total</span></div>
+      <div className="mb-2 flex justify-between text-sm"><span>{simulation.status.replace(/_/g, ' ')}</span><span>{simulation.completedRuns} completed · {simulation.failedRuns} failed · {simulation.totalRuns} total</span></div>
       <div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className="h-full bg-blue-600 transition-all" style={{ width: `${Math.min(100, progress)}%` }} /></div>
       {simulation.error && <p className="mt-3 text-sm text-red-600">{simulation.error}</p>}
     </div>

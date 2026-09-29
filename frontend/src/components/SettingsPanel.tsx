@@ -340,7 +340,7 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
               </div>
               <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
                 <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
-                <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
+                <DockButton Svg={IconDockBottom} isActive={false} onClick={() => setDockSide('bottom')} />
                 <DockButton Svg={IconDockRight} isActive={dockSide === 'right'} onClick={() => setDockSide('right')} />
               </div>
             </div>
@@ -383,9 +383,9 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
                 </button>
               )}
               <div className="flex gap-1 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 bg-gray-100 dark:bg-gray-800/50">
-                <DockButton Svg={IconDockLeft} isActive={dockSide === 'left'} onClick={() => setDockSide('left')} />
+                <DockButton Svg={IconDockLeft} isActive={false} onClick={() => setDockSide('left')} />
                 <DockButton Svg={IconDockBottom} isActive={dockSide === 'bottom'} onClick={() => setDockSide('bottom')} />
-                <DockButton Svg={IconDockRight} isActive={dockSide === 'right'} onClick={() => setDockSide('right')} />
+                <DockButton Svg={IconDockRight} isActive={false} onClick={() => setDockSide('right')} />
               </div>
               <button
                 onClick={() => setIsExpanded(false)}
@@ -417,8 +417,6 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
                     onChange={updated => updateRule(idx, updated)}
                     onDelete={() => deleteRule(idx)}
                     orientation={dockSide === 'bottom' ? 'horizontal' : 'vertical'}
-                    // Pass dock position so RuleRow can flip the color picker direction
-                    dockSide={dockSide}
                   />
                 </div>
               ))
