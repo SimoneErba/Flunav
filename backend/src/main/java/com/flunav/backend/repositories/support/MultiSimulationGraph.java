@@ -47,6 +47,7 @@ public final class MultiSimulationGraph {
                                 : value.getOperatorEnabled(),
                         value.getActiveAlarms(), value.getCapacity(), Boolean.TRUE.equals(value.getMainPath()),
                         copyMap(value.getProperties()));
+                conveyor.setName(value.getName());
                 putConveyor(conveyor);
             }
         }
@@ -158,10 +159,12 @@ public final class MultiSimulationGraph {
 
     private static Conveyor copyConveyor(Conveyor value) {
         if (value == null) return null;
-        return new Conveyor(value.getId(), value.getSourceLocationId(), value.getTargetLocationId(),
+        Conveyor copy = new Conveyor(value.getId(), value.getSourceLocationId(), value.getTargetLocationId(),
                 value.getLength(), value.getSpeed(), value.getMinDistance(), value.getType(),
                 value.isActive(), value.isOperatorEnabled(), value.getActiveAlarms(), value.getCapacity(),
                 value.isMainPath(), copyMap(value.getProperties()));
+        copy.setName(value.getName());
+        return copy;
     }
 
     private static Item copyItem(Item value) {

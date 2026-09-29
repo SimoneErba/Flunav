@@ -1,0 +1,13 @@
+# University release review
+
+The implementation uses application provenance `0.0.1-SNAPSHOT`, scenario schema/model version 1 and controlled generator version 2. The same version is in the backend Maven project and built-in resources. A distributable release should replace the snapshot version and record the release commit after verification.
+
+The repository currently has no root LICENSE or COPYING file. Its distribution permission therefore remains unresolved; this work does not assign a license or publish a release. Before distributing binaries or source, the repository owner must establish the project license and review notices for bundled Java and frontend dependencies plus the selected database/container versions.
+
+Frontend dependencies remain pinned by `frontend/pnpm-lock.yaml`; Java dependencies remain in the existing Maven POMs. No new runtime dependency was introduced. OpenAPI client regeneration uses the existing generator. Test-only dependencies and browser installation are verification tooling.
+
+The forward upgrade is `docker/clickhouse/init-clickhouse/018_simulation_comparisons.sql`. Run it with the deployment's normal ClickHouse database selection and credentials; it is idempotent and does not rewrite existing experiment tables. Runtime initialization performs the same `CREATE TABLE IF NOT EXISTS`. `ScenarioIntegrationTests` executes the upgrade twice while preserving a stored comparison. OrientDB initializes scenario-revision and preset classes through the established startup schema setup.
+
+Verification gates include scenario import/reopen and namespace isolation, fixed-horizon template runs, legacy generator preservation, paired input streams, identical-alternative metrics, numerical paired Student-t calculations, schema repetition, replay/What If/playback/movement regressions, frontend lint/build and the isolated Playwright teaching exercise. The new pull-request workflow runs focused integrations and frontend checks; publishing remains a separate operation.
+
+Local verification passed 129 selected backend regression tests, followed by a final 19-test scenario/multi-simulation run. Frontend lint, Vite production build and E2E TypeScript checking pass. The isolated Playwright exercise verifies template instantiation, revisions, duplication, paired comparisons, downloads and detached import. Full application TypeScript checking still reports existing errors in SettingsPanel, docking, legacy event views, property editing and authentication/theme typing; those unrelated paths need a separate cleanup before making full type checking a release gate.

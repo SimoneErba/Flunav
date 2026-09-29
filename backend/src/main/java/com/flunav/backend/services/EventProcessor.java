@@ -373,6 +373,7 @@ public class EventProcessor {
                 case ConnectionCreatedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
                 case ConnectionSpeedChangedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
                 case ConnectionLengthChangedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
+                case ConnectionConstraintsChangedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
                 case ConnectionPropertiesUpdatedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
                 case ConnectionActivatedEvent e -> topologyReducer.reduce(e, shouldBroadcast);
                 case ConnectionDeactivatedEvent e -> topologyReducer.reduce(e, shouldBroadcast);

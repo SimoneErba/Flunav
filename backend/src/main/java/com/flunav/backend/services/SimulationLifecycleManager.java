@@ -130,6 +130,38 @@ final class SimulationLifecycleManager {
         }
     }
 
+    /** Restores a fresh detached model without historical or live input subscriptions. */
+    SimulationState openScenario(MultiSimulationBaseline baseline) {
+        capacityManager.enforceDetachedAdmission();
+        capacityManager.validateSourceItemCount(baseline.graph().getItems().size());
+        String id = "sim_" + UUID.randomUUID().toString().replace("-", "");
+        Instant start = baseline.graph().getTimestamp();
+        SimulationState state = new SimulationState(id, start, SimulationStatus.BUILDING,
+                timeService.physicalNow(), start, 1.0, 0.0);
+        state.setKind(SimulationKind.DETACHED);
+        state.setLiveInputState(LiveInputState.FROZEN);
+        runtimeState.simulationCache.put(id, state);
+        try {
+            orientDBService.createInMemoryDatabase(id);
+            try (var context = DatabaseContextHolder.enterSimulationContext(id);
+                    var virtualTime = timeService.enterVirtualTime(start)) {
+                historicalGraphBuilder.restoreFromSnapshotData(baseline.graph());
+                for (DomainEvent event : baseline.configurationEvents()) {
+                    eventProcessor.processEventWithoutBroadcast(event);
+                }
+                anomalyObservationRepository.initializeForkTimestamp(start);
+                simulations.recalculateMovementSchedules(id, start);
+            }
+            state.setStatus(SimulationStatus.PAUSED);
+            state.setBuildProgress(100.0);
+            runtimeState.persistState(state);
+            return state;
+        } catch (RuntimeException failure) {
+            destroySimulation(id);
+            throw failure;
+        }
+    }
+
     SimulationState createSimulation(String simulationId, Instant timestamp) {
         capacityManager.enforceAdmission();
         Instant createdAt = timeService.physicalNow();

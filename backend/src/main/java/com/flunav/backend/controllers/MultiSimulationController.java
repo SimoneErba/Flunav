@@ -27,8 +27,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "Multi-simulations")
 public class MultiSimulationController {
     private final MultiSimulationService multiSimulationService;
+    private final com.flunav.backend.services.ScenarioService scenarios;
 
-    public MultiSimulationController(MultiSimulationService multiSimulationService) {
+    public MultiSimulationController(MultiSimulationService multiSimulationService, com.flunav.backend.services.ScenarioService scenarios) {
+        this.scenarios = scenarios;
         this.multiSimulationService = multiSimulationService;
     }
 
@@ -78,6 +80,13 @@ public class MultiSimulationController {
     @GetMapping("/{id}/runs")
     public List<MultiSimulationRun> runs(@PathVariable String id) {
         return multiSimulationService.runs(id);
+    }
+
+    @GetMapping("/{id}/export")
+    public ResponseEntity<com.flunav.backend.models.scenario.ScenarioDocument> exportExperiment(@PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean includeResults) {
+        return ResponseEntity.ok().header("Content-Disposition", "attachment; filename=\"experiment.flusim\"")
+                .body(scenarios.exportExperiment(id, includeResults));
     }
 
     @GetMapping("/{id}/report")

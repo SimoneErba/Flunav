@@ -12,6 +12,7 @@ import lombok.Setter;
 @Setter
 public class Conveyor {
     private final String id;
+    private String name;
     private String sourceLocationId;
     private String targetLocationId;
 

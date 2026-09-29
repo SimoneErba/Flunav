@@ -203,12 +203,14 @@ export const useGraphPointerInteractions = (
                     const target = node;
                     const graph = sigma.getGraph();
                     if (!graph.hasEdge(source, target)) {
-                        const id = `temp_${source}_${target}`;
+                        const id = crypto.randomUUID();
                         graph.addEdge(source, target, { id, type: 'arrow', conveyorType: 'BELT', size: 3, speed: 1, length: 10 });
                         
                         try {
-                            await conveyorsApi.createConveyor({ sourceId: source, targetId: target, name: "New", speed: 1, length: 10, isActive: true, mainPath: false });
-                            toast.success("Connection created");
+                            await conveyorsApi.createConveyor({ connectionId: id, sourceId: source, targetId: target, name: "New", speed: 1, length: 10, isActive: true, mainPath: false });
+                            setSelectedEdgeData({ edgeId: id, sourceId: source, targetId: target, speed: 1, length: 10, conveyorType: "BELT" });
+                            setSelectedNodeData(null);
+                            toast.success("Connection created · choose a preset or edit its settings");
                             window.dispatchEvent(new Event("scenario-mutated"));
                         } catch {
                             graph.dropEdge(source, target);
@@ -224,7 +226,7 @@ export const useGraphPointerInteractions = (
                 const graph = sigma.getGraph();
                 const attrs = graph.getEdgeAttributes(edge);
 
-                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, mainPath: attrs.mainPath, conveyorType: attrs.conveyorType, properties: attrs.properties });
+                setSelectedEdgeData({ edgeId: edge, sourceId: graph.source(edge), targetId: graph.target(edge), speed: attrs.speed, length: attrs.length, minDistance: attrs.minDistance, capacity: attrs.capacity, mainPath: attrs.mainPath, conveyorType: attrs.conveyorType, properties: attrs.properties });
             },
             clickNode: ({ node }) => {
                 if (didMoveRef.current) return;

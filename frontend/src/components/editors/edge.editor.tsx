@@ -3,6 +3,8 @@ import toast from "react-hot-toast";
 import { PropertiesEditor } from "../properties.editor";
 import { confirmToast } from "../graph/utils/toastUtils";
 import { SharedButtons } from "./shared.buttons";
+import { presetsApi } from "../../api/scenarios";
+import type { ConveyorPreset } from "../../api-client";
 
 export interface EdgeEditorData {
   edgeId: string;
@@ -10,6 +12,8 @@ export interface EdgeEditorData {
   targetId: string;
   speed: number;
   length: number;
+  minDistance?: number;
+  capacity?: number;
   mainPath?: boolean;
   conveyorType?: "BELT" | "ROLLER" | "CHUTE" | "STAGING";
   properties?: Record<string, unknown>;
@@ -19,14 +23,18 @@ interface EdgeEditorProps {
   data: EdgeEditorData;
   onClose: () => void;
   // Unified submission handler
-  onSubmit: (updatedData: { speed: number; length: number; mainPath: boolean; conveyorType: EdgeEditorData["conveyorType"]; properties: Record<string, unknown> }) => void;
+  onSubmit: (updatedData: { speed: number; length: number; minDistance: number; capacity: number | null; mainPath: boolean; conveyorType: EdgeEditorData["conveyorType"]; properties: Record<string, unknown> }) => void;
   onDelete: (edgeId: string, sourceId: string, targetId: string) => void;
 }
 
 export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProps) => {
   // --- Master State ---
+  const [presets, setPresets] = useState<ConveyorPreset[]>([]);
+  useEffect(() => { void presetsApi.listConveyorPresets().then(response => setPresets(response.data)).catch(() => toast.error("Could not load presets")); }, []);
   const [speed, setSpeed] = useState(data.speed);
   const [length, setLength] = useState(data.length);
+  const [minDistance, setMinDistance] = useState(data.minDistance ?? 0);
+  const [capacity, setCapacity] = useState<number | null>(data.capacity ?? null);
   const [mainPath, setmainPath] = useState(data.mainPath || false);
   const [conveyorType, setConveyorType] = useState(data.conveyorType || "BELT");
   const [properties, setProperties] = useState(data.properties || {});
@@ -35,15 +43,24 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
   useEffect(() => {
     setSpeed(data.speed);
     setLength(data.length);
+    setMinDistance(data.minDistance ?? 0);
+    setCapacity(data.capacity ?? null);
     setmainPath(data.mainPath || false);
     setConveyorType(data.conveyorType || "BELT");
     setProperties(data.properties || {});
   }, [data]);
 
   const handleSubmit = () => {
+    if (!Number.isFinite(speed) || speed < 0 || !Number.isFinite(length) || length <= 0
+        || !Number.isFinite(minDistance) || minDistance < 0 || capacity !== null && (!Number.isInteger(capacity) || capacity <= 0)) {
+      toast.error('Enter valid speed, length, spacing and capacity');
+      return;
+    }
     onSubmit({ 
       speed: Number(speed), 
       length: Number(length), 
+      minDistance,
+      capacity,
       mainPath,
       conveyorType,
       properties: properties
@@ -82,6 +99,29 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
         </div>
       </div>
       
+      <label className="text-xs">Component preset
+        <select className="w-full rounded border p-2 dark:bg-gray-900" aria-label="Component preset" defaultValue="" onChange={event => {
+          const preset = presets.find(value => value.id === event.target.value);
+          if (!preset) return;
+          setSpeed(preset.speed!); setLength(preset.length!); setMinDistance(preset.minDistance!);
+          setCapacity(preset.capacity ?? null); setmainPath(preset.mainPath ?? false); setConveyorType(preset.type!);
+        }}><option value="">Choose illustrative defaults</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name} · {preset.length} m · {preset.speed} m/s · {preset.minDistance} m spacing</option>)}</select>
+      </label>
+      <button className="rounded border p-2 text-xs" onClick={async () => {
+        const name = window.prompt("Custom preset name");
+        if (!name) return;
+        try {
+          const result = await presetsApi.saveConveyorPreset({ name, type: conveyorType, length, speed, minDistance, capacity: capacity ?? undefined, mainPath, properties: {} });
+          setPresets(previous => [...previous, result.data]); toast.success("Preset saved");
+        } catch { toast.error("Could not save preset"); }
+      }}>Save settings as custom preset</button>
+      <p className="text-xs text-gray-500">Presets use illustrative defaults, with no manufacturer validation. Submit the edit to apply.</p>
+      <label className="text-xs">Minimum spacing (m)
+        <input className="w-full rounded border p-2 dark:bg-gray-900" type="number" min="0" step="0.01" value={minDistance} onChange={event => setMinDistance(Number(event.target.value))} />
+      </label>
+      <label className="text-xs">Capacity (items; empty means unbounded)
+        <input className="w-full rounded border p-2 dark:bg-gray-900" type="number" min="1" step="1" value={capacity ?? ''} onChange={event => setCapacity(event.target.value === '' ? null : Number(event.target.value))} />
+      </label>
       {/* Inputs */}
       <div className="flex flex-col gap-3">
           {/* Speed */}

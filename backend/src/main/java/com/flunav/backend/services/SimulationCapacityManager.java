@@ -46,6 +46,13 @@ final class SimulationCapacityManager {
         }
     }
 
+    void enforceDetachedAdmission() {
+        if (maxActiveSimulations > 0 && countSimulations().active() >= maxActiveSimulations
+                || minFreeMemoryBytes > 0 && availableHeapBytes() < minFreeMemoryBytes) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Detached runtime capacity is unavailable");
+        }
+    }
+
     void validateSourceItemCount(int itemCount) {
         if (maxActiveItemsPerSimulation > 0 && itemCount > maxActiveItemsPerSimulation) {
             reject("Source item count exceeds simulation limit " + maxActiveItemsPerSimulation);

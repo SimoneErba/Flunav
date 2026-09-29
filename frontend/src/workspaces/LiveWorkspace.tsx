@@ -45,7 +45,7 @@ export default function LiveWorkspace() {
     }
   });
    const { activeSimulation, setActiveSimulation, designMode, isBranching, isExitingWhatIf } = useSimulationContext();
-   const isWhatIf = activeSimulation?.kind === 'WHAT_IF_LIVE' || activeSimulation?.kind === 'WHAT_IF_SIMULATION';
+   const isWhatIf = activeSimulation?.kind === 'WHAT_IF_LIVE' || activeSimulation?.kind === 'WHAT_IF_SIMULATION' || activeSimulation?.kind === 'DETACHED';
 
    // --- Simulation State ---
    const [selectedDate, setSelectedDate] = useState(new Date());
@@ -275,6 +275,7 @@ export default function LiveWorkspace() {
             </div>
         ) : activeSimulation && !isRestoring ? (
             <>
+                {activeSimulation.kind === 'DETACHED' && <span className="rounded bg-indigo-100 px-2 py-1 text-xs text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">Detached scenario · frozen inputs</span>}
                 <PlaybackControls
                     simulation={activeSimulation}
                     now={simTime}

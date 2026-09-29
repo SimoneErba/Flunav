@@ -116,6 +116,7 @@ public class ConveyorService {
                     speed != null ? speed : 1.0, effectiveMinDistance, effectiveType,
                     isActive == null || isActive, isActive == null || isActive, List.of(), capacity,
                     Boolean.TRUE.equals(mainPath), properties != null ? properties : Map.of());
+            conveyor.setName(name);
             memory.graph().putConveyor(conveyor);
             return conveyor;
         }
@@ -201,9 +202,7 @@ public class ConveyorService {
                         edge.setProperty("type", conveyor.getType().name());
                         edge.setProperty("minDistance", conveyor.getMinDistance());
                         edge.setProperty("properties", conveyor.getProperties());
-                        if (conveyor.getCapacity() != null) {
-                            edge.setProperty("capacity", conveyor.getCapacity());
-                        }
+                        edge.setProperty("capacity", conveyor.getCapacity());
                         edge.save();
                     });
                 } else {
@@ -300,7 +299,7 @@ public class ConveyorService {
             edge.setProperty("activeAlarms", storedAlarms != null ? storedAlarms : List.of());
             edge.save();
         }
-        return new Conveyor(
+        Conveyor conveyor = new Conveyor(
                 edge.getProperty("customId"),
                 sourceId,
                 targetId,
@@ -314,6 +313,8 @@ public class ConveyorService {
                 edge.getProperty("capacity"),
                 edge.getProperty("mainPath") != null ? edge.getProperty("mainPath") : false,
                 edge.getProperty("properties"));
+        conveyor.setName(edge.getProperty("name"));
+        return conveyor;
     }
 
     private List<Map<String, Object>> serializeAlarms(List<ActiveAlarm> alarms) {

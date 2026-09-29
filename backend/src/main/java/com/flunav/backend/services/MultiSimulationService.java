@@ -37,6 +37,7 @@ import com.flunav.backend.models.response.MultiSimulationEstimateResponse;
 
 import flunav.events.DestinationExitMappingRecord;
 import flunav.events.DomainEvent;
+import flunav.events.MapDestinationExitsEvent;
 import flunav.types.LocationType;
 
 @Service
@@ -52,6 +53,8 @@ public class MultiSimulationService {
     private final GraphService graphService;
     private final DestinationExitMappingService destinationExitMappingService;
     private final MultiSimulationRunner runner;
+    private final DestinationMappingService destinationMappingService;
+    private final DisplayRulesService displayRulesService;
     private final SimulationService simulationService;
     private final TimeService timeService;
     private final WebSocketService webSocketService;
@@ -64,7 +67,7 @@ public class MultiSimulationService {
             EventProcessor eventProcessor,
             GraphService graphService,
             DestinationExitMappingService destinationExitMappingService,
-            MultiSimulationRunner runner,
+            MultiSimulationRunner runner, DestinationMappingService destinationMappingService, DisplayRulesService displayRulesService,
             SimulationService simulationService,
             TimeService timeService,
             WebSocketService webSocketService,
@@ -75,6 +78,8 @@ public class MultiSimulationService {
         this.graphService = graphService;
         this.destinationExitMappingService = destinationExitMappingService;
         this.runner = runner;
+        this.destinationMappingService = destinationMappingService;
+        this.displayRulesService = displayRulesService;
         this.simulationService = simulationService;
         this.timeService = timeService;
         this.webSocketService = webSocketService;
@@ -107,7 +112,7 @@ public class MultiSimulationService {
                 request.conveyorFailures(),
                 seed,
                 simulationStart,
-                request.includeActiveItems());
+                request.includeActiveItems(), request.inputGeneratorVersion());
 
         MultiSimulationBaseline baseline = eventProcessor.withLiveSnapshotBarrier(() -> {
             clickHouseService.flushAllEventsOrThrow();
@@ -121,7 +126,10 @@ public class MultiSimulationService {
                     current.getSensorMappings(),
                     simulationStart);
             validate(configuration, topologyOnly);
-            List<DomainEvent> configurationEvents = clickHouseService.getLatestConfigurationEventsBefore(createdAt);
+            List<DomainEvent> configurationEvents = List.of(
+                    new flunav.events.MapDestinationsEvent(null, destinationMappingService.getDestinationMappings(), simulationStart),
+                    new MapDestinationExitsEvent(destinationExitMappingService.getMappings(), simulationStart),
+                    new flunav.events.MapDisplayRulesEvent(displayRulesService.getDisplayRules(), simulationStart));
             return new MultiSimulationBaseline(
                     topologyOnly,
                     configurationEvents,
@@ -138,6 +146,23 @@ public class MultiSimulationService {
         return simulation;
     }
 
+    /** Creates an experiment solely from a validated portable baseline and explicit inputs. */
+    public MultiSimulation createFromBaseline(MultiSimulationConfiguration configuration, MultiSimulationBaseline baseline) {
+        List<DestinationExitMappingRecord> mappings = baseline.configurationEvents().stream()
+                .filter(MapDestinationExitsEvent.class::isInstance).map(MapDestinationExitsEvent.class::cast)
+                .flatMap(event -> event.getMappings().stream()).toList();
+        validate(configuration, baseline.graph(), mappings);
+        if (configuration.baseSeed() == null || configuration.simulationStartTime() == null
+                || !configuration.simulationStartTime().equals(baseline.graph().getTimestamp())) {
+            throw badRequest("Saved-baseline experiments require a resolved seed and matching start time");
+        }
+        String id = "multi_" + UUID.randomUUID().toString().replace("-", "");
+        MultiSimulation simulation = new MultiSimulation(id, configuration, baseline, configuration.baseSeed(),
+                MultiSimulationStatus.DRAFT, 0, 0, timeService.physicalNow(), null, null, false, null);
+        clickHouseService.saveMultiSimulation(simulation);
+        return simulation;
+    }
+
     public MultiSimulation start(String id) {
         MultiSimulation current = get(id);
         if (current.status() != MultiSimulationStatus.DRAFT) {
@@ -150,10 +175,27 @@ public class MultiSimulationService {
         return queued;
     }
 
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void markInterruptedExperiments() {
+        for (var current : list()) {
+            if (current.status() == MultiSimulationStatus.QUEUED || current.status() == MultiSimulationStatus.RUNNING
+                    || current.status() == MultiSimulationStatus.CANCELLING) {
+                clickHouseService.saveMultiSimulation(copy(current, MultiSimulationStatus.FAILED, current.completedRuns(),
+                        current.failedRuns(), current.startedAt(), timeService.physicalNow(), current.cancelRequested(),
+                        "Execution interrupted by backend restart; rerun from the frozen definition"));
+            }
+        }
+    }
+
     public MultiSimulation cancel(String id) {
         MultiSimulation current = get(id);
         if (isTerminal(current.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Multi-simulation is already finished");
+        }
+        if (current.status() == MultiSimulationStatus.DRAFT) {
+            var cancelled = copy(current, MultiSimulationStatus.CANCELLED, 0, 0, null, timeService.physicalNow(), true, null);
+            clickHouseService.saveMultiSimulation(cancelled);
+            return cancelled;
         }
         MultiSimulation cancelling = copy(current, MultiSimulationStatus.CANCELLING,
                 current.completedRuns(), current.failedRuns(), current.startedAt(), current.completedAt(), true, null);
@@ -214,7 +256,23 @@ public class MultiSimulationService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Report is not ready"));
     }
 
-    private void validate(MultiSimulationConfiguration configuration, GraphData topology) {
+    public void validate(MultiSimulationConfiguration configuration, GraphData topology) {
+        validate(configuration, topology, destinationExitMappingService.getMappings());
+    }
+
+    public void validate(MultiSimulationConfiguration configuration, GraphData topology,
+            List<DestinationExitMappingRecord> mappings) {
+        if (configuration == null || configuration.baseSeed() != null
+                && (configuration.baseSeed() < -MAX_SAFE_CLIENT_SEED || configuration.baseSeed() > MAX_SAFE_CLIENT_SEED)) {
+            throw badRequest("A configuration with a JSON-safe seed is required");
+        }
+        if (configuration.inputGeneratorVersion() != null && !List.of("1", "2").contains(configuration.inputGeneratorVersion())) {
+            throw badRequest("Unsupported input generator version");
+        }
+        if (configuration.destinations().stream().anyMatch(java.util.Objects::isNull)
+                || configuration.conveyorFailures().stream().anyMatch(java.util.Objects::isNull)) {
+            throw badRequest("Configuration lists cannot contain null entries");
+        }
         if (configuration.name() == null || configuration.name().isBlank()) {
             throw badRequest("name is required");
         }
@@ -223,6 +281,14 @@ public class MultiSimulationService {
         }
         if (configuration.numberOfRuns() <= 0 || configuration.numberOfRuns() > maximumRuns) {
             throw badRequest("numberOfRuns must be between 1 and " + maximumRuns);
+        }
+        if (configuration.baseSeed() != null && configuration.baseSeed() > MAX_SAFE_CLIENT_SEED - (configuration.numberOfRuns() - 1L)) {
+            throw badRequest("Every replication seed must be a JSON-safe integer");
+        }
+        try {
+            if (configuration.simulationStartTime() != null) configuration.simulationStartTime().plusSeconds(configuration.simulationDurationSeconds());
+        } catch (java.time.DateTimeException | ArithmeticException failure) {
+            throw badRequest("Simulation duration exceeds the timestamp range");
         }
         ArrivalConfiguration arrival = configuration.arrival();
         if (arrival == null || arrival.distribution() == null || !Double.isFinite(arrival.ratePerHour())
@@ -253,7 +319,7 @@ public class MultiSimulationService {
         if (source == null || !Boolean.TRUE.equals(source.getActive())) {
             throw badRequest("sourceLocationId must reference an active location");
         }
-        Map<String, DestinationExitMappingRecord> exitMappings = destinationExitMappingService.getMappings().stream()
+        Map<String, DestinationExitMappingRecord> exitMappings = mappings.stream()
                 .collect(Collectors.toMap(DestinationExitMappingRecord::getDestination, Function.identity()));
         Set<String> reachableLocations = reachableLocations(configuration.sourceLocationId(), topology.getConveyors());
         for (DestinationProbability destination : configuration.destinations()) {

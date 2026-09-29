@@ -212,6 +212,22 @@ public class ConnectionController {
                 events.add(new ConnectionLengthChangedEvent(id, ((Number) value).doubleValue()));
             }
 
+            if (updates.containsKey("minDistance") || updates.containsKey("capacity")) {
+                var conveyor = conveyorService.getConveyorById(id);
+                Object distance = updates.containsKey("minDistance") ? updates.get("minDistance")
+                        : conveyor.getMinDistance() != null ? conveyor.getMinDistance()
+                        : conveyor.getType() == ConveyorType.STAGING ? 0.1 : 0.0;
+                Object capacity = updates.containsKey("capacity") ? updates.get("capacity") : conveyor.getCapacity();
+                if (!(distance instanceof Number gap) || !Double.isFinite(gap.doubleValue()) || gap.doubleValue() < 0
+                        || capacity != null && (!(capacity instanceof Number number) || !Double.isFinite(number.doubleValue())
+                                || number.doubleValue() <= 0 || number.doubleValue() != Math.rint(number.doubleValue())
+                                || number.doubleValue() > Integer.MAX_VALUE)) {
+                    return CompletableFuture.completedFuture(ResponseEntity.badRequest().build());
+                }
+                events.add(new ConnectionConstraintsChangedEvent(id, ((Number) distance).doubleValue(),
+                        capacity == null ? null : ((Number) capacity).intValue(), null));
+            }
+
             // 3. Validate and create Main Path Event
             if (updates.containsKey("mainPath")) {
                 Object value = updates.get("mainPath");

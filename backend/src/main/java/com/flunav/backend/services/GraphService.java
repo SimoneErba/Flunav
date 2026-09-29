@@ -247,6 +247,7 @@ public class GraphService {
 
         for (var conv : topologyProvider.getAllConveyors()) {
             var resp = modelMapper.map(conv, ConveyorResponse.class);
+            resp.setFlowStopped(liveConveyorRepository.isFlowStopped(resp.getId()));
             conveyorMap.put(resp.getId(), resp);
             outgoingEdgesMap.computeIfAbsent(resp.getSourceId(), k -> new ArrayList<>()).add(resp);
         }

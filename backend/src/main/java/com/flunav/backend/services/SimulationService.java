@@ -123,6 +123,10 @@ public class SimulationService {
      * branch. The source snapshot and live-input registration share the event
      * processor barrier so no committed live event can fall into a handoff gap.
      */
+    public synchronized SimulationState openScenario(MultiSimulationBaseline baseline) {
+        return lifecycleManager.openScenario(baseline);
+    }
+
     public synchronized SimulationState createWhatIf(String sourceSimulationId) {
         return lifecycleManager.createWhatIf(sourceSimulationId);
     }

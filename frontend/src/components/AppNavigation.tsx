@@ -72,6 +72,7 @@ export const AppNavigation = ({
           <span className="text-[10px] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
         </summary>
         <div className="absolute right-0 top-full z-[3010] mt-2 w-52 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+          <MenuButton label="Scenario library" onClick={() => navigate('/scenarios')} />
           {canAccessSetup && <MenuButton label="Mappings" onClick={() => navigate('/admin/destination-mappings')} />}
           {canAccessSetup && <MenuButton label="Sensors" onClick={() => navigate('/admin/sensors')} />}
           {canAccessUsers && <MenuButton label="Users" onClick={() => navigate('/admin')} />}

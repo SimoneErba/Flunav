@@ -102,7 +102,7 @@ public class DestinationMappingService {
         if (memory != null) memory.sortedSetAdd(indexKey(), "records", maxValidTo.toEpochMilli());
         else redis.opsForZSet().add(indexKey(), "records", maxValidTo.toEpochMilli());
         long ttlSeconds = Duration.between(Instant.now(), maxValidTo).getSeconds();
-        if (memory == null && ttlSeconds > 0) {
+        if (memory == null && com.flunav.backend.context.DatabaseContextHolder.getSimulationId() == null && ttlSeconds > 0) {
             redis.expire(tableKey, Duration.ofSeconds(ttlSeconds));
         }
 
@@ -215,7 +215,7 @@ public class DestinationMappingService {
      * Defaults from the legacy event shape are applied here, and duplicate logical
      * rows are rejected so replaying a mapping event stays deterministic.
      */
-    private List<DestinationMappingRecord> normalizeAndValidate(MapDestinationsEvent event) {
+    public List<DestinationMappingRecord> normalizeAndValidate(MapDestinationsEvent event) {
         if (event == null) {
             throw new IllegalArgumentException("MapDestinationsEvent is required");
         }

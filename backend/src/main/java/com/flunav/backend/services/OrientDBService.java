@@ -309,6 +309,22 @@ public class OrientDBService {
                 displayRulesClass.createProperty("rules", OType.EMBEDDEDLIST, OType.EMBEDDED);
             }
 
+            if (session.getClass("ScenarioRevision") == null) {
+                OClass revisionClass = session.createClass("ScenarioRevision");
+                revisionClass.createProperty("scenarioId", OType.STRING);
+                revisionClass.createProperty("revision", OType.INTEGER);
+                revisionClass.createProperty("payload", OType.STRING);
+                revisionClass.createIndex("ScenarioRevision.identity", OClass.INDEX_TYPE.UNIQUE,
+                        "scenarioId", "revision");
+            }
+
+            if (session.getClass("ConveyorPreset") == null) {
+                OClass presetClass = session.createClass("ConveyorPreset");
+                presetClass.createProperty("presetId", OType.STRING);
+                presetClass.createProperty("payload", OType.STRING);
+                presetClass.createIndex("ConveyorPreset.identity", OClass.INDEX_TYPE.UNIQUE, "presetId");
+            }
+
             // 5. User (Document)
             if (session.getClass("User") == null) {
                 OClass userClass = session.createClass("User");

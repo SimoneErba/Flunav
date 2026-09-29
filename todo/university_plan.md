@@ -55,7 +55,7 @@ Provide two export actions:
 
 Version 1 supports a fresh run from the exported baseline. It does not promise exact continuation of a previous execution: in-memory queues, worker handles, and live subscriptions are not serialized. Keep this distinction visible in the import/export UI.
 
-Preserve `.flugraph` compatibility through a legacy reader. Import it as a graph-only scenario, show that routing/display configuration and experiment inputs are absent, and require the user to complete missing settings before running. Keep the existing graph endpoints compatible.
+no need to preserve the flugraph format. in the curretn export butotn, ask if they want to export also items, or just the topology
 
 ### Validation and import
 
@@ -64,15 +64,10 @@ Add a dedicated scenario validation/import service. Validate before creating sto
 - Supported format/schema/model versions, required fields, finite numeric values, timestamps, unique entity identifiers, and valid graph references.
 - Conveyor lengths, speeds, capacities, gaps, item positions, sources, destinations, sensor references, and configuration references using existing domain rules.
 - Arrival/failure settings, probability totals, replication limits, and JSON-safe seed values using shared experiment validation.
-- File size and configured entity/event limits. Set the initial upload limit to 20 MiB and honor existing simulation capacity checks; make the upload limit configurable.
 
-Reject unsupported newer schema/model versions with an actionable message. Older supported formats use explicit adapters. Allow unknown informational metadata, but reject unknown behavioral configuration types. Never accept arbitrary Jackson class names from files.
+no need for compatibility with older version.
 
 Import creates a new detached simulation with fresh runtime identifiers. Preserve model entity identifiers inside its namespace so routing references and comparison mappings stay stable. Source runtime identifiers never become local ownership identifiers.
-
-Add `SCENARIO` as an additive simulation kind and a corresponding creation path. It starts paused, uses its own OrientDB/Redis context, and neither subscribes to live ingestion nor reads external ClickHouse history during playback. Adapt playback and snapshot refresh paths explicitly for this kind. Reconstruct internal movement schedules from supported initial state; reject initial states that cannot be reconstructed safely rather than silently dropping pending behavior.
-
-On failure, clean up the entire newly allocated simulation namespace and database. Archived results remain historical records associated with the imported scenario; they never make a new execution appear completed. Mark results from another model/generator version as such.
 
 ### Scenario library and interfaces
 

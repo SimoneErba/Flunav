@@ -28,12 +28,16 @@ export const useGraphEditorCommands = (
         speed,
         length,
         mainPath,
+        minDistance,
+        capacity,
         conveyorType,
         properties
     }: {
         speed: number;
         length: number;
         mainPath: boolean;
+        minDistance: number;
+        capacity: number | null;
         conveyorType: EdgeEditorData["conveyorType"];
         properties: Record<string, unknown>;
     }) => {
@@ -49,12 +53,14 @@ export const useGraphEditorCommands = (
             graph.setEdgeAttribute(edgeId, 'speed', Number(speed));
             graph.setEdgeAttribute(edgeId, 'length', Number(length));
             graph.setEdgeAttribute(edgeId, 'mainPath', mainPath);
+            graph.setEdgeAttribute(edgeId, 'minDistance', minDistance);
+            graph.setEdgeAttribute(edgeId, 'capacity', capacity);
             graph.setEdgeAttribute(edgeId, 'conveyorType', conveyorType);
             graph.setEdgeAttribute(edgeId, 'size', mainPath ? 6 : 3);
             graph.setEdgeAttribute(edgeId, 'properties', properties);
 
             if (conveyorId) {
-                await conveyorsApi.updateConveyor(conveyorId, apiProperties({ speed: Number(speed), length: Number(length), mainPath, properties }));
+                await conveyorsApi.updateConveyor(conveyorId, apiProperties({ speed: Number(speed), length: Number(length), minDistance, capacity, mainPath, properties }));
                 if (conveyorType && conveyorType !== selectedEdgeData.conveyorType) {
                     await conveyorsApi.updateConveyorType(conveyorId, {
                         type: conveyorType,

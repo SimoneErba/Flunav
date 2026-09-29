@@ -442,6 +442,9 @@ final class ClickHouseSchemaSetup extends ClickHouseAccess {
     }
 
     void ensureMultiSimulationSchema() throws Exception {
+        executeClickHouseStatement("CREATE TABLE IF NOT EXISTS " + clickhouseDatabase
+                + ".simulation_comparisons (comparison_id String, definition_json String, version UInt64) "
+                + "ENGINE = ReplacingMergeTree(version) ORDER BY comparison_id");
         executeClickHouseStatement("""
                 CREATE TABLE IF NOT EXISTS %s.multi_simulations
                 (

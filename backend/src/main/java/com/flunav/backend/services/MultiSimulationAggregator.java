@@ -26,8 +26,9 @@ public class MultiSimulationAggregator {
                 .toList();
         Map<String, MetricDistribution> metrics = new LinkedHashMap<>();
         add(metrics, "throughputPerHour", completed, MultiSimulationRunMetrics::throughputPerHour);
-        add(metrics, "averageJourneyTimeSeconds", completed, MultiSimulationRunMetrics::averageJourneyTimeSeconds);
-        add(metrics, "p95JourneyTimeSeconds", completed, MultiSimulationRunMetrics::p95JourneyTimeSeconds);
+        List<MultiSimulationRunMetrics> journeyRuns = completed.stream().filter(value -> value.itemsCompleted() > 0).toList();
+        add(metrics, "averageJourneyTimeSeconds", journeyRuns, MultiSimulationRunMetrics::averageJourneyTimeSeconds);
+        add(metrics, "p95JourneyTimeSeconds", journeyRuns, MultiSimulationRunMetrics::p95JourneyTimeSeconds);
         add(metrics, "recirculationRatePercent", completed, MultiSimulationRunMetrics::recirculationRatePercent);
         add(metrics, "itemsCompleted", completed, value -> value.itemsCompleted());
         add(metrics, "itemsRemaining", completed, value -> value.itemsRemaining());

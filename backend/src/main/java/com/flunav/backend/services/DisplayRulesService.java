@@ -37,9 +37,11 @@ public class DisplayRulesService {
     private final OrientDBService orientDBService;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final com.flunav.backend.repositories.support.MultiSimulationRuntimeStore runtimeStore;
 
     public DisplayRulesService(OrientDBService orientDBService, StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, com.flunav.backend.repositories.support.MultiSimulationRuntimeStore runtimeStore) {
+        this.runtimeStore = runtimeStore;
         this.orientDBService = orientDBService;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -130,7 +132,8 @@ public class DisplayRulesService {
     public List<DisplayRule> getDisplayRules() {
         // 1. Try Cache
         String key = getNamespacedKey();
-        String cachedJson = redisTemplate.opsForValue().get(key);
+        var memory = runtimeStore.current();
+        String cachedJson = memory == null ? redisTemplate.opsForValue().get(key) : memory.getValue(key);
         if (cachedJson != null) {
             try {
                 return objectMapper.readValue(cachedJson, new TypeReference<List<DisplayRule>>() {
@@ -140,6 +143,8 @@ public class DisplayRulesService {
             }
         }
 
+        if (memory != null) return defaultPriorityRules();
+
         // 2. Fetch from DB
         try (ODatabaseSession session = orientDBService.getSession()) {
             List<DisplayRule> rules = new ArrayList<>();
@@ -148,7 +153,8 @@ public class DisplayRulesService {
             OResultSet rs = session.query("SELECT FROM " + DISPLAY_RULES_CLASS);
             if (rs == null)
                 return rules;
-            if (rs.hasNext()) {
+            boolean hasSavedRules = rs.hasNext();
+            if (hasSavedRules) {
                 OResult result = rs.next();
                 OElement element = result.getElement().orElse(null);
                 if (element != null) {
@@ -156,7 +162,7 @@ public class DisplayRulesService {
                     rules = ruleDocs.stream().map(this::toDisplayRule).collect(Collectors.toList());
                 }
             }
-            if (rules.isEmpty()) {
+            if (!hasSavedRules) {
                 rules = defaultPriorityRules();
             }
 
@@ -179,6 +185,12 @@ public class DisplayRulesService {
      */
     public void updateDisplayRules(List<DisplayRule> rules) {
         validateRules(rules);
+        var memory = runtimeStore.current();
+        if (memory != null) {
+            try { memory.setValue(getNamespacedKey(), objectMapper.writeValueAsString(rules)); }
+            catch (JsonProcessingException failure) { throw new IllegalArgumentException("Cannot serialize display rules", failure); }
+            return;
+        }
         // 1. Update DB
         orientDBService.withTransaction(session -> {
             // Delete existing rules
@@ -253,7 +265,7 @@ public class DisplayRulesService {
      * This rejects ranges, operators, and visual border values that the evaluator
      * cannot apply deterministically during graph projection.
      */
-    private void validateRules(List<DisplayRule> rules) {
+    public void validateRules(List<DisplayRule> rules) {
         if (rules == null) {
             throw new IllegalArgumentException("display rules are required");
         }

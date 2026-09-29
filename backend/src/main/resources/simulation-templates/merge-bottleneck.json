@@ -1,0 +1,199 @@
+{
+  "format": "flusim",
+  "schemaVersion": 1,
+  "modelVersion": "1",
+  "generatorVersion": "2",
+  "name": "Merge and bottleneck",
+  "description": "One source splits into two feeders that rejoin a 0.25 m/s bottleneck. Observe queues and unfinished items; independent feeder arrival sources are not supported.",
+  "exportedAt": "2026-01-01T00:00:00Z",
+  "applicationVersion": "0.0.1-SNAPSHOT",
+  "units": {
+    "length": "m",
+    "speed": "m/s",
+    "time": "s",
+    "itemLengthProperty": "m",
+    "coordinates": "visual"
+  },
+  "baseline": {
+    "locations": [
+      {
+        "id": "source",
+        "name": "source",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 0,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "feeder-a",
+        "name": "feeder-a",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 3,
+        "longitude": 2,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "feeder-b",
+        "name": "feeder-b",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 3,
+        "longitude": -2,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "merge",
+        "name": "merge",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 6,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "exit",
+        "name": "exit",
+        "type": "CHUTE",
+        "active": true,
+        "latitude": 9,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      }
+    ],
+    "conveyors": [
+      {
+        "id": "split-a",
+        "sourceId": "source",
+        "targetId": "feeder-a",
+        "name": "split-a",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "split-b",
+        "sourceId": "source",
+        "targetId": "feeder-b",
+        "name": "split-b",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": false,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "merge-a",
+        "sourceId": "feeder-a",
+        "targetId": "merge",
+        "name": "merge-a",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "merge-b",
+        "sourceId": "feeder-b",
+        "targetId": "merge",
+        "name": "merge-b",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "bottleneck",
+        "sourceId": "merge",
+        "targetId": "exit",
+        "name": "bottleneck",
+        "length": 3.0,
+        "speed": 0.25,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      }
+    ],
+    "items": [],
+    "sensorMappings": [],
+    "timestamp": "2026-01-01T00:00:00Z"
+  },
+  "configuration": {
+    "destinations": [],
+    "exits": [],
+    "displayRules": []
+  },
+  "experiment": {
+    "name": "Merge and bottleneck",
+    "simulationDurationSeconds": 300,
+    "numberOfRuns": 5,
+    "arrival": {
+      "distribution": "FIXED",
+      "ratePerHour": 600.0,
+      "rateVariationPercent": 0.0
+    },
+    "sourceLocationId": "source",
+    "destinations": [
+      {
+        "destination": "exit",
+        "probability": 1.0
+      }
+    ],
+    "conveyorFailures": [],
+    "baseSeed": 42,
+    "simulationStartTime": "2026-01-01T00:00:00Z",
+    "includeActiveItems": false,
+    "inputGeneratorVersion": "2"
+  },
+  "provenance": {
+    "topologyHash": null,
+    "configurationHash": null,
+    "templateId": "merge-bottleneck",
+    "templateVersion": 1
+  }
+}

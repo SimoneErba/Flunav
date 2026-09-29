@@ -27,7 +27,14 @@ public class MultiSimulationRandomGenerator {
     /** Generates every stochastic input before the virtual run starts. */
     public GeneratedInputs generate(MultiSimulationConfiguration configuration, long seed, String runIdentity) {
         SplittableRandom random = new SplittableRandom(seed);
-        double effectiveRate = effectiveArrivalRate(configuration.arrival(), random);
+        boolean controlled = "2".equals(configuration.inputGeneratorVersion());
+        if (configuration.inputGeneratorVersion() != null && !"1".equals(configuration.inputGeneratorVersion()) && !controlled) {
+            throw new IllegalArgumentException("Unsupported input generator version");
+        }
+        SplittableRandom rateRandom = controlled ? stream(seed, "arrival-rate") : random;
+        SplittableRandom intervalRandom = controlled ? stream(seed, "arrival-interval") : random;
+        SplittableRandom destinationRandom = controlled ? stream(seed, "destination") : random;
+        double effectiveRate = effectiveArrivalRate(configuration.arrival(), rateRandom);
         Instant start = configuration.simulationStartTime();
         Instant end = start.plusSeconds(configuration.simulationDurationSeconds());
         List<DomainEvent> events = new ArrayList<>();
@@ -35,11 +42,11 @@ public class MultiSimulationRandomGenerator {
         Instant arrival = start;
         long itemSequence = 0;
         while (true) {
-            arrival = arrival.plusNanos(nextIntervalNanos(configuration.arrival().distribution(), effectiveRate, random));
+            arrival = arrival.plusNanos(nextIntervalNanos(configuration.arrival().distribution(), effectiveRate, intervalRandom));
             if (arrival.isAfter(end)) {
                 break;
             }
-            String destination = selectDestination(configuration.destinations(), random);
+            String destination = selectDestination(configuration.destinations(), destinationRandom);
             String itemId = runIdentity + "_item_" + itemSequence++;
             events.add(new ItemCreatedEvent(
                     itemId,
@@ -51,7 +58,8 @@ public class MultiSimulationRandomGenerator {
                     PositionType.LOCATION,
                     0.0,
                     List.of(destination),
-                    java.util.Map.of("multiSimulationDestination", destination),
+                    controlled ? java.util.Map.of("multiSimulationDestination", destination, "lengthCm", 15.0)
+                            : java.util.Map.of("multiSimulationDestination", destination),
                     arrival));
             if (events.size() > MAX_PLANNED_INPUT_EVENTS) {
                 throw new IllegalArgumentException("Configuration generates too many planned input events");
@@ -59,10 +67,21 @@ public class MultiSimulationRandomGenerator {
         }
 
         for (ConveyorFailureConfiguration failure : configuration.conveyorFailures()) {
-            generateFailures(events, failure, start, end, random);
+            generateFailures(events, failure, start, end, controlled ? stream(seed, "failure:" + failure.conveyorId()) : random);
         }
         events.sort(java.util.Comparator.comparing(DomainEvent::getTimestamp));
         return new GeneratedInputs(effectiveRate, List.copyOf(events), itemSequence);
+    }
+
+    /** SHA-256 of decimal run seed, newline, and UTF-8 purpose; first eight bytes are the stream seed. */
+    private SplittableRandom stream(long seed, String purpose) {
+        try {
+            byte[] bytes = java.security.MessageDigest.getInstance("SHA-256").digest(
+                    (Long.toString(seed) + "\n" + purpose).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return new SplittableRandom(java.nio.ByteBuffer.wrap(bytes).getLong());
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
     private double effectiveArrivalRate(ArrivalConfiguration configuration, SplittableRandom random) {

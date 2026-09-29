@@ -13,7 +13,16 @@ public record MultiSimulationConfiguration(
         List<ConveyorFailureConfiguration> conveyorFailures,
         Long baseSeed,
         Instant simulationStartTime,
-        boolean includeActiveItems) {
+        boolean includeActiveItems,
+        String inputGeneratorVersion) {
+
+    public MultiSimulationConfiguration(String name, long simulationDurationSeconds, int numberOfRuns,
+            ArrivalConfiguration arrival, String sourceLocationId, List<DestinationProbability> destinations,
+            List<ConveyorFailureConfiguration> conveyorFailures, Long baseSeed, Instant simulationStartTime,
+            boolean includeActiveItems) {
+        this(name, simulationDurationSeconds, numberOfRuns, arrival, sourceLocationId, destinations,
+                conveyorFailures, baseSeed, simulationStartTime, includeActiveItems, null);
+    }
 
     public MultiSimulationConfiguration(String name, long simulationDurationSeconds, int numberOfRuns,
             ArrivalConfiguration arrival, String sourceLocationId, List<DestinationProbability> destinations,

@@ -1,0 +1,149 @@
+{
+  "format": "flusim",
+  "schemaVersion": 1,
+  "modelVersion": "1",
+  "generatorVersion": "2",
+  "name": "Failure and recovery",
+  "description": "Main route failures at 12/hour with 30 s repairs; alternate path illustrates resilience and rerouting.",
+  "exportedAt": "2026-01-01T00:00:00Z",
+  "applicationVersion": "0.0.1-SNAPSHOT",
+  "units": {
+    "length": "m",
+    "speed": "m/s",
+    "time": "s",
+    "itemLengthProperty": "m",
+    "coordinates": "visual"
+  },
+  "baseline": {
+    "locations": [
+      {
+        "id": "source",
+        "name": "source",
+        "type": "DECISION_POINT",
+        "active": true,
+        "latitude": 0,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "alternate",
+        "name": "alternate",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 3,
+        "longitude": 3,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "exit",
+        "name": "exit",
+        "type": "CHUTE",
+        "active": true,
+        "latitude": 6,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      }
+    ],
+    "conveyors": [
+      {
+        "id": "main-route",
+        "sourceId": "source",
+        "targetId": "exit",
+        "name": "main-route",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "alternate-1",
+        "sourceId": "source",
+        "targetId": "alternate",
+        "name": "alternate-1",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": false,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "alternate-2",
+        "sourceId": "alternate",
+        "targetId": "exit",
+        "name": "alternate-2",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      }
+    ],
+    "items": [],
+    "sensorMappings": [],
+    "timestamp": "2026-01-01T00:00:00Z"
+  },
+  "configuration": {
+    "destinations": [],
+    "exits": [],
+    "displayRules": []
+  },
+  "experiment": {
+    "name": "Failure and recovery",
+    "simulationDurationSeconds": 300,
+    "numberOfRuns": 5,
+    "arrival": {
+      "distribution": "FIXED",
+      "ratePerHour": 600.0,
+      "rateVariationPercent": 0.0
+    },
+    "sourceLocationId": "source",
+    "destinations": [
+      {
+        "destination": "exit",
+        "probability": 1.0
+      }
+    ],
+    "conveyorFailures": [
+      {
+        "conveyorId": "main-route",
+        "failuresPerHour": 12.0,
+        "repairDurationSeconds": 30
+      }
+    ],
+    "baseSeed": 42,
+    "simulationStartTime": "2026-01-01T00:00:00Z",
+    "includeActiveItems": false,
+    "inputGeneratorVersion": "2"
+  },
+  "provenance": {
+    "topologyHash": null,
+    "configurationHash": null,
+    "templateId": "failure-recovery",
+    "templateVersion": 1
+  }
+}

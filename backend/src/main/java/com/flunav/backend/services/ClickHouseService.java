@@ -189,6 +189,14 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveAlarmFact(event, simulationId, affectedItemIds);
     }
 
+    public synchronized void saveComparison(com.flunav.backend.models.comparison.SimulationComparison comparison) {
+        multiSimulations.saveComparison(comparison);
+    }
+
+    public java.util.List<com.flunav.backend.models.comparison.SimulationComparison> getComparisons() {
+        return multiSimulations.getComparisons();
+    }
+
     public synchronized void saveMultiSimulation(MultiSimulation simulation) {
         multiSimulations.saveMultiSimulation(simulation);
     }

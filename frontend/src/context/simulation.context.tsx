@@ -26,7 +26,7 @@ export const useSimulationContext = () => {
 };
 
 const isWhatIf = (simulation: SimulationStateResponse | null) =>
-    simulation?.kind === 'WHAT_IF_LIVE' || simulation?.kind === 'WHAT_IF_SIMULATION';
+    simulation?.kind === 'WHAT_IF_LIVE' || simulation?.kind === 'WHAT_IF_SIMULATION' || simulation?.kind === 'DETACHED';
 
 const isOperationalCommand = (url?: string) =>
     /\/api\/conveyors\/[^/?]+\/(activate|deactivate|release)(?:\?|$)/.test(url ?? '') ||

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 
 import { axiosInstance } from '../../api/axiosInstance';
+import { experimentExportApi, downloadDocument } from '../../api/scenarios';
 import {
   multiSimulationApi,
   type ArrivalDistribution,
@@ -305,12 +306,15 @@ const SimulationDetails = ({ simulation, report, canRun, onChanged }: { simulati
       {simulation.error && <p className="mt-3 text-sm text-red-600">{simulation.error}</p>}
     </div>
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Info label="Duration" value={`${(simulation.configuration.simulationDurationSeconds / 3600).toFixed(2)} h`} /><Info label="Arrival rate" value={`${simulation.configuration.arrival.ratePerHour}/h`} /><Info label="Arrival model" value={simulation.configuration.arrival.distribution} /><Info label="Failure models" value={String(simulation.configuration.conveyorFailures.length)} /></div>
+    <button className="rounded border px-3 py-2 text-sm dark:border-gray-600" onClick={() => {
+      void experimentExportApi.exportExperiment(simulation.id, true).then(response => downloadDocument('experiment.flusim', response.data)).catch(() => toast.error('Could not export experiment'));
+    }}>Export original experiment and results</button>
     {report && <Report report={report} />}
   </div>;
 };
 
 const Report = ({ report }: { report: MultiSimulationReport }) => <div className="space-y-4"><h2 className="text-xl font-bold">Aggregated report</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Object.entries(report.metrics).map(([name, value]) => <MetricCard key={name} name={name} distribution={value} />)}</div></div>;
-const MetricCard = ({ name, distribution }: { name: string; distribution: MetricDistribution }) => <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="text-sm font-semibold text-gray-500">{name.replace(/([A-Z])/g, ' $1').replace(/^./, value => value.toUpperCase())}</div><div className="mt-2 text-2xl font-bold">{distribution.mean.toFixed(2)}</div><div className="mt-2 text-xs text-gray-500">Median {distribution.median.toFixed(2)} · P5–P95 {distribution.p5.toFixed(2)}–{distribution.p95.toFixed(2)}</div><div className="text-xs text-gray-500">Min–max {distribution.minimum.toFixed(2)}–{distribution.maximum.toFixed(2)}</div></div>;
+const MetricCard = ({ name, distribution }: { name: string; distribution: MetricDistribution }) => <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900"><div className="text-sm font-semibold text-gray-500">{name.replace(/([A-Z])/g, ' $1').replace(/^./, value => value.toUpperCase())}</div><div className="mt-2 text-2xl font-bold">{distribution.sampleCount ? distribution.mean.toFixed(2) : 'Unavailable'}</div><div className="mt-2 text-xs text-gray-500">Median {distribution.median.toFixed(2)} · P5–P95 run distribution range {distribution.p5.toFixed(2)}–{distribution.p95.toFixed(2)}</div><div className="text-xs text-gray-500">Min–max {distribution.minimum.toFixed(2)}–{distribution.maximum.toFixed(2)}</div></div>;
 const Info = ({ label, value }: { label: string; value: string }) => <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"><div className="text-xs uppercase text-gray-500">{label}</div><div className="mt-1 font-bold">{value}</div></div>;
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block"><span className="mb-1 block text-sm font-medium">{label}</span>{children}</label>;
 const NumberInput = ({ value, onChange, min, max, step }: { value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) => <input type="number" value={value} min={min} max={max} step={step} onChange={event => onChange(Number(event.target.value))} className="input" />;

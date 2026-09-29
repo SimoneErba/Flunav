@@ -44,7 +44,7 @@ class RuleActivationEvaluatorTests {
 
     @Test
     void firstMatchingFillAndFirstMatchingCompleteBorderResolveIndependently() {
-        DisplayRulesService service = new DisplayRulesService(null, null, null);
+        DisplayRulesService service = new DisplayRulesService(null, null, null, null);
         List<DisplayRule> rules = List.of(
                 new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.0,
                         OperatorType.LESSER, 1.0, null, "#3b82f6", 1.0, 1),
@@ -73,7 +73,7 @@ class RuleActivationEvaluatorTests {
 
     @Test
     void priorityBorderRangesMeetAtConfiguredBoundaries() {
-        DisplayRulesService service = new DisplayRulesService(null, null, null);
+        DisplayRulesService service = new DisplayRulesService(null, null, null, null);
         List<DisplayRule> rules = List.of(
                 new DisplayRule("priority", DataType.NUMBER, OperatorType.GREATER_OR_EQUAL, 0.0,
                         OperatorType.LESSER, 0.4, null, "#3b82f6", 1.0, 1),

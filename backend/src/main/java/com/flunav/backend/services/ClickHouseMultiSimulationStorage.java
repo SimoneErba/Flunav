@@ -32,6 +32,23 @@ final class ClickHouseMultiSimulationStorage extends ClickHouseAccess {
         super(client, mapper, database);
     }
 
+    public void saveComparison(com.flunav.backend.models.comparison.SimulationComparison comparison) {
+        insertJsonRows("simulation_comparisons", List.of(Map.of("comparison_id", comparison.id(),
+                "definition_json", writeJson(comparison), "version", multiSimulationVersion.incrementAndGet())));
+    }
+
+    public List<com.flunav.backend.models.comparison.SimulationComparison> getComparisons() {
+        return queryRows("SELECT definition_json FROM " + clickhouseDatabase + ".simulation_comparisons FINAL FORMAT JSONEachRow", Map.of())
+                .stream().map(row -> {
+                    try {
+                        return objectMapper.readValue(String.valueOf(row.get("definition_json")),
+                                com.flunav.backend.models.comparison.SimulationComparison.class);
+                    } catch (Exception failure) {
+                        throw new IllegalStateException("Cannot read comparison", failure);
+                    }
+                }).toList();
+    }
+
     public synchronized void saveMultiSimulation(MultiSimulation simulation) {
         try {
             Map<String, Object> row = new LinkedHashMap<>();

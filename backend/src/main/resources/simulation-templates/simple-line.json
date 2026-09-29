@@ -1,0 +1,126 @@
+{
+  "format": "flusim",
+  "schemaVersion": 1,
+  "modelVersion": "1",
+  "generatorVersion": "2",
+  "name": "Simple line",
+  "description": "Travel time and throughput; two 3 m belts at 1 m/s give 6 s unobstructed travel.",
+  "exportedAt": "2026-01-01T00:00:00Z",
+  "applicationVersion": "0.0.1-SNAPSHOT",
+  "units": {
+    "length": "m",
+    "speed": "m/s",
+    "time": "s",
+    "itemLengthProperty": "m",
+    "coordinates": "visual"
+  },
+  "baseline": {
+    "locations": [
+      {
+        "id": "source",
+        "name": "source",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 0,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "middle",
+        "name": "middle",
+        "type": "JUNCTION",
+        "active": true,
+        "latitude": 3,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      },
+      {
+        "id": "exit",
+        "name": "exit",
+        "type": "CHUTE",
+        "active": true,
+        "latitude": 6,
+        "longitude": 0,
+        "capacity": null,
+        "timeToProcessMs": null,
+        "properties": {}
+      }
+    ],
+    "conveyors": [
+      {
+        "id": "belt-1",
+        "sourceId": "source",
+        "targetId": "middle",
+        "name": "belt-1",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      },
+      {
+        "id": "belt-2",
+        "sourceId": "middle",
+        "targetId": "exit",
+        "name": "belt-2",
+        "length": 3.0,
+        "speed": 1.0,
+        "minDistance": 0.5,
+        "type": "BELT",
+        "active": true,
+        "mainPath": true,
+        "capacity": 10,
+        "properties": {},
+        "operatorEnabled": true,
+        "activeAlarms": [],
+        "flowStopped": false
+      }
+    ],
+    "items": [],
+    "sensorMappings": [],
+    "timestamp": "2026-01-01T00:00:00Z"
+  },
+  "configuration": {
+    "destinations": [],
+    "exits": [],
+    "displayRules": []
+  },
+  "experiment": {
+    "name": "Simple line",
+    "simulationDurationSeconds": 300,
+    "numberOfRuns": 5,
+    "arrival": {
+      "distribution": "FIXED",
+      "ratePerHour": 600.0,
+      "rateVariationPercent": 0.0
+    },
+    "sourceLocationId": "source",
+    "destinations": [
+      {
+        "destination": "exit",
+        "probability": 1.0
+      }
+    ],
+    "conveyorFailures": [],
+    "baseSeed": 42,
+    "simulationStartTime": "2026-01-01T00:00:00Z",
+    "includeActiveItems": false,
+    "inputGeneratorVersion": "2"
+  },
+  "provenance": {
+    "topologyHash": null,
+    "configurationHash": null,
+    "templateId": "simple-line",
+    "templateVersion": 1
+  }
+}

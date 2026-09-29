@@ -243,6 +243,26 @@ final class TopologyReducer {
                 yield Map.of("status", "PROCESSED_SUCCESSFULLY");
             }
 
+            case ConnectionConstraintsChangedEvent e -> {
+                if (!Double.isFinite(e.getMinDistance()) || e.getMinDistance() < 0
+                        || e.getCapacity() != null && e.getCapacity() <= 0) {
+                    throw new IllegalArgumentException("Invalid conveyor spacing or capacity");
+                }
+                var conveyor = conveyorService.getConveyorById(e.getEntityId());
+                support.checkpointItems(e.getEntityId(), conveyor.getSpeed(), e.getTimestamp());
+                conveyor.setMinDistance(e.getMinDistance());
+                conveyor.setCapacity(e.getCapacity());
+                conveyorService.updateConveyor(conveyor);
+                if (manageLogic) itemMovementProcessor.recalculateConveyorAccumulation(e.getEntityId());
+                if (shouldBroadcast) {
+                    Map<String, Object> updates = new HashMap<>();
+                    updates.put("minDistance", e.getMinDistance());
+                    updates.put("capacity", e.getCapacity());
+                    webSocketService.broadcastConnectionUpdated(new UpdateModel(conveyor.getId(), updates), e.getTimestamp());
+                }
+                yield Map.of("status", "PROCESSED_SUCCESSFULLY");
+            }
+
             case ConnectionPropertiesUpdatedEvent e -> {
                 var conveyor = conveyorService.getConveyorById(e.getEntityId());
 

@@ -96,7 +96,7 @@ public class DestinationExitMappingService {
      * Duplicate destinations are rejected and exit order is preserved while blank
      * or repeated exit ids are removed from the stored table.
      */
-    private List<DestinationExitMappingRecord> normalizeAndValidate(MapDestinationExitsEvent event) {
+    public List<DestinationExitMappingRecord> normalizeAndValidate(MapDestinationExitsEvent event) {
         if (event == null || event.getMappings() == null) {
             throw new IllegalArgumentException("mappings are required");
         }
