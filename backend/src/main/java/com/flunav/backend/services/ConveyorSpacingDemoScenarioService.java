@@ -24,6 +24,9 @@ public class ConveyorSpacingDemoScenarioService {
     private static final String ROLLER_SOURCE = "CS-ROLLER-SOURCE";
     private static final String MERGE = "CS-MERGE";
     private static final String EXIT = "CS-EXIT";
+    private static final double FEEDER_LENGTH = 3.0;
+    private static final double FEEDER_SPEED = 0.5;
+    private static final double ROLLER_DELAY_SECONDS = 0.5;
 
     private final EventProcessor events;
     private final TopologyProvider topology;
@@ -53,14 +56,16 @@ public class ConveyorSpacingDemoScenarioService {
                 location(ROLLER_SOURCE, "Roller feeder", 8, 0, LocationType.JUNCTION);
                 location(MERGE, "Merge", 4, 8, LocationType.JUNCTION);
                 location(EXIT, "Merge exit", 4, 15, LocationType.CHUTE);
-                conveyor(BELT_SOURCE, MERGE, 3.0, 0.5, ConveyorType.BELT);
-                conveyor(ROLLER_SOURCE, MERGE, 3.0, 0.5, ConveyorType.ROLLER);
+                conveyor(BELT_SOURCE, MERGE, FEEDER_LENGTH, FEEDER_SPEED, ConveyorType.BELT);
+                conveyor(ROLLER_SOURCE, MERGE, FEEDER_LENGTH, FEEDER_SPEED, ConveyorType.ROLLER);
                 conveyor(MERGE, EXIT, 1.5, 0.05, ConveyorType.BELT);
                 item("CS-OUTLET-1", conveyorId(MERGE, EXIT), 0.0, start);
+                double rollerProgressOffset = ROLLER_DELAY_SECONDS * FEEDER_SPEED / FEEDER_LENGTH * 100.0;
                 for (int index = 1; index <= 4; index++) {
                     double progress = 90.0 - (index - 1) * 25.0;
                     item("CS-BELT-" + index, conveyorId(BELT_SOURCE, MERGE), progress, start);
-                    item("CS-ROLLER-" + index, conveyorId(ROLLER_SOURCE, MERGE), progress, start);
+                    item("CS-ROLLER-" + index, conveyorId(ROLLER_SOURCE, MERGE),
+                            progress - rollerProgressOffset, start);
                 }
             }
             simulations.startPlayback(id, 1.0);

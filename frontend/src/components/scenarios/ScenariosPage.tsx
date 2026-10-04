@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { SavedScenario, ScenarioDocument, SimulationComparison, ComparisonReport, MultiSimulationResponse } from '../../api-client';
 import { scenariosApi, templatesApi, comparisonsApi, downloadDocument } from '../../api/scenarios';
 import { useSimulationContext } from '../../context/simulation.context';
 import { useAuth } from '../../context/auth.context';
+import { conveyorFailureDefaults } from '../conveyors/presets';
 import { AppHeader } from '../AppHeader';
 import { AppNavigation } from '../AppNavigation';
 
-const button = 'rounded border border-gray-300 px-3 py-2 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800 disabled:opacity-40';
+import { libraryButton as button, libraryPrimary, librarySave, libraryInput as input, libraryLabel, libraryPanel, libraryCheckbox } from './libraryStyles';
 const metricLabels: Record<string, string> = {
   throughputPerHour: 'Throughput (items/hour)', averageJourneyTimeSeconds: 'Mean journey (s)', p95JourneyTimeSeconds: 'p95 journey (s)',
   itemsCompleted: 'Completed items', itemsRemaining: 'Remaining items', maximumSystemPopulation: 'Maximum population (items)',
   recirculationRatePercent: 'Recirculation (passes/100 completions)', recirculationCount: 'Recirculation passes', conveyorFailureCount: 'Conveyor failures',
 };
 const metricLabel = (name: string) => metricLabels[name] ?? name.replace(/^conveyor\./, '').replace(/\.downtimePercent$/, ' downtime (%)');
-const input = 'rounded border border-gray-300 bg-white p-2 dark:border-gray-600 dark:bg-gray-900';
 
 export const ScenariosPage = () => {
   const navigate = useNavigate();
@@ -98,6 +98,9 @@ export const ScenariosPage = () => {
         copy.experiment.sourceLocationId = referenceMapping[configuration.sourceLocationId!] ?? configuration.sourceLocationId;
         copy.experiment.destinations = configuration.destinations?.map(destination => ({ ...destination, destination: referenceMapping[destination.destination!] ?? destination.destination }));
       }
+      if (mapped) copy.experiment.conveyorFailures = copy.experiment.conveyorFailures?.map(failure => ({ ...failure, conveyorId: referenceMapping[failure.conveyorId!] ?? failure.conveyorId }));
+      const existingFailures = new Set(copy.experiment.conveyorFailures?.map(failure => failure.conveyorId));
+      copy.experiment.conveyorFailures = [...(copy.experiment.conveyorFailures ?? []), ...conveyorFailureDefaults(copy.baseline?.conveyors ?? []).filter(failure => !existingFailures.has(failure.conveyorId))];
       if (copy.baseline) { copy.baseline.timestamp = reference.baseline?.timestamp; copy.baseline.items = []; }
       return { name: label, scenario: copy, referenceMapping: mapped ? referenceMapping : {} };
     };
@@ -126,22 +129,25 @@ export const ScenariosPage = () => {
     return { name: alternative.name, throughput: completed.length ? completed.reduce((sum, run) => sum + (run.metrics?.throughputPerHour ?? 0), 0) / completed.length : undefined };
   }) ?? [];
 
-  return <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
+  return <div className="h-full overflow-y-auto bg-gray-100 text-gray-900 dark:bg-[#121212] dark:text-gray-100">
     <AppHeader leftActions={<AppNavigation />} />
     <main className="mx-auto max-w-7xl space-y-8 p-4 md:p-8">
-      <section className="space-y-4">
-        <h1 className="text-2xl font-bold">Scenario library</h1>
+      <section className="space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-gray-200 pb-6 dark:border-gray-800"><div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[.18em] text-blue-600 dark:text-blue-400">System setup / Scenario workspace</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Scenario library</h1>
+        </div><Link className={button} to="/conveyor-templates">Conveyor templates <span aria-hidden="true">↗</span></Link></div>
         <p className="text-sm text-gray-500">Saved revisions reopen as detached projects. Exports start fresh runs; queues and live subscriptions are not saved.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input aria-label="Scenario name" className={input} value={name} onChange={event => setName(event.target.value)} />
-          <label><input type="checkbox" checked={includeItems} onChange={event => setIncludeItems(event.target.checked)} /> Include initial items</label>
-          <button className={button} disabled={busy || !canEdit} onClick={() => void action(capture)}>Save {selectedId ? 'new revision' : 'current model'}</button>
+        <div className={`${libraryPanel} flex flex-wrap items-end gap-4 p-5`}>
+          <label className={`${libraryLabel} min-w-0 flex-1 sm:min-w-64`}>Scenario name<input aria-label="Scenario name" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={name} onChange={event => setName(event.target.value)} /></label>
+          <label className="flex min-h-10 items-center gap-2 text-sm"><input className={libraryCheckbox} type="checkbox" checked={includeItems} onChange={event => setIncludeItems(event.target.checked)} /> Include initial items</label>
+          <button className={librarySave} disabled={busy || !canEdit} onClick={() => void action(capture)}>Save {selectedId ? 'new revision' : 'current model'}</button>
           <button className={button} onClick={() => { setSelectedId(''); localStorage.removeItem('flumen_scenario_id'); }}>Save as new project</button>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">{saved.map(value => <article key={value.id} className="space-y-2 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <div className="grid gap-3 md:grid-cols-3">{saved.map(value => <article key={value.id} className={`${libraryPanel} space-y-3 border-t-2 border-t-blue-500 p-5`}>
           <h2 className="font-semibold">{value.name} · revision {value.revision}</h2><p className="text-sm">{value.description}</p>
           <div className="flex flex-wrap gap-2">
-            <button className={button} disabled={busy || !canEdit} onClick={() => void action(() => open(value))}>Open and edit</button>
+            <button className={libraryPrimary} disabled={busy || !canEdit} onClick={() => void action(() => open(value))}>Open and edit</button>
             <button className={button} disabled={busy || !canEdit} onClick={() => void action(async () => { remember((await scenariosApi.duplicateScenario(value.id!, value.revision)).data); })}>Duplicate</button>
             <button className={button} disabled={busy || !canEdit} onClick={() => void action(async () => { await scenariosApi.renameScenario(value.id!, { name, description: value.description }); })}>Rename to entered name</button>
             <button className={button} disabled={busy || !canEdit} onClick={() => void action(async () => { await scenariosApi.saveScenarioAsTemplate(value.id!, value.revision); })}>Save reusable template</button>
@@ -149,45 +155,46 @@ export const ScenariosPage = () => {
           </div>
         </article>)}</div>
       </section>
-      <section className="space-y-3"><h2 className="text-xl font-semibold">Teaching templates</h2>
-        <div className="grid gap-4 md:grid-cols-2">{templates.map(template => <article key={template.provenance?.templateId} className="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
+      <section className="space-y-3"><h2 className="text-lg font-bold tracking-tight">Teaching templates</h2>
+        <p className="text-sm text-gray-500">These templates contain complete layouts. <Link className="text-blue-600 underline dark:text-blue-400" to="/conveyor-templates">Browse individual conveyor templates</Link> for belts, rollers and other components.</p>
+        <div className="grid gap-4 md:grid-cols-2">{templates.map(template => <article key={template.provenance?.templateId} className={`${libraryPanel} space-y-4 p-5`}>
           <h3 className="font-semibold">{template.name} · v{template.provenance?.templateVersion}</h3>
-          <svg aria-label={`${template.name} preview`} viewBox="-1 -4 12 9" className="h-32 w-full rounded bg-gray-100 dark:bg-gray-900">
+          <svg aria-label={`${template.name} preview`} viewBox="-1 -4 12 9" className="h-36 w-full rounded border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
             {template.baseline?.conveyors?.map(edge => {
               const source = template.baseline?.locations?.find(node => node.id === edge.sourceId);
               const target = template.baseline?.locations?.find(node => node.id === edge.targetId);
-              return <line key={edge.id} x1={source?.latitude} y1={source?.longitude} x2={target?.latitude} y2={target?.longitude} stroke="#3b82f6" strokeWidth="0.1" />;
+              return <line key={edge.id} x1={source?.latitude} y1={source?.longitude} x2={target?.latitude} y2={target?.longitude} stroke="#3b82f6" strokeWidth="0.12" strokeLinecap="round" />;
             })}
             {template.baseline?.locations?.map(node => <circle key={node.id} cx={node.latitude} cy={node.longitude} r=".2" fill={node.type === 'CHUTE' ? '#22c55e' : '#3b82f6'} />)}
           </svg>
           <p className="text-sm">{template.description}</p>
-          <p className="text-xs">{template.baseline?.conveyors?.map(edge => `${edge.id}: ${edge.length} m, ${edge.speed} m/s`).join(' · ')}</p>
-          <button className={button} disabled={busy || !canEdit} onClick={() => void action(async () => {
+          <p className="font-mono text-xs text-gray-500 dark:text-gray-400">{template.baseline?.conveyors?.map(edge => `${edge.id}: ${edge.length} m, ${edge.speed} m/s`).join(' · ')}</p>
+          <button className={libraryPrimary} disabled={busy || !canEdit} onClick={() => void action(async () => {
             const result = (await templatesApi.instantiateSimulationTemplate(template.provenance!.templateId!)).data;
             remember(result.scenario!); setActiveSimulation(result.runtime!); navigate('/live');
           })}>Instantiate isolated project</button>
         </article>)}</div>
       </section>
-      <section className="space-y-4"><h2 className="text-xl font-semibold">Controlled comparisons</h2>
-        <div className="flex flex-wrap gap-2">
-          <input aria-label="Comparison name" className={input} value={studyName} onChange={event => setStudyName(event.target.value)} />
-          <select aria-label="Reference scenario" className={input} value={referenceId} onChange={event => setReferenceId(event.target.value)}><option value="">Reference scenario</option>{saved.map(value => <option key={value.id} value={value.id}>{value.name} r{value.revision}</option>)}</select>
-          <select aria-label="Alternative scenario" className={input} value={alternativeId} onChange={event => setAlternativeId(event.target.value)}><option value="">Alternative scenario</option>{saved.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select>
-          <label>Duration (s) <input aria-label="Duration seconds" className={`${input} w-24`} type="number" value={duration} min="1" onChange={event => setDuration(Number(event.target.value))} /></label>
-          <label>Replications <input aria-label="Replications" className={`${input} w-20`} type="number" value={runs} min="1" onChange={event => setRuns(Number(event.target.value))} /></label>
-          <label>Seed <input aria-label="Base seed" className={`${input} w-24`} type="number" value={seed} onChange={event => setSeed(Number(event.target.value))} /></label>
+      <section className={`${libraryPanel} space-y-5 p-5 md:p-6`}><div className="border-b border-gray-200 pb-4 dark:border-gray-700"><h2 className="text-lg font-bold tracking-tight">Controlled comparisons</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Compare layouts or sweep conveyor settings under the same experiment conditions.</p></div>
+        <div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <label className={`${libraryLabel}`}>Comparison name<input aria-label="Comparison name" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={studyName} onChange={event => setStudyName(event.target.value)} /></label>
+          <label className={libraryLabel}>Reference scenario<select aria-label="Reference scenario" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={referenceId} onChange={event => setReferenceId(event.target.value)}><option value="">Reference scenario</option>{saved.map(value => <option key={value.id} value={value.id}>{value.name} r{value.revision}</option>)}</select></label>
+          <label className={libraryLabel}>Alternative scenario<select aria-label="Alternative scenario" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={alternativeId} onChange={event => setAlternativeId(event.target.value)}><option value="">Alternative scenario</option>{saved.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+          <label className={libraryLabel}>Duration (s) <input aria-label="Duration seconds" className={`${input} mt-2 font-normal normal-case tracking-normal`} type="number" value={duration} min="1" onChange={event => setDuration(Number(event.target.value))} /></label>
+          <label className={libraryLabel}>Replications <input aria-label="Replications" className={`${input} mt-2 font-normal normal-case tracking-normal`} type="number" value={runs} min="1" onChange={event => setRuns(Number(event.target.value))} /></label>
+          <label className={libraryLabel}>Seed <input aria-label="Base seed" className={`${input} mt-2 font-normal normal-case tracking-normal`} type="number" value={seed} onChange={event => setSeed(Number(event.target.value))} /></label>
         </div>
-        <label className="block text-sm">Explicit source/destination mapping for different layouts
-          <input aria-label="Reference mapping JSON" className={`${input} ml-2`} value={mappingText} onChange={event => setMappingText(event.target.value)} />
+        <label className={libraryLabel}>Source / destination mapping
+          <input aria-label="Reference mapping JSON" className={`${input} mt-2 font-mono font-normal normal-case tracking-normal`} value={mappingText} onChange={event => setMappingText(event.target.value)} />
         </label>
-        <div className="flex flex-wrap gap-2">
-          <select aria-label="Sweep conveyor" className={input} value={sweepConveyor} onChange={event => setSweepConveyor(event.target.value)}><option value="">Optional parameter sweep</option>{saved.find(value => value.id === referenceId)?.document?.baseline?.conveyors?.map(edge => <option key={edge.id} value={edge.id}>{edge.name ?? edge.id}</option>)}</select>
-          <select aria-label="Sweep parameter" className={input} value={sweepParameter} onChange={event => setSweepParameter(event.target.value as typeof sweepParameter)}><option value="speed">Speed (m/s)</option><option value="capacity">Capacity (items)</option><option value="minDistance">Spacing (m)</option></select>
-          <input aria-label="Sweep values" className={input} placeholder="Explicit values: 0.5, 1, 2" value={sweepValues} onChange={event => setSweepValues(event.target.value)} />
-          <button className={button} disabled={busy || !canEdit} onClick={() => void action(createStudy)}>Create comparison</button>
+        <div className="grid items-end gap-4 rounded border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40 sm:grid-cols-2 lg:grid-cols-4">
+          <label className={libraryLabel}>Sweep conveyor<select aria-label="Sweep conveyor" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={sweepConveyor} onChange={event => setSweepConveyor(event.target.value)}><option value="">Optional parameter sweep</option>{saved.find(value => value.id === referenceId)?.document?.baseline?.conveyors?.map(edge => <option key={edge.id} value={edge.id}>{edge.name ?? edge.id}</option>)}</select></label>
+          <label className={libraryLabel}>Sweep parameter<select aria-label="Sweep parameter" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={sweepParameter} onChange={event => setSweepParameter(event.target.value as typeof sweepParameter)}><option value="speed">Speed (m/s)</option><option value="capacity">Capacity (items)</option><option value="minDistance">Spacing (m)</option></select></label>
+          <label className={`${libraryLabel}`}>Sweep values<input aria-label="Sweep values" className={`${input} mt-2 font-normal normal-case tracking-normal`} placeholder="Explicit values: 0.5, 1, 2" value={sweepValues} onChange={event => setSweepValues(event.target.value)} /></label>
+          <button className={`${libraryPrimary} min-h-10`} disabled={busy || !canEdit} onClick={() => void action(createStudy)}>Create comparison</button>
         </div>
-        <label className="block text-sm">Import comparison JSON
-          <input type="file" accept=".json,application/json" disabled={busy || !canEdit} onChange={event => {
+        <label className={libraryLabel}>Import comparison JSON
+          <input className="mt-2 block w-full text-sm font-normal normal-case tracking-normal text-gray-500 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-gray-700 dark:file:bg-gray-700 dark:file:text-gray-200" type="file" accept=".json,application/json" disabled={busy || !canEdit} onChange={event => {
             const file = event.target.files?.[0]; event.target.value = '';
             if (file) void action(async () => {
               if (file.size > 10 * 1024 * 1024) throw new Error('Comparison file exceeds 10 MiB');
@@ -198,7 +205,7 @@ export const ScenariosPage = () => {
           }} />
         </label>
         <div className="flex flex-wrap gap-2">{studies.map(value => <button key={value.id} className={button} onClick={() => setStudy(value)}>{value.name}</button>)}</div>
-        {study && <div className="space-y-4 rounded-xl border p-4 dark:border-gray-700">
+        {study && <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-900/40">
           <h3 className="font-semibold">{study.name}</h3>
           <div className="flex flex-wrap gap-2">
             <button className={button} disabled={busy || !canEdit || study.frozen} onClick={() => void action(async () => { setStudy((await comparisonsApi.runSimulationComparison(study.id!)).data); })}>Run comparison</button>
@@ -213,8 +220,8 @@ export const ScenariosPage = () => {
           <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={chart}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="throughput" name="Throughput (items/hour)" fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
           {report?.alternatives?.map(alternative => <div key={alternative.experimentId} className="overflow-x-auto">
             <h4 className="font-semibold">{alternative.name}</h4>
-            <table className="w-full text-left text-sm"><thead><tr><th>Metric</th><th>Difference</th><th>95% paired interval</th><th>Pairs</th><th>Excluded</th></tr></thead><tbody>{Object.entries(alternative.differences ?? {}).map(([metric, difference]) => <tr key={metric}><td>{metricLabel(metric)}</td><td>{difference.meanDifference?.toFixed(3) ?? 'Unavailable'}</td><td>{difference.lower95 == null ? 'Unavailable' : `${difference.lower95.toFixed(3)} – ${difference.upper95?.toFixed(3)}`}</td><td>{difference.pairs}</td><td>{difference.excludedRuns}</td></tr>)}</tbody></table>
-            <table className="mt-3 w-full text-left text-sm"><thead><tr><th>Run</th><th>Status</th><th>Completed</th><th>Remaining</th><th>Mean journey (s)</th><th>p95 (s)</th><th>Downtime (%)</th></tr></thead><tbody>{alternative.runs?.map(run => <tr key={run.runIndex}><td>{run.runIndex}</td><td>{run.status}</td><td>{run.metrics?.itemsCompleted ?? '—'}</td><td>{run.metrics?.itemsRemaining ?? '—'}</td><td>{run.metrics?.itemsCompleted ? run.metrics.averageJourneyTimeSeconds?.toFixed(3) : 'Unavailable'}</td><td>{run.metrics?.itemsCompleted ? run.metrics.p95JourneyTimeSeconds?.toFixed(3) : 'Unavailable'}</td><td>{Object.entries(run.metrics?.conveyorDowntimePercent ?? {}).map(([conveyor, percent]) => `${conveyor}: ${percent.toFixed(2)}`).join(' · ') || '—'}</td></tr>)}</tbody></table>
+            <table className="w-full text-left text-sm [&_th]:bg-gray-100 [&_th]:p-3 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:text-gray-500 [&_td]:border-b [&_td]:border-gray-200 [&_td]:p-3 [&_td]:tabular-nums dark:[&_th]:bg-gray-800 dark:[&_td]:border-gray-700"><thead><tr><th>Metric</th><th>Difference</th><th>95% paired interval</th><th>Pairs</th><th>Excluded</th></tr></thead><tbody>{Object.entries(alternative.differences ?? {}).map(([metric, difference]) => <tr key={metric}><td>{metricLabel(metric)}</td><td>{difference.meanDifference?.toFixed(3) ?? 'Unavailable'}</td><td>{difference.lower95 == null ? 'Unavailable' : `${difference.lower95.toFixed(3)} – ${difference.upper95?.toFixed(3)}`}</td><td>{difference.pairs}</td><td>{difference.excludedRuns}</td></tr>)}</tbody></table>
+            <table className="mt-3 w-full text-left text-sm [&_th]:bg-gray-100 [&_th]:p-3 [&_th]:text-xs [&_th]:uppercase [&_th]:text-gray-500 [&_td]:border-b [&_td]:border-gray-200 [&_td]:p-3 [&_td]:tabular-nums dark:[&_th]:bg-gray-800 dark:[&_td]:border-gray-700"><thead><tr><th>Run</th><th>Status</th><th>Completed</th><th>Remaining</th><th>Mean journey (s)</th><th>p95 (s)</th><th>Downtime (%)</th></tr></thead><tbody>{alternative.runs?.map(run => <tr key={run.runIndex}><td>{run.runIndex}</td><td>{run.status}</td><td>{run.metrics?.itemsCompleted ?? '—'}</td><td>{run.metrics?.itemsRemaining ?? '—'}</td><td>{run.metrics?.itemsCompleted ? run.metrics.averageJourneyTimeSeconds?.toFixed(3) : 'Unavailable'}</td><td>{run.metrics?.itemsCompleted ? run.metrics.p95JourneyTimeSeconds?.toFixed(3) : 'Unavailable'}</td><td>{Object.entries(run.metrics?.conveyorDowntimePercent ?? {}).map(([conveyor, percent]) => `${conveyor}: ${percent.toFixed(2)}`).join(' · ') || '—'}</td></tr>)}</tbody></table>
           </div>)}
         </div>}
       </section>

@@ -40,6 +40,40 @@ class ScenarioIntegrationTests extends BaseIntegrationTest {
     @Autowired EventProcessor events;
     @Autowired ClickHouseService storage;
 
+    @Autowired ConveyorPresetService presets;
+
+    @Test
+    void conveyorTemplatesPersistFailureDefaultsAndEnforceRoles() throws Exception {
+        var properties = java.util.Map.<String, Object>of("failuresPerHour", .01, "repairDurationSeconds", 60);
+        var input = new com.flunav.backend.models.scenario.ConveyorPreset(null, 1, "Fast roller", "Custom component",
+                flunav.types.ConveyorType.ROLLER, 5, 4, .1, null, false, properties);
+        var payload = mapper.writeValueAsBytes(input);
+        mvc.perform(post("/api/conveyor-presets").contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/conveyor-presets").header("Authorization", "Bearer " + jwt.generateToken("reader", Role.VIEWER))
+                .contentType(MediaType.APPLICATION_JSON).content(payload)).andExpect(status().isForbidden());
+        var result = mvc.perform(post("/api/conveyor-presets").header("Authorization", "Bearer " + jwt.generateToken("admin", Role.ADMIN))
+                .contentType(MediaType.APPLICATION_JSON).content(payload)).andExpect(status().isOk()).andReturn();
+        var saved = mapper.readValue(result.getResponse().getContentAsString(), com.flunav.backend.models.scenario.ConveyorPreset.class);
+        assertTrue(presets.list().stream().anyMatch(value -> value.id().equals(saved.id()) && value.properties().equals(properties)));
+        var invalid = new com.flunav.backend.models.scenario.ConveyorPreset(null, 1, "Invalid", "", flunav.types.ConveyorType.BELT,
+                5, 1, 0, null, false, java.util.Map.of("failuresPerHour", -1));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> presets.save(invalid));
+        var runtime = simulations.openScenario(scenarios.toBaseline(templates.getSimulationTemplate("simple-line")));
+        try (var context = DatabaseContextHolder.enterSimulationContext(runtime.getId())) {
+            var topology = graph.getTopologyData();
+            var source = topology.getLocations().getFirst().getId();
+            var target = topology.getLocations().getLast().getId();
+            events.process(new flunav.events.ConnectionCreatedEvent("preset-test", source, target, saved.length(), saved.speed(),
+                    saved.minDistance(), null, saved.mainPath(), saved.name(), true, saved.type(), saved.capacity(), saved.properties()), false).join();
+            var conveyor = scenarios.capture("Preset round trip", "", false).baseline().getConveyors().stream()
+                    .filter(value -> "preset-test".equals(value.getId())).findFirst().orElseThrow();
+            assertEquals(4, conveyor.getSpeed());
+            assertEquals(properties, conveyor.getProperties());
+            assertEquals(flunav.types.ConveyorType.ROLLER, conveyor.getType());
+        } finally { simulations.destroySimulation(runtime.getId()); }
+    }
+
     @Test
     void comparisonSchemaUpgradesTwiceAndReportsKnownStudentTInterval() throws Exception {
         var document = templates.getSimulationTemplate("simple-line");

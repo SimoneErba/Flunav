@@ -23,6 +23,7 @@ type GraphTestSnapshot = {
 
 type GraphTestApi = {
   version: 1;
+  getNodeViewportPosition: (id: string) => { x: number; y: number } | null;
   getSnapshot(): GraphTestSnapshot;
   getNode(id: string): GraphTestNode | null;
   getEdge(keyOrId: string): GraphTestEdge | null;

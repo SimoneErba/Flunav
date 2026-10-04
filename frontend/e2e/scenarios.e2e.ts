@@ -74,3 +74,63 @@ test('teaching project saves, compares, exports and imports into detached state'
   await page.getByRole('button', { name: 'Import and open isolated copy', exact: true }).click();
   expect((await (await imported).json() as SimulationStateResponse).kind).toBe('DETACHED');
 });
+
+test('scenario library scrolls and links to single conveyor templates', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 600 });
+  await page.goto('/scenarios');
+  await expect(page.getByRole('heading', { name: 'Simple line · v1', exact: true })).toBeVisible();
+  await page.mouse.move(900, 450);
+  await page.mouse.wheel(0, 800);
+  await expect.poll(() => page.locator('main').evaluate(main => main.parentElement!.scrollTop)).toBeGreaterThan(0);
+  await page.getByRole('link', { name: 'Browse individual conveyor templates' }).click();
+  await expect(page.getByRole('heading', { name: 'Conveyor templates', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Roller · 4 m/s', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Belt · 2 m/s · 0.01 failures/h', exact: true })).toBeVisible();
+});
+
+test('drag creation supports cancellation, defaults and individual conveyor templates', async ({ page, request }) => {
+  await page.goto('/scenarios');
+  const instantiated = page.waitForResponse(response => response.url().endsWith('/simple-line/instantiate') && response.ok());
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Simple line · v1', exact: true }) })
+    .getByRole('button', { name: 'Instantiate isolated project' }).click();
+  const instance = await (await instantiated).json() as TemplateInstance;
+  const locations = instance.scenario!.document!.baseline!.locations!;
+  const source = locations[0].id!;
+  const target = locations[locations.length - 1].id!;
+  await page.waitForFunction(() => window.__graphTestApi?.version === 1);
+  const drag = async () => {
+    const positions = await page.evaluate(([from, to]) => ({
+      source: window.__graphTestApi!.getNodeViewportPosition(from)!,
+      target: window.__graphTestApi!.getNodeViewportPosition(to)!,
+    }), [source, target]);
+    await page.keyboard.down('Alt');
+    await page.mouse.move(positions.source.x, positions.source.y);
+    await page.mouse.down();
+    await page.mouse.move(positions.target.x, positions.target.y, { steps: 10 });
+    await page.mouse.up();
+    await page.keyboard.up('Alt');
+    await expect(page.getByRole('dialog', { name: 'Create conveyor', exact: true })).toBeVisible();
+  };
+  await drag();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const headers = { Authorization: `Bearer ${session.token}`, 'X-Simulation-ID': instance.runtime!.id! };
+  expect((await (await request.get(`${backendUrl}/api/graph?topologyOnly=true`, { headers })).json()).conveyors).toHaveLength(2);
+  await drag();
+  const created = page.waitForResponse(response => response.url().endsWith('/api/conveyors') && response.request().method() === 'POST' && response.ok());
+  await page.getByRole('button', { name: 'Create conveyor', exact: true }).click();
+  const defaultRequest = (await created).request().postDataJSON();
+  expect(defaultRequest).toMatchObject({ speed: 1, length: 10, type: 'BELT', sourceId: source, targetId: target });
+  await expect(page.getByRole('dialog', { name: 'Create conveyor', exact: true })).toHaveCount(0);
+  expect((await request.delete(`${backendUrl}/api/conveyors`, { headers, params: { sourceId: source, targetId: target } })).ok()).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => window.__graphTestApi!.getSnapshot().edgeCount)).toBe(2);
+  await drag();
+  await page.getByLabel('Conveyor template', { exact: true }).selectOption('belt-reliable');
+  const templateCreated = page.waitForResponse(response => response.url().endsWith('/api/conveyors') && response.request().method() === 'POST' && response.ok());
+  await page.getByRole('button', { name: 'Create conveyor', exact: true }).click();
+  const templateRequest = (await templateCreated).request().postDataJSON();
+  expect(templateRequest).toMatchObject({ speed: 2, type: 'BELT', properties: { failuresPerHour: 0.01, repairDurationSeconds: 60 } });
+  await expect.poll(async () => {
+    const graph = await (await request.get(`${backendUrl}/api/graph?topologyOnly=true`, { headers })).json();
+    return graph.conveyors.find((conveyor: { id: string }) => conveyor.id === templateRequest.connectionId)?.properties;
+  }).toEqual({ failuresPerHour: 0.01, repairDurationSeconds: 60 });
+});

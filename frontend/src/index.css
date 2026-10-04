@@ -54,7 +54,7 @@ html, body, #root {
   overflow: hidden !important;
 }
 
-.react-sigma-control button {
+.react-sigma-controls .react-sigma-control > button {
   background-color: transparent !important;
   color: var(--sigma-icon) !important;
   border: none !important;
@@ -62,7 +62,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center; 
-  cursor: pointer
+  cursor: pointer;
 }
 
 .react-sigma-control button:hover {

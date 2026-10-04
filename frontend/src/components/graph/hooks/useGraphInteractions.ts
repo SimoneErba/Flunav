@@ -63,6 +63,6 @@ export const useGraphInteractions = (
     ]);
 
     const commands = useGraphEditorCommands(stateRef, interaction);
-    const pointer = useGraphPointerInteractions(stateRef, interaction, notifyReadOnly);
+    const pointer = useGraphPointerInteractions(stateRef, interaction, notifyReadOnly, simulationId);
     return { ...interaction, ...commands, ...pointer };
 };

@@ -1060,10 +1060,10 @@ export interface ConveyorPreset {
     'mainPath'?: boolean;
     /**
      * 
-     * @type {{ [key: string]: object; }}
+     * @type {{ [key: string]: number; }}
      * @memberof ConveyorPreset
      */
-    'properties'?: { [key: string]: object; };
+    'properties'?: { [key: string]: number; };
 }
 
 export const ConveyorPresetTypeEnum = {
@@ -1390,10 +1390,10 @@ export interface CreateConveyorInput {
     'capacity'?: number;
     /**
      * 
-     * @type {{ [key: string]: object; }}
+     * @type {{ [key: string]: CreateConveyorInputPropertiesValue; }}
      * @memberof CreateConveyorInput
      */
-    'properties'?: { [key: string]: object; };
+    'properties'?: { [key: string]: CreateConveyorInputPropertiesValue; };
 }
 
 export const CreateConveyorInputTypeEnum = {
@@ -1405,6 +1405,13 @@ export const CreateConveyorInputTypeEnum = {
 
 export type CreateConveyorInputTypeEnum = typeof CreateConveyorInputTypeEnum[keyof typeof CreateConveyorInputTypeEnum];
 
+/**
+ * 
+ * @export
+ * @interface CreateConveyorInputPropertiesValue
+ */
+export interface CreateConveyorInputPropertiesValue {
+}
 /**
  * 
  * @export

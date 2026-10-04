@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import type { ScenarioDocument } from '../../api-client';
@@ -58,8 +59,8 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
     <input ref={fileInputRef} className="hidden" type="file" accept=".flusim,application/json" onChange={event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (file) void previewFile(file);
     }} />
-    {(exportOptions || preview) && <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/40 p-4">
-      <div role="dialog" aria-modal="true" aria-label={preview ? 'Import preview' : 'Export scenario'} className="w-full max-w-md space-y-4 rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900">
+    {(exportOptions || preview) && createPortal(<div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/40 p-4 text-gray-900 dark:text-gray-100">
+      <div role="dialog" aria-modal="true" aria-label={preview ? 'Import preview' : 'Export scenario'} className="max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto break-words rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900">
         <h2 className="text-lg font-semibold">{preview ? `Import ${preview.name}` : 'Export scenario'}</h2>
         <p className="text-sm">This file starts a fresh run from the saved baseline. Scheduled queues and live subscriptions are not included.</p>
         {preview ? <><p>{preview.baseline?.locations?.length} locations · {preview.baseline?.conveyors?.length} conveyors · {preview.baseline?.items?.length} initial items</p>
@@ -68,6 +69,6 @@ export const GraphImportExport = ({ onImportSuccess }: { onImportSuccess?: () =>
           <button className={actionClass} disabled={busy} onClick={() => void exportScenario()}>Download .flusim</button></>}
         <button className={actionClass} onClick={() => { setExportOptions(false); setPreview(undefined); }}>Cancel</button>
       </div>
-    </div>}
+    </div>, document.body)}
   </div>;
 };

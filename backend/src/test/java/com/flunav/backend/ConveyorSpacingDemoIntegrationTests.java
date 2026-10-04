@@ -3,6 +3,7 @@ package com.flunav.backend;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.Duration;
 import java.sql.DriverManager;
 import java.util.Map;
 
@@ -103,13 +104,19 @@ class ConveyorSpacingDemoIntegrationTests extends BaseIntegrationTest {
         assertEquals(4, graph.getLocations().size());
         assertEquals(3, graph.getConveyors().size());
         assertEquals(9, graph.getItems().size());
+        var scheduled = simulations.getSimulationState(simulationId).getScheduledEventsByItem();
+        for (int index = 1; index <= 4; index++) {
+            assertEquals(Duration.ofMillis(500), Duration.between(
+                    scheduled.get("CS-BELT-" + index).getTimestamp(),
+                    scheduled.get("CS-ROLLER-" + index).getTimestamp()));
+        }
         try (var database = DatabaseContextHolder.enterSimulationContext(simulationId)) {
             simulations.processEventsUntil(simulationId, start.plusSeconds(1));
             assertTrue(conveyors.isFlowStopped("Conveyor_CS-BELT-SOURCE_CS-MERGE"));
             assertFalse(conveyors.isFlowStopped("Conveyor_CS-ROLLER-SOURCE_CS-MERGE"));
             assertTrue(items.getItemState("CS-BELT-2").isFlowPaused());
             assertFalse(items.getItemState("CS-ROLLER-2").isFlowPaused());
-            simulations.processEventsUntil(simulationId, start.plusSeconds(2));
+            simulations.processEventsUntil(simulationId, start.plusSeconds(3));
             assertTrue(items.getItemState("CS-ROLLER-2").isFlowPaused());
             simulations.processEventsUntil(simulationId, start.plusSeconds(90));
             assertFalse(conveyors.isFlowStopped("Conveyor_CS-BELT-SOURCE_CS-MERGE"));

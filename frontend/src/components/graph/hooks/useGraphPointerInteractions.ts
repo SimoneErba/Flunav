@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRegisterEvents, useSigma } from "@react-sigma/core";
-import { LocationTypeEnum } from "../../../api-client";
+import { LocationTypeEnum, type ConveyorPreset } from "../../../api-client";
 import toast from "react-hot-toast";
 
 
@@ -13,10 +13,40 @@ export const useGraphPointerInteractions = (
     stateRef: MutableRefObject<GraphInteractionSnapshot>,
     { setHoverTarget, setSelectedEdgeData, setSelectedNodeData, setSelectedItemData, setIsDetailsOpen }: InteractionState,
     notifyReadOnly: () => void,
+    simulationId?: string | null,
 ) => {
     const sigma = useSigma();
     const registerEvents = useRegisterEvents();
     const [lineCoordinates, setLineCoordinates] = useState<{x1:number, y1:number, x2:number, y2:number} | null>(null);
+
+    const [pendingConveyor, setPendingConveyor] = useState<{ source: string; target: string } | null>(null);
+    const cancelConveyorCreation = useCallback(() => setPendingConveyor(null), []);
+    useEffect(() => { setPendingConveyor(null); }, [simulationId]);
+
+    /** Create only after the template choice, through the context-aware event API. */
+    const createPendingConveyor = async (preset?: ConveyorPreset) => {
+        if (!pendingConveyor) return;
+        const { isReadOnly, conveyorsApi } = stateRef.current;
+        if (isReadOnly) { notifyReadOnly(); return; }
+        const { source, target } = pendingConveyor;
+        const graph = sigma.getGraph();
+        if (!graph.hasNode(source) || !graph.hasNode(target) || graph.hasEdge(source, target)) {
+            setPendingConveyor(null);
+            return;
+        }
+        const id = crypto.randomUUID();
+        const values = { speed: preset?.speed ?? 1, length: preset?.length ?? 10,
+            minDistance: preset?.minDistance, capacity: preset?.capacity,
+            mainPath: preset?.mainPath ?? false, type: preset?.type ?? "BELT" as const,
+            properties: preset?.properties ?? {} };
+        await conveyorsApi.createConveyor({ connectionId: id, sourceId: source, targetId: target,
+            name: preset?.name ?? "New", isActive: true, ...values });
+        setPendingConveyor(null);
+        setSelectedEdgeData(null);
+        setSelectedNodeData(null);
+        toast.success("Conveyor created");
+        window.dispatchEvent(new Event("scenario-mutated"));
+    };
 
     // Interaction Refs
     const draggedNodeRef = useRef<string | null>(null);
@@ -194,30 +224,16 @@ export const useGraphPointerInteractions = (
                     setLineCoordinates(null);
                 }
             },
-            upNode: async ({ node }) => {
-                const { isReadOnly, conveyorsApi } = stateRef.current;
+            upNode: ({ node }) => {
+                const { isReadOnly } = stateRef.current;
                 if (isReadOnly) return;
-
                 if (isAddingEdgeRef.current && edgeSourceNodeRef.current && edgeSourceNodeRef.current !== node) {
                     const source = edgeSourceNodeRef.current;
-                    const target = node;
-                    const graph = sigma.getGraph();
-                    if (!graph.hasEdge(source, target)) {
-                        const id = crypto.randomUUID();
-                        graph.addEdge(source, target, { id, type: 'arrow', conveyorType: 'BELT', size: 3, speed: 1, length: 10 });
-                        
-                        try {
-                            await conveyorsApi.createConveyor({ connectionId: id, sourceId: source, targetId: target, name: "New", speed: 1, length: 10, isActive: true, mainPath: false });
-                            setSelectedEdgeData({ edgeId: id, sourceId: source, targetId: target, speed: 1, length: 10, conveyorType: "BELT" });
-                            setSelectedNodeData(null);
-                            toast.success("Connection created · choose a preset or edit its settings");
-                            window.dispatchEvent(new Event("scenario-mutated"));
-                        } catch {
-                            graph.dropEdge(source, target);
-                            toast.error("Failed to create connection");
-                        }
-                    }
+                    if (!sigma.getGraph().hasEdge(source, node)) setPendingConveyor({ source, target: node });
                 }
+                isAddingEdgeRef.current = false;
+                edgeSourceNodeRef.current = null;
+                setLineCoordinates(null);
             },
             clickEdge: ({ edge }) => {
                 const { isReadOnly } = stateRef.current;
@@ -249,5 +265,5 @@ export const useGraphPointerInteractions = (
         });
     }, [sigma, registerEvents, notifyReadOnly, setHoverTarget, setSelectedItemData, setSelectedEdgeData, setSelectedNodeData, setIsDetailsOpen, stateRef]);
 
-    return { lineCoordinates, draggedNodeRef };
+    return { lineCoordinates, draggedNodeRef, pendingConveyor, createPendingConveyor, cancelConveyorCreation };
 };

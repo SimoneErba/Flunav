@@ -16,6 +16,7 @@ export const useGraph = () => {
     const wasConnected = useRef(connected);
     const hasConnected = useRef(connected);
     const requestVersion = useRef(0);
+    const loadedScope = useRef<string | null>(null);
     const pendingRefresh = useRef<number | null>(null);
     const snapshotReady = !activeSimulation || !['QUEUED', 'BUILDING', 'FAILED'].includes(activeSimulation.status ?? '');
 
@@ -37,7 +38,11 @@ export const useGraph = () => {
      */
     const refetchGraphData = useCallback(async (simulationIdOverride?: string | null) => {
         const version = ++requestVersion.current;
-        setLoading(true);
+        const simulationId = simulationIdOverride === undefined ? activeSimulation?.id : simulationIdOverride;
+        const scope = JSON.stringify([simulationId ?? null, designMode]);
+        // Keep the current renderer visible while reconciling edits or reconnects.
+        // A different live/design/simulation scope still requires foreground loading.
+        setLoading(loadedScope.current !== scope);
         try {
             let api = graphApi;
 
@@ -64,6 +69,7 @@ export const useGraph = () => {
             }
 
             if (version === requestVersion.current) {
+                loadedScope.current = scope;
                 setGraphData(data);
                 setError(null);
             }
@@ -75,7 +81,7 @@ export const useGraph = () => {
         } finally {
             if (version === requestVersion.current) setLoading(false);
         }
-    }, [graphApi, clientId, designMode]);
+    }, [graphApi, clientId, designMode, activeSimulation?.id]);
 
     // Coalesce READY, reconnect, and mutation triggers in the same browser turn.
     const requestRefresh = useCallback(() => {

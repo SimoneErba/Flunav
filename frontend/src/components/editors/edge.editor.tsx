@@ -105,13 +105,18 @@ export const EdgeEditor = ({ data, onClose, onSubmit, onDelete }: EdgeEditorProp
           if (!preset) return;
           setSpeed(preset.speed!); setLength(preset.length!); setMinDistance(preset.minDistance!);
           setCapacity(preset.capacity ?? null); setmainPath(preset.mainPath ?? false); setConveyorType(preset.type!);
+          setProperties(previous => {
+            const next = { ...previous };
+            delete next.failuresPerHour; delete next.repairDurationSeconds;
+            return { ...next, ...preset.properties };
+          });
         }}><option value="">Choose illustrative defaults</option>{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name} · {preset.length} m · {preset.speed} m/s · {preset.minDistance} m spacing</option>)}</select>
       </label>
       <button className="rounded border p-2 text-xs" onClick={async () => {
         const name = window.prompt("Custom preset name");
         if (!name) return;
         try {
-          const result = await presetsApi.saveConveyorPreset({ name, type: conveyorType, length, speed, minDistance, capacity: capacity ?? undefined, mainPath, properties: {} });
+          const result = await presetsApi.saveConveyorPreset({ name, type: conveyorType, length, speed, minDistance, capacity: capacity ?? undefined, mainPath, properties: Object.fromEntries(Object.entries(properties).filter((entry): entry is [string, number] => (entry[0] === "failuresPerHour" || entry[0] === "repairDurationSeconds") && typeof entry[1] === "number")) });
           setPresets(previous => [...previous, result.data]); toast.success("Preset saved");
         } catch { toast.error("Could not save preset"); }
       }}>Save settings as custom preset</button>

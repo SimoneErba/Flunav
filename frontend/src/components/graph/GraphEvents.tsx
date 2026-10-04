@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { ControlsContainer, ZoomControl, FullScreenControl, useSigma } from "@react-sigma/core";
 import { DisplayRuleColorResult, GraphData, ItemResponse } from "../../api-client/api";
+import { ConveyorCreationDialog } from "../conveyors/ConveyorCreationDialog";
 import { EdgeEditor } from "../editors/edge.editor";
 import { NodeEditor } from "../editors/node.editor";
 
@@ -100,6 +101,13 @@ const GraphTestApiBridge = ({
         };
       },
       getNode,
+      getNodeViewportPosition: (id: string) => {
+        if (!graph.hasNode(id)) return null;
+        const attrs = graph.getNodeAttributes(id);
+        const point = sigma.graphToViewport({ x: attrs.x, y: attrs.y });
+        const rect = sigma.getContainer().getBoundingClientRect();
+        return { x: point.x + rect.left, y: point.y + rect.top };
+      },
       getEdge,
       getItem: (id: string) => ({
         graphNode: getNode(id),
@@ -155,7 +163,8 @@ export const GraphEvents = ({
   const { 
       selectedEdgeData, setSelectedEdgeData, handleEdgeSubmit, handleEdgeDelete,
       selectedNodeData, setSelectedNodeData, handleNodeSubmit, handleNodeDelete,
-      lineCoordinates, draggedNodeRef, setIsDetailsOpen, handleItemSubmit, handleItemDelete
+      lineCoordinates, draggedNodeRef, setIsDetailsOpen, handleItemSubmit, handleItemDelete,
+      pendingConveyor, createPendingConveyor, cancelConveyorCreation
   } = useGraphInteractions(adjustItemsForSpeedChange, { setHoverTarget, ...selection }, simulationId);
 
   // 4. Handle Physics (Animation Loop)
@@ -199,6 +208,8 @@ export const GraphEvents = ({
             }}
         />
       )}
+
+      {pendingConveyor && <ConveyorCreationDialog onCreate={createPendingConveyor} onClose={cancelConveyorCreation} />}
 
       {/* Editors */}
       {selectedItemData && (

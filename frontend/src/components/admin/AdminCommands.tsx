@@ -171,11 +171,14 @@ export const AdminCommands = ({
     }
   };
 
+  // Projected motion inherits this sender, so it must differ from the browser's echo filter.
   const startConveyorSpacingDemo = async () => {
     if (activeSimulation?.id || demoStarting) return;
     setSpacingDemoLoading(true);
     try {
-      const response = await clientDemoApi.startConveyorSpacing();
+      const response = await clientDemoApi.startConveyorSpacing({
+        headers: { "X-Sender-ID": uuidv4() },
+      });
       setActiveSimulation(response.data);
       persistentDemoToast(
         "Merge demo started. Watch the belt stop as a whole while rollers let following items queue at the merge.",

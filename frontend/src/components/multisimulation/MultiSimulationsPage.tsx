@@ -16,11 +16,12 @@ import {
 } from '../../api/multiSimulation';
 import { useAuth } from '../../context/auth.context';
 import { useWebSocketEvents } from '../../hooks/websocket/useWebSocketEvents';
+import { conveyorFailureDefaults } from '../conveyors/presets';
 import { AppHeader } from '../AppHeader';
 import { AppNavigation } from '../AppNavigation';
 
 interface TopologyLocation { id: string; name: string; type: string; active: boolean; }
-interface TopologyConveyor { id: string; name: string; }
+interface TopologyConveyor { id: string; name: string; properties?: Record<string, unknown>; }
 interface TopologyData { locations: TopologyLocation[]; conveyors: TopologyConveyor[]; }
 interface DestinationExitMapping { destination: string; exits: string[]; }
 
@@ -109,7 +110,7 @@ export const MultiSimulationsPage = () => {
         centerContent={<span className="font-semibold">Multi-simulations</span>}
         leftActions={<AppNavigation activeMode="simulations" />}
         rightActions={canRun ? (
-          <button type="button" onClick={() => setShowCreate(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
+          <button type="button" disabled={loading} onClick={() => setShowCreate(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
             New multi-simulation
           </button>
         ) : undefined}
@@ -169,7 +170,7 @@ const CreationForm = ({ topology, destinationMappings, onCreated }: {
   const [seed, setSeed] = useState('');
   const [destinations, setDestinations] = useState<DestinationProbability[]>([]);
   const [destinationMode, setDestinationMode] = useState<'logical' | 'chute'>('logical');
-  const [failures, setFailures] = useState<ConveyorFailureConfiguration[]>([]);
+  const [failures, setFailures] = useState<ConveyorFailureConfiguration[]>(() => conveyorFailureDefaults(topology.conveyors));
   const [includeActiveItems, setIncludeActiveItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [estimate, setEstimate] = useState<MultiSimulationEstimate>();

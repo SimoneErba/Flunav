@@ -10,6 +10,7 @@ import { WebSocketProvider } from './hooks/websocket/useWebSocketConnection';
 import './index.css';
 
 const ScenariosPage = React.lazy(() => import('./components/scenarios/ScenariosPage').then(module => ({ default: module.ScenariosPage })));
+const ConveyorTemplatesPage = React.lazy(() => import('./components/conveyors/ConveyorTemplatesPage').then(module => ({ default: module.ConveyorTemplatesPage })));
 const LiveWorkspace = React.lazy(() => import('./workspaces/LiveWorkspace'));
 const AdminWorkspace = React.lazy(() => import('./workspaces/AdminWorkspace'));
 const AssistantPage = React.lazy(() => import('./components/assistant/AssistantPage')
@@ -60,6 +61,7 @@ function App() {
                   )} />
                   
                   <Route path="/scenarios" element={<React.Suspense fallback={<div className="p-6">Loading scenarios…</div>}><ScenariosPage /></React.Suspense>} />
+                  <Route path="/conveyor-templates" element={<React.Suspense fallback={<div className="p-6">Loading conveyor templates…</div>}><ConveyorTemplatesPage /></React.Suspense>} />
                   {/* Admin View (Tables/Forms) */}
                   <Route path="/admin" element={<React.Suspense fallback={<div className="p-6">Loading admin…</div>}><AdminWorkspace /></React.Suspense>} />
                   <Route path="/admin/destination-mappings" element={<React.Suspense fallback={<div className="p-6">Loading admin…</div>}><AdminWorkspace /></React.Suspense>} />
