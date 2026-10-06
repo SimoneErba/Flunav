@@ -21,6 +21,7 @@ import com.flunav.backend.models.simulation.SimulationStatus;
 import com.flunav.backend.models.simulation.LiveInputState;
 import com.flunav.backend.models.multisimulation.MultiSimulationBaseline;
 import com.flunav.backend.repositories.LiveItemRepository;
+import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveSimulationRepository;
 import com.flunav.backend.repositories.AnomalyObservationRepository;
 import flunav.events.AnomalyEvaluationTickEvent;
@@ -45,6 +46,7 @@ public class SimulationService {
 
     private final WebSocketService webSocketService;
     private final LiveItemRepository liveItemRepository;
+    private final LiveConveyorRepository liveConveyorRepository;
     private final LiveSimulationRepository liveSimulationRepository;
     private final TopologyProvider topologyProvider;
     private final ItemMovementProcessor itemMovementProcessor;
@@ -66,6 +68,7 @@ public class SimulationService {
     public SimulationService(
             WebSocketService webSocketService,
             LiveItemRepository liveItemRepository,
+            LiveConveyorRepository liveConveyorRepository,
             LiveSimulationRepository liveSimulationRepository,
             @Lazy TopologyProvider topologyProvider,
             @Lazy ItemMovementProcessor itemMovementProcessor,
@@ -81,6 +84,7 @@ public class SimulationService {
             SimulationLifecycleManager lifecycleManager) {
         this.webSocketService = webSocketService;
         this.liveItemRepository = liveItemRepository;
+        this.liveConveyorRepository = liveConveyorRepository;
         this.liveSimulationRepository = liveSimulationRepository;
         this.topologyProvider = topologyProvider;
         this.itemMovementProcessor = itemMovementProcessor;
@@ -552,12 +556,13 @@ public class SimulationService {
     /**
      * Converts elapsed virtual time into stored conveyor distance for every moving
      * item. Simulation replay relies on this derived state because Redis stores hot
-     * positions while OrientDB stores durable item metadata.
+     * positions while OrientDB stores durable item metadata. Flow-paused items and
+     * stopped belts retain their checkpoints until admission resumes movement.
      */
     private void checkpointAllItemsInCurrentContext(Instant now) {
         var items = liveItemRepository.getAllActiveItems();
         for (var itemData : items) {
-            if (itemData.isMovementPaused()) {
+            if (itemData.isMovementPaused() || itemData.isFlowPaused()) {
                 continue;
             }
             PositionType type = itemData.getType();
@@ -566,7 +571,8 @@ public class SimulationService {
 
             if (lastTs != null && type == flunav.types.PositionType.CONVEYOR) {
                 var conveyor = topologyProvider.getConveyorById(itemData.getPositionId());
-                if (conveyor != null && conveyor.isActive() && conveyor.getSpeed() > 0) {
+                if (conveyor != null && conveyor.isActive() && conveyor.getSpeed() > 0
+                        && !liveConveyorRepository.isFlowStopped(conveyor.getId())) {
                     if (conveyor.getType() == flunav.types.ConveyorType.STAGING) {
                         continue;
                     }

@@ -499,10 +499,12 @@ public class HistoricalGraphBuilder {
                 liveItemRepository.setPlannedTransition(
                         itemData.getId(), itemData.getPlannedPositionId(), itemData.getPlannedPositionType(),
                         itemData.getPlannedTransitionTimestamp());
-                double progress = itemData.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
-                simulationService.addInternalEvent(new flunav.events.ItemPositionChangedEvent(
-                        itemData.getId(), itemData.getPlannedPositionId(), progress,
-                        itemData.getPlannedTransitionTimestamp()));
+                if (itemData.getMovementCheckTimestamp() == null) {
+                    double progress = itemData.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
+                    simulationService.addInternalEvent(new flunav.events.ItemPositionChangedEvent(
+                            itemData.getId(), itemData.getPlannedPositionId(), progress,
+                            itemData.getPlannedTransitionTimestamp()));
+                }
             }
             if (type == PositionType.CONVEYOR) {
                 // Membership drives accumulation scheduling. Preserve leading-item order even on stopped belts.

@@ -48,62 +48,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.LinkedBlockingQueue;
 
 import com.flunav.backend.services.ClickHouseService.*;
 /** Owns analytics queues and queries. Flushing is scheduled exclusively by ClickHouseService. */
 final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
     private static final Logger logger = LoggerFactory.getLogger(ClickHouseAnalyticsStorage.class);
-    private final LinkedBlockingDeque<PathTraversalMetric> pathTraversalQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
-    private final LinkedBlockingDeque<LocationTransitMetric> locationTransitQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
-    private final LinkedBlockingDeque<ExitCandidate> exitCandidateQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
-    private final LinkedBlockingDeque<RecirculationFact> recirculationQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
-    private final LinkedBlockingDeque<ConnectionStateSignal> simulationConnectionQueue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
-    private final BlockingQueue<MetricEvent> metricQueue = new LinkedBlockingQueue<>(MAX_QUEUE_SIZE);
+    private static final int ANOMALY_BATCH_SIZE = 100_000;
+    private final ClickHouseBatch<PathTraversalMetric> pathTraversalQueue = new ClickHouseBatch<>("analytics_path_traversal_ingest", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertPathTraversalBatch);
+    private final ClickHouseBatch<LocationTransitMetric> locationTransitQueue = new ClickHouseBatch<>("analytics_location_transit_events", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertLocationTransitBatch);
+    private final ClickHouseBatch<ExitCandidate> exitCandidateQueue = new ClickHouseBatch<>("analytics_exit_candidates", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertExitCandidateBatch);
+    private final ClickHouseBatch<RecirculationFact> recirculationQueue = new ClickHouseBatch<>("analytics_recirculation_facts", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertRecirculationBatch);
+    private final ClickHouseBatch<ConnectionStateSignal> simulationConnectionQueue = new ClickHouseBatch<>("analytics_simulation_connection_events", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertSimulationConnectionBatch);
+    private final ClickHouseBatch<MetricEvent> metricQueue = new ClickHouseBatch<>("ComponentMetrics", MAX_QUEUE_SIZE, BATCH_SIZE, this::insertMetricBatch);
+    private final ClickHouseBatch<Map<String, Object>> detectorBaselineQueue = rowBatch("analytics_detector_baselines");
+    private final ClickHouseBatch<Map<String, Object>> componentFlowBucketQueue = rowBatch("analytics_component_flow_1m");
+    private final ClickHouseBatch<Map<String, Object>> componentFlowObservationQueue = rowBatch("analytics_component_flow_events");
+    private final ClickHouseBatch<Map<String, Object>> anomalyFindingQueue = rowBatch("analytics_anomaly_findings");
+    private final ClickHouseBatch<Map<String, Object>> anomalyIncidentQueue = rowBatch("analytics_anomaly_incidents");
+    private final List<ClickHouseBatch<?>> batches = List.of(
+            pathTraversalQueue, locationTransitQueue, exitCandidateQueue, recirculationQueue,
+            simulationConnectionQueue, metricQueue, detectorBaselineQueue, componentFlowBucketQueue,
+            componentFlowObservationQueue, anomalyFindingQueue, anomalyIncidentQueue);
 
     ClickHouseAnalyticsStorage(Client client, ObjectMapper mapper, String database) {
         super(client, mapper, database);
     }
 
-    private void drainPathTraversalMetricsOnShutdown() {
-        while (!pathTraversalQueue.isEmpty()) {
-            int sizeBefore = pathTraversalQueue.size();
-            flushPathTraversalMetrics();
-            if (pathTraversalQueue.size() >= sizeBefore) {
-                break;
-            }
-        }
-    }
-
-    private void drainLocationTransitMetricsOnShutdown() {
-        while (!locationTransitQueue.isEmpty()) {
-            int sizeBefore = locationTransitQueue.size();
-            flushLocationTransitMetrics();
-            if (locationTransitQueue.size() >= sizeBefore) {
-                break;
-            }
-        }
-    }
-
-    /** Stops shutdown retries when a flush makes no progress; queue durability remains process-local. */
-    private void drainQueueOnShutdown(String queueName, BlockingQueue<?> queue, Runnable flushAction) {
-        while (!queue.isEmpty()) {
-            int sizeBefore = queue.size();
-            flushAction.run();
-            if (queue.size() >= sizeBefore) {
-                logger.error("Unable to drain {} ClickHouse queue during shutdown; {} entries remain",
-                        queueName, queue.size());
-                break;
-            }
-        }
-    }
-
     public synchronized void savePathTraversalMetricAsync(PathTraversedEvent event) {
-        enqueueOrThrow(pathTraversalQueue, new PathTraversalMetric(
+        pathTraversalQueue.enqueue(new PathTraversalMetric(
                 event.getTimestamp(),
                 currentSimulationScope(),
                 Objects.toString(event.getEntityId(), ""),
@@ -111,60 +85,34 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
                 event.getPreviousPositionType() != null ? event.getPreviousPositionType().name() : "",
                 Objects.toString(event.getNewPositionId(), ""),
                 event.getNewPositionType() != null ? event.getNewPositionType().name() : "",
-                event.getPath() != null ? event.getPath() : List.of()), "path traversal");
-
-        if (pathTraversalQueue.size() >= BATCH_SIZE) {
-            flushPathTraversalMetrics();
-        }
+                event.getPath() != null ? event.getPath() : List.of()));
     }
 
     public synchronized void flushPathTraversalMetrics() {
-        if (pathTraversalQueue.isEmpty()) {
-            return;
-        }
-
-        List<PathTraversalMetric> batch = new ArrayList<>();
-        pathTraversalQueue.drainTo(batch, BATCH_SIZE);
-
-        if (batch.isEmpty()) {
-            return;
-        }
-
-        try {
-            StringBuilder jsonBatch = new StringBuilder();
-            for (PathTraversalMetric metric : batch) {
-                Map<String, Object> row = new HashMap<>();
-                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
-                row.put("simulation_id", metric.simulationId());
-                row.put("item_id", metric.itemId());
-                row.put("previous_position_id", metric.previousPositionId());
-                row.put("previous_position_type", metric.previousPositionType());
-                row.put("new_position_id", metric.newPositionId());
-                row.put("new_position_type", metric.newPositionType());
-                row.put("path", metric.path());
-                jsonBatch.append(objectMapper.writeValueAsString(row)).append("\n");
-            }
-
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("analytics_path_traversal_ingest", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-
-            logger.debug("Flushed {} path traversal metrics to ClickHouse", batch.size());
-        } catch (Exception e) {
-            requeuePathTraversalBatch(batch);
-            logger.error("Error flushing path traversal metrics batch to ClickHouse.", e);
-        }
+        pathTraversalQueue.flush();
     }
 
-    private void requeuePathTraversalBatch(List<PathTraversalMetric> batch) {
-        for (int i = batch.size() - 1; i >= 0; i--) {
-            pathTraversalQueue.offerFirst(batch.get(i));
+    private void insertPathTraversalBatch(List<PathTraversalMetric> batch) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (PathTraversalMetric metric : batch) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+            row.put("simulation_id", metric.simulationId());
+            row.put("item_id", metric.itemId());
+            row.put("previous_position_id", metric.previousPositionId());
+            row.put("previous_position_type", metric.previousPositionType());
+            row.put("new_position_id", metric.newPositionId());
+            row.put("new_position_type", metric.newPositionType());
+            row.put("path", metric.path());
+            rows.add(row);
         }
+
+        insertJsonRows("analytics_path_traversal_ingest", rows);
     }
 
     public synchronized void saveLocationTransitMetricAsync(LocationTransitMetric metric) {
         String simulationId = metric.simulationId() != null ? metric.simulationId() : currentSimulationScope();
-        enqueueOrThrow(locationTransitQueue, new LocationTransitMetric(
+        locationTransitQueue.enqueue(new LocationTransitMetric(
                 metric.sourceEventId(),
                 metric.timestamp(),
                 simulationId,
@@ -176,53 +124,42 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
                 metric.toPositionId(),
                 metric.toPositionType(),
                 metric.transitTimeMillis(),
-                metric.path()), "location transit");
-
-        if (locationTransitQueue.size() >= BATCH_SIZE) {
-            flushLocationTransitMetrics();
-        }
+                metric.path()));
     }
 
     public synchronized void flushLocationTransitMetrics() {
-        if (locationTransitQueue.isEmpty()) {
-            return;
+        locationTransitQueue.flush();
+    }
+
+    private void insertLocationTransitBatch(List<LocationTransitMetric> batch) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (LocationTransitMetric metric : batch) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+            row.put("source_event_id", Objects.toString(metric.sourceEventId(), ""));
+            row.put("simulation_id", metric.simulationId());
+            row.put("item_id", metric.itemId());
+            row.put("from_location_id", metric.fromLocationId());
+            row.put("to_location_id", metric.toLocationId());
+            row.put("from_position_id", metric.fromPositionId());
+            row.put("from_position_type", metric.fromPositionType().name());
+            row.put("to_position_id", metric.toPositionId());
+            row.put("to_position_type", metric.toPositionType().name());
+            row.put("transit_time_ms", metric.transitTimeMillis());
+            row.put("path", metric.path());
+            rows.add(row);
         }
 
-        List<LocationTransitMetric> batch = new ArrayList<>();
-        locationTransitQueue.drainTo(batch, BATCH_SIZE);
+        insertJsonRows("analytics_location_transit_events", rows);
+    }
 
-        if (batch.isEmpty()) {
-            return;
-        }
+    private ClickHouseBatch<Map<String, Object>> rowBatch(String table) {
+        return new ClickHouseBatch<>(table, MAX_QUEUE_SIZE, ANOMALY_BATCH_SIZE,
+                rows -> insertJsonRows(table, rows));
+    }
 
-        try {
-            StringBuilder jsonBatch = new StringBuilder();
-            for (LocationTransitMetric metric : batch) {
-                Map<String, Object> row = new HashMap<>();
-                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
-                row.put("source_event_id", Objects.toString(metric.sourceEventId(), ""));
-                row.put("simulation_id", metric.simulationId());
-                row.put("item_id", metric.itemId());
-                row.put("from_location_id", metric.fromLocationId());
-                row.put("to_location_id", metric.toLocationId());
-                row.put("from_position_id", metric.fromPositionId());
-                row.put("from_position_type", metric.fromPositionType().name());
-                row.put("to_position_id", metric.toPositionId());
-                row.put("to_position_type", metric.toPositionType().name());
-                row.put("transit_time_ms", metric.transitTimeMillis());
-                row.put("path", metric.path());
-                jsonBatch.append(objectMapper.writeValueAsString(row)).append("\n");
-            }
-
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("analytics_location_transit_events", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-
-            logger.debug("Flushed {} location transit metrics to ClickHouse", batch.size());
-        } catch (Exception e) {
-            requeueLocationTransitBatch(batch);
-            logger.error("Error flushing location transit metrics batch to ClickHouse.", e);
-        }
+    public synchronized void flushAnalyticsBatches() {
+        batches.forEach(ClickHouseBatch::flush);
     }
 
     private String currentSimulationScope() {
@@ -230,53 +167,33 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         return simulationId != null ? simulationId : "live";
     }
 
-    private void requeueLocationTransitBatch(List<LocationTransitMetric> batch) {
-        for (int i = batch.size() - 1; i >= 0; i--) {
-            locationTransitQueue.offerFirst(batch.get(i));
-        }
-    }
-
     public synchronized void saveExitCandidateAsync(ExitCandidate candidate) {
-        enqueueOrThrow(exitCandidateQueue, candidate, "exit candidate");
-        if (exitCandidateQueue.size() >= BATCH_SIZE) {
-            flushExitCandidates();
-        }
+        exitCandidateQueue.enqueue(candidate);
     }
 
     public synchronized void flushExitCandidates() {
-        List<ExitCandidate> batch = new ArrayList<>();
-        exitCandidateQueue.drainTo(batch, BATCH_SIZE);
-        if (batch.isEmpty()) {
-            return;
-        }
+        exitCandidateQueue.flush();
+    }
 
-        try {
-            StringBuilder jsonBatch = new StringBuilder();
-            for (ExitCandidate candidate : batch) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("candidate_id", candidate.candidateId());
-                row.put("exit_event_id", candidate.exitEventId());
-                row.put("item_id", candidate.itemId());
-                row.put("chute_id", candidate.chuteId());
-                row.put("exit_timestamp", CLICKHOUSE_FORMATTER.format(candidate.exitTimestamp()));
-                row.put("simulation_id", candidate.simulationId());
-                row.put("simulation_created_at", candidate.simulationCreatedAt() == null
-                        ? null
-                        : CLICKHOUSE_FORMATTER.format(candidate.simulationCreatedAt()));
-                row.put("live_history_cutoff", candidate.liveHistoryCutoff() == null
-                        ? null
-                        : CLICKHOUSE_FORMATTER.format(candidate.liveHistoryCutoff()));
-                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
-            }
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("analytics_exit_candidates", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-        } catch (Exception e) {
-            for (int index = batch.size() - 1; index >= 0; index--) {
-                exitCandidateQueue.offerFirst(batch.get(index));
-            }
-            logger.error("Failed to flush completed-journey exit candidates", e);
+    private void insertExitCandidateBatch(List<ExitCandidate> batch) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ExitCandidate candidate : batch) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("candidate_id", candidate.candidateId());
+            row.put("exit_event_id", candidate.exitEventId());
+            row.put("item_id", candidate.itemId());
+            row.put("chute_id", candidate.chuteId());
+            row.put("exit_timestamp", CLICKHOUSE_FORMATTER.format(candidate.exitTimestamp()));
+            row.put("simulation_id", candidate.simulationId());
+            row.put("simulation_created_at", candidate.simulationCreatedAt() == null
+                    ? null
+                    : CLICKHOUSE_FORMATTER.format(candidate.simulationCreatedAt()));
+            row.put("live_history_cutoff", candidate.liveHistoryCutoff() == null
+                    ? null
+                    : CLICKHOUSE_FORMATTER.format(candidate.liveHistoryCutoff()));
+            rows.add(row);
         }
+        insertJsonRows("analytics_exit_candidates", rows);
     }
 
     public void projectCompletedJourneys() {
@@ -392,83 +309,56 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
 
     public synchronized void saveRecirculationAsync(String id, Instant timestamp, String simulationId, String itemId,
             List<String> previousPath, List<String> newPath) {
-        enqueueOrThrow(recirculationQueue, new RecirculationFact(
-                id, timestamp, simulationId, itemId, List.copyOf(previousPath), List.copyOf(newPath)),
-                "recirculation");
-        if (recirculationQueue.size() >= BATCH_SIZE) {
-            flushRecirculationFacts();
-        }
+        recirculationQueue.enqueue(new RecirculationFact(
+                id, timestamp, simulationId, itemId, List.copyOf(previousPath), List.copyOf(newPath)));
     }
 
     public synchronized void flushRecirculationFacts() {
-        List<RecirculationFact> batch = new ArrayList<>();
-        recirculationQueue.drainTo(batch, BATCH_SIZE);
-        if (batch.isEmpty()) {
-            return;
+        recirculationQueue.flush();
+    }
+
+    private void insertRecirculationBatch(List<RecirculationFact> batch) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (RecirculationFact fact : batch) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("recirculation_id", fact.id());
+            row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(fact.timestamp()));
+            row.put("simulation_id", fact.simulationId());
+            row.put("item_id", fact.itemId());
+            row.put("previous_path", fact.previousPath());
+            row.put("new_path", fact.newPath());
+            rows.add(row);
         }
-        try {
-            StringBuilder jsonBatch = new StringBuilder();
-            for (RecirculationFact fact : batch) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("recirculation_id", fact.id());
-                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(fact.timestamp()));
-                row.put("simulation_id", fact.simulationId());
-                row.put("item_id", fact.itemId());
-                row.put("previous_path", fact.previousPath());
-                row.put("new_path", fact.newPath());
-                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
-            }
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("analytics_recirculation_facts", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-        } catch (Exception e) {
-            for (int index = batch.size() - 1; index >= 0; index--) {
-                recirculationQueue.offerFirst(batch.get(index));
-            }
-            logger.error("Failed to flush recirculation facts", e);
-        }
+        insertJsonRows("analytics_recirculation_facts", rows);
     }
 
     public synchronized void saveSimulationConnectionSignalAsync(ConnectionStateSignal signal) {
-        enqueueOrThrow(simulationConnectionQueue, signal, "simulation connection");
-        if (simulationConnectionQueue.size() >= BATCH_SIZE) {
-            flushSimulationConnectionSignals();
-        }
+        simulationConnectionQueue.enqueue(signal);
     }
 
     public synchronized void flushSimulationConnectionSignals() {
-        List<ConnectionStateSignal> batch = new ArrayList<>();
-        simulationConnectionQueue.drainTo(batch, BATCH_SIZE);
-        if (batch.isEmpty()) {
-            return;
-        }
-        try {
-            StringBuilder jsonBatch = new StringBuilder();
-            for (ConnectionStateSignal signal : batch) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("event_id", signal.eventId());
-                row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(signal.timestamp()));
-                row.put("simulation_id", signal.simulationId());
-                row.put("conveyor_id", signal.conveyorId());
-                row.put("event_type", signal.eventType());
-                row.put("active", signal.active());
-                row.put("speed", signal.speed());
-                row.put("source_id", Objects.toString(signal.sourceId(), ""));
-                row.put("target_id", Objects.toString(signal.targetId(), ""));
-                jsonBatch.append(objectMapper.writeValueAsString(row)).append('\n');
-            }
-            try (var inputStream = new ByteArrayInputStream(jsonBatch.toString().getBytes(StandardCharsets.UTF_8))) {
-                client.insert("analytics_simulation_connection_events", inputStream, ClickHouseFormat.JSONEachRow).get();
-            }
-        } catch (Exception e) {
-            for (int index = batch.size() - 1; index >= 0; index--) {
-                simulationConnectionQueue.offerFirst(batch.get(index));
-            }
-            logger.error("Failed to flush simulation conveyor-state facts", e);
-        }
+        simulationConnectionQueue.flush();
     }
 
-    public void saveAnomalyFinding(AnomalyFinding finding) {
+    private void insertSimulationConnectionBatch(List<ConnectionStateSignal> batch) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ConnectionStateSignal signal : batch) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("event_id", signal.eventId());
+            row.put("event_timestamp", CLICKHOUSE_FORMATTER.format(signal.timestamp()));
+            row.put("simulation_id", signal.simulationId());
+            row.put("conveyor_id", signal.conveyorId());
+            row.put("event_type", signal.eventType());
+            row.put("active", signal.active());
+            row.put("speed", signal.speed());
+            row.put("source_id", Objects.toString(signal.sourceId(), ""));
+            row.put("target_id", Objects.toString(signal.targetId(), ""));
+            rows.add(row);
+        }
+        insertJsonRows("analytics_simulation_connection_events", rows);
+    }
+
+    public synchronized void saveAnomalyFinding(AnomalyFinding finding) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("finding_id", finding.findingId());
         row.put("scope_id", finding.scopeId());
@@ -497,10 +387,10 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         row.put("alarm_state", finding.alarmState().name());
         row.put("observation_timestamp", CLICKHOUSE_FORMATTER.format(finding.observationTimestamp()));
         row.put("tick_timestamp", CLICKHOUSE_FORMATTER.format(finding.tickTimestamp()));
-        insertJsonRows("analytics_anomaly_findings", List.of(row));
+        anomalyFindingQueue.enqueue(row);
     }
 
-    public void saveAnomalyIncident(AnomalyIncident incident) {
+    public synchronized void saveAnomalyIncident(AnomalyIncident incident) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("incident_id", incident.incidentId());
         row.put("scope_id", incident.scopeId());
@@ -511,10 +401,10 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         row.put("component_ids", incident.componentIds());
         row.put("first_finding_timestamp", CLICKHOUSE_FORMATTER.format(incident.firstFindingTimestamp()));
         row.put("updated_at", CLICKHOUSE_FORMATTER.format(incident.updatedAt()));
-        insertJsonRows("analytics_anomaly_incidents", List.of(row));
+        anomalyIncidentQueue.enqueue(row);
     }
 
-    public void saveDetectorBaseline(DetectorBaseline baseline) {
+    public synchronized void saveDetectorBaseline(DetectorBaseline baseline) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("baseline_id", baseline.baselineId());
         row.put("scope_id", baseline.scopeId());
@@ -533,10 +423,10 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         row.put("maximum", baseline.maximum());
         row.put("calculated_at", CLICKHOUSE_FORMATTER.format(baseline.calculatedAt()));
         row.put("epoch_started_at", CLICKHOUSE_FORMATTER.format(baseline.epochStartedAt()));
-        insertJsonRows("analytics_detector_baselines", List.of(row));
+        detectorBaselineQueue.enqueue(row);
     }
 
-    public void saveComponentFlowObservation(LocationFlowObservation observation, String scopeId,
+    public synchronized void saveComponentFlowObservation(LocationFlowObservation observation, String scopeId,
             String simulationId) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("source_event_id", observation.sourceEventId());
@@ -547,10 +437,10 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         row.put("component_type", "LOCATION");
         row.put("direction", observation.direction().name());
         row.put("item_id", observation.itemId());
-        insertJsonRows("analytics_component_flow_events", List.of(row));
+        componentFlowObservationQueue.enqueue(row);
     }
 
-    public void saveComponentFlowBucket(Instant bucketStart, String scopeId, String simulationId,
+    public synchronized void saveComponentFlowBucket(Instant bucketStart, String scopeId, String simulationId,
             String componentId, String componentType, long arrivals, long departures) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("bucket_start", CLICKHOUSE_FORMATTER.format(bucketStart));
@@ -562,8 +452,17 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         row.put("departures", departures);
         row.put("throughput", departures);
         row.put("pressure", arrivals - departures);
-        insertJsonRows("analytics_component_flow_1m", List.of(row));
+        componentFlowBucketQueue.enqueue(row);
     }
+
+    public synchronized void flushDetectorBaselines() {
+        detectorBaselineQueue.flush();
+    }
+
+    public synchronized void flushComponentFlowBuckets() {
+        componentFlowBucketQueue.flush();
+    }
+
 
     public List<TransitSample> getTransitSamples(String scopeId, Instant from, Instant to) {
         String sourceScope = scopeId.equals("live") ? "live" : scopeId;
@@ -925,12 +824,18 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
         };
     }
 
-    public void deleteOperationalAnalyticsForSimulation(String simulationId) {
+    public synchronized void deleteOperationalAnalyticsForSimulation(String simulationId) {
         locationTransitQueue.removeIf(metric -> simulationId.equals(metric.simulationId()));
         pathTraversalQueue.removeIf(metric -> simulationId.equals(metric.simulationId()));
         exitCandidateQueue.removeIf(candidate -> simulationId.equals(candidate.simulationId()));
         recirculationQueue.removeIf(fact -> simulationId.equals(fact.simulationId()));
         simulationConnectionQueue.removeIf(signal -> simulationId.equals(signal.simulationId()));
+        detectorBaselineQueue.removeIf(row -> simulationId.equals(row.get("scope_id")));
+        componentFlowBucketQueue.removeIf(row -> simulationId.equals(row.get("simulation_id")));
+        componentFlowObservationQueue.removeIf(row -> simulationId.equals(row.get("simulation_id")));
+        anomalyFindingQueue.removeIf(row -> simulationId.equals(row.get("simulation_id")));
+        anomalyIncidentQueue.removeIf(row -> simulationId.equals(row.get("simulation_id")));
+        metricQueue.removeIf(metric -> simulationId.equals(metric.simulationId()));
         IllegalStateException cleanupFailure = null;
         for (String table : List.of(
                 "analytics_exit_candidates",
@@ -1144,40 +1049,25 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
     }
 
     public synchronized void saveMetricAsync(MetricEvent metric) {
-        enqueueOrThrow(metricQueue, metric, "component metric");
-        // If queue gets too big, force flush immediately
-        if (metricQueue.size() >= BATCH_SIZE) {
-            flushMetrics();
-        }
+        metricQueue.enqueue(metric);
     }
 
     public synchronized void flushMetrics() {
-        if (metricQueue.isEmpty())
-            return;
+        metricQueue.flush();
+    }
 
-        List<MetricEvent> batch = new ArrayList<>();
-        metricQueue.drainTo(batch, BATCH_SIZE);
-
-        // Convert to Maps for your existing JSON insert logic
-        List<Map<String, Object>> rows = batch.stream().map(m -> {
+    private void insertMetricBatch(List<MetricEvent> batch) {
+        List<Map<String, Object>> rows = batch.stream().map(metric -> {
             Map<String, Object> row = new HashMap<>();
-            row.put("timestamp", CLICKHOUSE_FORMATTER.format(m.timestamp()));
-            row.put("simulation_id", m.simulationId());
-            row.put("component_id", m.componentId());
-            row.put("component_type", m.componentType());
-            row.put("metric_type", m.metricType());
-            row.put("value", m.value());
+            row.put("timestamp", CLICKHOUSE_FORMATTER.format(metric.timestamp()));
+            row.put("simulation_id", metric.simulationId());
+            row.put("component_id", metric.componentId());
+            row.put("component_type", metric.componentType());
+            row.put("metric_type", metric.metricType());
+            row.put("value", metric.value());
             return row;
         }).toList();
-
-        try {
-            saveMetricSnapshots(rows); // Reuse existing bulk insert method
-        } catch (RuntimeException e) {
-            for (MetricEvent metric : batch) {
-                metricQueue.offer(metric);
-            }
-            logger.error("Requeued {} component metrics after a ClickHouse flush failure", batch.size(), e);
-        }
+        insertJsonRows("ComponentMetrics", rows);
     }
 
     public void saveMetricSnapshots(List<Map<String, Object>> metrics) {
@@ -1231,12 +1121,7 @@ final class ClickHouseAnalyticsStorage extends ClickHouseAccess {
     }
 
     void drainOnShutdown() {
-        drainPathTraversalMetricsOnShutdown();
-        drainLocationTransitMetricsOnShutdown();
-        drainQueueOnShutdown("exit candidate", exitCandidateQueue, this::flushExitCandidates);
-        drainQueueOnShutdown("recirculation", recirculationQueue, this::flushRecirculationFacts);
-        drainQueueOnShutdown("simulation connection", simulationConnectionQueue, this::flushSimulationConnectionSignals);
-        drainQueueOnShutdown("component metric", metricQueue, this::flushMetrics);
+        batches.forEach(ClickHouseBatch::drain);
     }
 
 }

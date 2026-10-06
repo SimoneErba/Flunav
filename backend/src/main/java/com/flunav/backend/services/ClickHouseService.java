@@ -108,7 +108,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.savePathTraversalMetricAsync(event);
     }
 
-    @Scheduled(fixedRate = 1000)
     public synchronized void flushPathTraversalMetrics() {
         analytics.flushPathTraversalMetrics();
     }
@@ -117,7 +116,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveLocationTransitMetricAsync(metric);
     }
 
-    @Scheduled(fixedRate = 1000)
     public synchronized void flushLocationTransitMetrics() {
         analytics.flushLocationTransitMetrics();
     }
@@ -126,7 +124,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveExitCandidateAsync(candidate);
     }
 
-    @Scheduled(fixedRate = 1000)
     public synchronized void flushExitCandidates() {
         analytics.flushExitCandidates();
     }
@@ -141,7 +138,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveRecirculationAsync(id, timestamp, simulationId, itemId, previousPath, newPath);
     }
 
-    @Scheduled(fixedRate = 1000)
     public synchronized void flushRecirculationFacts() {
         analytics.flushRecirculationFacts();
     }
@@ -150,7 +146,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveSimulationConnectionSignalAsync(signal);
     }
 
-    @Scheduled(fixedRate = 1000)
     public synchronized void flushSimulationConnectionSignals() {
         analytics.flushSimulationConnectionSignals();
     }
@@ -159,26 +154,39 @@ public class ClickHouseService extends ClickHouseAccess {
         events.saveSnapshot(snapshotId, timestamp, graphData);
     }
 
-    public void saveAnomalyFinding(AnomalyFinding finding) {
+    public synchronized void saveAnomalyFinding(AnomalyFinding finding) {
         analytics.saveAnomalyFinding(finding);
     }
 
-    public void saveAnomalyIncident(AnomalyIncident incident) {
+    public synchronized void saveAnomalyIncident(AnomalyIncident incident) {
         analytics.saveAnomalyIncident(incident);
     }
 
-    public void saveDetectorBaseline(DetectorBaseline baseline) {
+    public synchronized void saveDetectorBaseline(DetectorBaseline baseline) {
         analytics.saveDetectorBaseline(baseline);
     }
 
-    public void saveComponentFlowObservation(LocationFlowObservation observation, String scopeId,
+    public synchronized void saveComponentFlowObservation(LocationFlowObservation observation, String scopeId,
             String simulationId) {
         analytics.saveComponentFlowObservation(observation, scopeId, simulationId);
     }
 
-    public void saveComponentFlowBucket(Instant bucketStart, String scopeId, String simulationId,
+    public synchronized void saveComponentFlowBucket(Instant bucketStart, String scopeId, String simulationId,
             String componentId, String componentType, long arrivals, long departures) {
         analytics.saveComponentFlowBucket(bucketStart, scopeId, simulationId, componentId, componentType, arrivals, departures);
+    }
+
+    @Scheduled(fixedRate = 1000, scheduler = "clickHouseAnalyticsScheduler")
+    public synchronized void flushAnalyticsBatches() {
+        analytics.flushAnalyticsBatches();
+    }
+
+    public synchronized void flushDetectorBaselines() {
+        analytics.flushDetectorBaselines();
+    }
+
+    public synchronized void flushComponentFlowBuckets() {
+        analytics.flushComponentFlowBuckets();
     }
 
     public List<TransitSample> getTransitSamples(String scopeId, Instant from, Instant to) {
@@ -305,7 +313,6 @@ public class ClickHouseService extends ClickHouseAccess {
         analytics.saveMetricAsync(metric);
     }
 
-    @Scheduled(fixedRate = 1000) // Flush every 1 second
     public synchronized void flushMetrics() {
         analytics.flushMetrics();
     }

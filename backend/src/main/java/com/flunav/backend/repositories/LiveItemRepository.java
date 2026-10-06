@@ -126,7 +126,7 @@ public class LiveItemRepository {
         reindexMemory(previous, memoryState(itemId));
     }
 
-    /** Stores the exact transition that a staging release has scheduled. */
+    /** Stores a staging release or reserved merge approach at its exact transition time. */
     public void setPlannedTransition(String itemId, String positionId, PositionType type, Instant timestamp) {
         String itemKey = getNamespacedKey("item:" + itemId);
         Map<String, String> updates = new HashMap<>();
@@ -136,7 +136,7 @@ public class LiveItemRepository {
         hashPutAll(itemKey, updates);
     }
 
-    /** Clears a stale or cancelled staging transition without changing item physics. */
+    /** Clears a stale or cancelled transition without changing item physics. */
     public void clearPlannedTransition(String itemId) {
         hashDelete(getNamespacedKey("item:" + itemId), "pe", "pty", "pt");
     }

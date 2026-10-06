@@ -124,7 +124,8 @@ public class LiveMovementRecoveryService {
         }
         if (item.isMovementPaused()) return false;
 
-        if (item.getPlannedPositionId() != null && item.getPlannedTransitionTimestamp() != null) {
+        if (item.getMovementCheckTimestamp() == null
+                && item.getPlannedPositionId() != null && item.getPlannedTransitionTimestamp() != null) {
             double progress = item.getPlannedPositionType() == PositionType.CONVEYOR ? 0.0 : 100.0;
             itemMovementProcessor.scheduleEvent(new ItemPositionChangedEvent(
                     item.getId(), item.getPlannedPositionId(), progress, item.getPlannedTransitionTimestamp()));

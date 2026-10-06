@@ -5,6 +5,7 @@ import com.flunav.backend.utils.SimulationRunTiming;
 import com.flunav.backend.domain.Conveyor;
 import com.flunav.backend.domain.Item;
 import com.flunav.backend.models.UpdateModel;
+import com.flunav.backend.models.RedisLiveItem;
 import com.flunav.backend.models.simulation.SimulationState;
 import com.flunav.backend.repositories.LiveConveyorRepository;
 import com.flunav.backend.repositories.LiveItemRepository;
@@ -270,7 +271,13 @@ public class ItemMovementProcessor {
         }
 
         double currentMeters = conveyor.getLength() * progress / 100.0;
-        double stopMeters = conveyor.getLength();
+        String nextId = calculateNextConveyorIgnoringAvailability(itemId, conveyor.getTargetLocationId());
+        boolean committed = currentState.getPlannedTransitionTimestamp() != null
+                && Objects.equals(nextId, currentState.getPlannedPositionId());
+        if (!committed && currentState.getPlannedTransitionTimestamp() != null) {
+            liveItemRepository.clearPlannedTransition(itemId);
+        }
+        double stopMeters = committed ? conveyor.getLength() : mergeHoldingPosition(conveyor, itemId, nextId);
         if (conveyor.getType() == ConveyorType.ROLLER) {
             for (String otherId : liveConveyorRepository.getItemsOrderedByDistance(conveyorId)) {
                 if (otherId.equals(itemId)) continue;
@@ -284,6 +291,10 @@ public class ItemMovementProcessor {
         }
         long delayMillis = (long) Math.ceil(Math.max(0.0, stopMeters - currentMeters)
                 / conveyor.getSpeed() * 1000.0);
+        if (committed) {
+            liveItemRepository.setPlannedTransition(itemId, nextId, PositionType.CONVEYOR,
+                    timestamp.plusMillis(delayMillis));
+        }
         scheduleMovementCheck(itemId, conveyorId, timestamp.plusMillis(delayMillis));
     }
 
@@ -318,7 +329,10 @@ public class ItemMovementProcessor {
                     || check.getTimestamp().toEpochMilli() != state.getMovementCheckTimestamp().toEpochMilli()
                     || !feeder.getId().equals(state.getPositionId())) return;
             double position = projectedMeters(state, feeder, check.getTimestamp());
-            double safePosition = feeder.getLength();
+            double holdingPosition = mergeHoldingPosition(feeder, check.getEntityId(), nextId);
+            boolean committed = nextId != null && nextId.equals(state.getPlannedPositionId())
+                    && state.getPlannedTransitionTimestamp() != null;
+            double safePosition = committed ? feeder.getLength() : holdingPosition;
             if (feeder.getType() == ConveyorType.ROLLER) {
                 for (String otherId : liveConveyorRepository.getItemsOrderedByDistance(feeder.getId())) {
                     if (otherId.equals(check.getEntityId())) continue;
@@ -347,7 +361,9 @@ public class ItemMovementProcessor {
                         (long) Math.ceil((safePosition - position) / feeder.getSpeed() * 1000.0)));
                 return;
             }
-            boolean blocked = nextId != null && !hasEntrySpace(nextId, check.getEntityId(), check.getTimestamp());
+            boolean blocked = nextId != null && (!hasEntrySpace(nextId, check.getEntityId(), check.getTimestamp())
+                    || !committed && holdingPosition < feeder.getLength()
+                            && hasEarlierMergeArrival(feeder, nextId, state, check.getTimestamp()));
             if (nextId == null) {
                 var target = topologyProvider.getLocationById(feeder.getTargetLocationId());
                 blocked = target == null || (target.getType() == LocationType.CHUTE
@@ -356,12 +372,38 @@ public class ItemMovementProcessor {
                         || (target != null && target.getType() != LocationType.TIMED_NODE
                         && !topologyProvider.getOutgoingConveyors(target.getId()).isEmpty());
             }
-            if (safePosition + 1e-9 < feeder.getLength() || blocked || !feeder.isActive()) {
+            if (safePosition + 1e-9 < holdingPosition || blocked || !feeder.isActive()) {
                 pauseForFlow(check.getEntityId(), feeder, check.getTimestamp(),
                         Math.min(position, safePosition), shouldBroadcast);
                 Instant retry = check.getTimestamp().plusMillis(1000);
                 if (nextId != null) retry = predictedClearance(nextId, check.getEntityId(), check.getTimestamp());
                 scheduleMovementCheck(check.getEntityId(), feeder.getId(), retry);
+                return;
+            }
+            if (holdingPosition < feeder.getLength() && position + 1e-9 < feeder.getLength()) {
+                Instant departure = check.getTimestamp().plusMillis((long) Math.ceil(
+                        (feeder.getLength() - position) / feeder.getSpeed() * 1000.0));
+                liveItemRepository.setPlannedTransition(check.getEntityId(), nextId, PositionType.CONVEYOR, departure);
+                if (feeder.getType() == ConveyorType.BELT && liveConveyorRepository.isFlowStopped(feeder.getId())) {
+                    liveConveyorRepository.setFlowStopped(feeder.getId(), false);
+                    if (shouldBroadcast) webSocketService.broadcastConnectionUpdated(
+                            new UpdateModel(feeder.getId(), Map.of("flowStopped", false)), check.getTimestamp());
+                    resumeConveyorFromCheckpoints(feeder.getId(), check.getTimestamp(), shouldBroadcast);
+                } else if (state.isFlowPaused()) {
+                    liveItemRepository.setFlowPaused(check.getEntityId(), false);
+                    liveItemRepository.checkpointPhysics(check.getEntityId(), check.getTimestamp(),
+                            position / feeder.getLength() * 100.0);
+                    if (shouldBroadcast) {
+                        webSocketService.broadcastItemUpdated(new UpdateModel(check.getEntityId(),
+                                Map.of("flowPaused", false)), check.getTimestamp());
+                        webSocketService.broadcastPositionUpdate(check.getEntityId(), feeder.getId(),
+                                check.getTimestamp(), PositionType.CONVEYOR, position / feeder.getLength() * 100.0);
+                    }
+                    if (feeder.getType() == ConveyorType.ROLLER) {
+                        resumeRollerFollowers(feeder, check.getTimestamp(), shouldBroadcast);
+                    }
+                }
+                scheduleMovementCheck(check.getEntityId(), feeder.getId(), departure);
                 return;
             }
             liveItemRepository.setMovementCheck(check.getEntityId(), null);
@@ -372,6 +414,37 @@ public class ItemMovementProcessor {
                     nextId != null ? nextId : feeder.getTargetLocationId(),
                     nextId != null ? 0.0 : 100.0, check.getTimestamp()));
         }
+    }
+
+    /** Holds item centers before a shared junction while preserving travel through the final approach. */
+    private double mergeHoldingPosition(Conveyor feeder, String itemId, String nextId) {
+        if (nextId == null || topologyProvider.getAllConveyors().stream()
+                .filter(candidate -> feeder.getTargetLocationId().equals(candidate.getTargetLocationId()))
+                .limit(2).count() < 2) return feeder.getLength();
+        return Math.max(0.0, feeder.getLength() - itemLengthMeters(itemId) / 2.0
+                - Math.max(0.0, Objects.requireNonNullElse(feeder.getMinDistance(), 0.0)));
+    }
+
+    /** Reservations finish first; otherwise the head that reached its holding line first gets admission. */
+    private boolean hasEarlierMergeArrival(Conveyor feeder, String nextId, RedisLiveItem current, Instant at) {
+        Instant arrival = current.isFlowPaused() ? current.getEntryTime() : at;
+        for (Conveyor otherFeeder : topologyProvider.getAllConveyors()) {
+            if (!feeder.getTargetLocationId().equals(otherFeeder.getTargetLocationId()) || !otherFeeder.isActive()) continue;
+            for (String otherId : liveConveyorRepository.getItemsOrderedByDistance(otherFeeder.getId())) {
+                if (otherId.equals(current.getId())) continue;
+                var other = liveItemRepository.getItemState(otherId);
+                if (other == null || other.isMovementPaused() || other.getMovementCheckTimestamp() == null) continue;
+                if (!nextId.equals(calculateNextConveyorIgnoringAvailability(otherId, otherFeeder.getTargetLocationId()))) continue;
+                if (nextId.equals(other.getPlannedPositionId()) && other.getPlannedTransitionTimestamp() != null) return true;
+                if (projectedMeters(other, otherFeeder, at) + 1e-9
+                        < mergeHoldingPosition(otherFeeder, otherId, nextId)) continue;
+                Instant otherArrival = other.isFlowPaused() ? other.getEntryTime()
+                        : other.getMovementCheckTimestamp().isBefore(at) ? other.getMovementCheckTimestamp() : at;
+                if (otherArrival != null && (arrival == null || otherArrival.isBefore(arrival)
+                        || otherArrival.equals(arrival) && otherId.compareTo(current.getId()) < 0)) return true;
+            }
+        }
+        return false;
     }
 
     private double projectedMeters(com.flunav.backend.models.RedisLiveItem state, Conveyor conveyor, Instant at) {
@@ -420,6 +493,19 @@ public class ItemMovementProcessor {
         Instant retry = at.plusMillis(1);
         if (target == null || !target.isActive() || target.getSpeed() == null || target.getSpeed() <= 0)
             return at.plusMillis(1000);
+        for (Conveyor feeder : topologyProvider.getAllConveyors()) {
+            if (!target.getSourceLocationId().equals(feeder.getTargetLocationId())) continue;
+            for (String otherId : liveConveyorRepository.getItemsOrderedByDistance(feeder.getId())) {
+                if (otherId.equals(itemId)) continue;
+                var other = liveItemRepository.getItemState(otherId);
+                if (other != null && conveyorId.equals(other.getPlannedPositionId())
+                        && other.getPlannedTransitionTimestamp() != null
+                        && !other.getPlannedTransitionTimestamp().isBefore(at)) {
+                    Instant clearance = other.getPlannedTransitionTimestamp().plusMillis(1);
+                    if (clearance.isAfter(retry)) retry = clearance;
+                }
+            }
+        }
         for (String otherId : liveConveyorRepository.getItemsOrderedByDistance(conveyorId)) {
             var other = liveItemRepository.getItemState(otherId);
             if (other == null || other.isFlowPaused() || other.isMovementPaused()) return at.plusMillis(1000);
@@ -438,6 +524,7 @@ public class ItemMovementProcessor {
             boolean shouldBroadcast) {
         if (feeder.getType() == ConveyorType.BELT && !liveConveyorRepository.isFlowStopped(feeder.getId())) {
             checkpointItems(feeder.getId(), feeder.getSpeed(), timestamp);
+            liveItemRepository.checkpointPhysics(itemId, timestamp, position / feeder.getLength() * 100.0);
             for (String occupant : liveConveyorRepository.getItemsOrderedByDistance(feeder.getId())) {
                 cancelScheduledEvent(occupant);
                 liveItemRepository.setFlowPaused(occupant, true);
@@ -454,8 +541,13 @@ public class ItemMovementProcessor {
                     new UpdateModel(feeder.getId(), Map.of("flowStopped", true)), timestamp);
         } else if (feeder.getType() != ConveyorType.BELT) {
             double progress = feeder.getLength() > 0 ? Math.max(0.0, position) / feeder.getLength() * 100.0 : 0.0;
-            liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
+            var previous = liveItemRepository.getItemState(itemId);
+            if (previous == null || !previous.isFlowPaused()
+                    || Math.abs(previous.getAccumulatedDistance() - progress) > 1e-9) {
+                liveItemRepository.checkpointPhysics(itemId, timestamp, progress);
+            }
             liveItemRepository.setFlowPaused(itemId, true);
+            liveItemRepository.clearPlannedTransition(itemId);
             if (shouldBroadcast) webSocketService.broadcastPositionUpdate(itemId, feeder.getId(), timestamp,
                     PositionType.CONVEYOR, progress);
             for (String followerId : liveConveyorRepository.getItemsOrderedByDistance(feeder.getId())) {
@@ -994,10 +1086,12 @@ public class ItemMovementProcessor {
     /**
      * Removes the pending movement event for the current context.
      * Live mode cancels the scheduler task, while simulation mode removes the event
-     * from SimulationState so future replay projection stays isolated.
+     * from SimulationState so future replay projection stays isolated. Cancellation
+     * also releases any reserved transition so another feeder can claim the gap.
      */
     public void cancelScheduledEvent(String itemId) {
         liveItemRepository.setMovementCheck(itemId, null);
+        liveItemRepository.clearPlannedTransition(itemId);
         String simId = DatabaseContextHolder.getSimulationId();
         if (simId != null)
             simulationService.cancelInternalEvent(itemId);

@@ -111,6 +111,25 @@ class LiveMovementRecoveryIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void recoveryPreservesAdmissionCheckForAReservedMergeApproach() {
+        Instant recoveryTime = Instant.parse("2026-06-07T10:00:00Z");
+        timeService.useFixedClock(recoveryTime);
+        createTwoConveyorTopology("reserved");
+        createItemOnConveyor("reserved-item", "reserved-first", recoveryTime, 95.0);
+        Instant departure = recoveryTime.plusSeconds(30);
+        liveItemRepository.setPlannedTransition("reserved-item", "reserved-second", PositionType.CONVEYOR, departure);
+        liveItemRepository.setMovementCheck("reserved-item", departure);
+
+        recoveryService.recoverLiveMovementSchedules();
+
+        var scheduled = assertInstanceOf(ItemMovementCheckEvent.class,
+                liveSystemScheduler.getScheduledEvent("reserved-item"));
+        assertEquals("reserved-first", scheduled.getConveyorId());
+        assertEquals(departure, scheduled.getTimestamp());
+        assertEquals("reserved-second", liveItemRepository.getItemState("reserved-item").getPlannedPositionId());
+    }
+
+    @Test
     void backendStartupAdvancesPersistedItemAndQueuesItsNextLiveEvent() throws Exception {
         Instant startupTime = Instant.parse("2026-06-07T11:00:00Z");
         timeService.useFixedClock(startupTime);

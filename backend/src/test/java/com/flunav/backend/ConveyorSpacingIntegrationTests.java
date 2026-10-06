@@ -84,6 +84,18 @@ class ConveyorSpacingIntegrationTests extends BaseIntegrationTest {
     }
 
     @Test
+    void closerRollerArrivalWinsDespiteItsIdAndBeltCreationOrder() {
+        item("occupant", "shared", 0.0, Map.of());
+        item("a-belt", "belt", 60.0, Map.of());
+        item("z-roller", "roller", 80.0, Map.of());
+        sim.advanceTo(START.plusMillis(2200));
+        try (var ignored = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            assertEquals("shared", items.getItemState("z-roller").getPositionId());
+            assertEquals("belt", items.getItemState("a-belt").getPositionId());
+        }
+    }
+
+    @Test
     void blockedBeltFreezesEveryOccupantWhileRollerKeepsItsOwnFlow() {
         item("occupant", "shared", 0.0, Map.of());
         item("lead", "belt", 100.0, Map.of());
@@ -96,9 +108,14 @@ class ConveyorSpacingIntegrationTests extends BaseIntegrationTest {
             assertTrue(items.getItemState("lead").isFlowPaused());
             assertTrue(items.getItemState("follower").isFlowPaused());
             assertNull(items.getItemState("follower").getMovementCheckTimestamp());
-            assertEquals(40.1, items.getItemState("follower").getAccumulatedDistance(), 0.01);
+            assertEquals(40.0, items.getItemState("follower").getAccumulatedDistance(), 0.01);
         }
-        sim.advanceTo(START.plusMillis(2100));
+        sim.advanceTo(START.plusSeconds(1));
+        try (var ignored = DatabaseContextHolder.enterSimulationContext("test-sim")) {
+            assertTrue(items.getItemState("follower").isFlowPaused());
+            assertEquals(40.0, items.getItemState("follower").getAccumulatedDistance(), 0.01);
+        }
+        sim.advanceTo(START.plusMillis(2200));
         assertEquals("shared", sim.getItem("lead").orElseThrow().getCurrentEdgeId());
         try (var ignored = DatabaseContextHolder.enterSimulationContext("test-sim")) {
             assertFalse(conveyors.isFlowStopped("belt"));
