@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -69,9 +70,15 @@ public class ClickHouseService extends ClickHouseAccess {
         }
     }
 
+    /** The configured URL path selects a database, not the HTTP route used by client-v2. */
     private static Client createClient(String url, String username, String password) {
         try {
-            return new Client.Builder().addEndpoint(url).setUsername(username).setPassword(password).build();
+            URI configured = URI.create(url);
+            URI endpoint = new URI(configured.getScheme(), configured.getUserInfo(), configured.getHost(),
+                    configured.getPort(), "/", configured.getQuery(), null);
+            return new Client.Builder().addEndpoint(endpoint.toString())
+                    .setDefaultDatabase(extractDatabase(url))
+                    .setUsername(username).setPassword(password).build();
         } catch (Exception e) {
             logger.error("Failed to initialize ClickHouse client", e);
             throw new RuntimeException("ClickHouse init error", e);

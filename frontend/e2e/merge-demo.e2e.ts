@@ -8,7 +8,6 @@ test('merge demo transfers visible items onto the outlet and discharges them', a
   test.setTimeout(120_000);
   const session = await loginAsSuperadmin(request, backendUrl);
   const headers = { Authorization: `Bearer ${session.token}` };
-  let simulationId: string | undefined;
   await installAuthSession(page, session);
   await page.goto('/live');
   await waitForGraphTestApi(page);
@@ -16,7 +15,7 @@ test('merge demo transfers visible items onto the outlet and discharges them', a
   await page.getByRole('button', { name: 'Commands', exact: true }).click();
   const launched = page.waitForResponse(response => response.url().endsWith('/api/client-demo/conveyor-spacing') && response.ok());
   await page.getByRole('button', { name: 'Run rollers and belt merge', exact: true }).click();
-  simulationId = (await (await launched).json()).id;
+  const simulationId: string | undefined = (await (await launched).json()).id;
   try {
     await expect.poll(() => page.evaluate(() => window.__graphTestApi!.getItem('CS-BELT-1').activeItem?.currentEdgeId)).toBe('Conveyor_CS-BELT-SOURCE_CS-MERGE');
     await expect.poll(() => page.evaluate(() => window.__graphTestApi!.getItem('CS-BELT-1').activeItem?.flowPaused)).toBe(true);

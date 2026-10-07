@@ -251,9 +251,9 @@ const SettingsPanel = ({ onColorsUpdated }: SettingsPanelProps) => {
   // --- Docking styles ---
   const containerClasses = `fixed z-[1000] flex shadow-2xl backdrop-blur-sm bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white`;
 
-  let sideStyles: React.CSSProperties = {};
-  let borderClass = '';
-  let cursorClass = '';
+  let sideStyles: React.CSSProperties;
+  let borderClass: string;
+  let cursorClass: string;
 
   if (dockSide === 'bottom') {
     sideStyles = { bottom: 0, left: 0, width: '100%', height: dimensions.height, flexDirection: 'column' };

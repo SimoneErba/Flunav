@@ -67,7 +67,7 @@ export const PropertiesEditor = ({ properties = {}, onChange, reservedKeys = [] 
       return;
     }
 
-    let initialValue: string | number | boolean = "";
+    let initialValue: string | number | boolean;
     switch (newType) {
       case "number": initialValue = 0; break;
       case "boolean": initialValue = false; break;

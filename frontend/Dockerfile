@@ -1,7 +1,7 @@
 # ===================================================================
 # Stage 1: Build the React application using pnpm
 # ===================================================================
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 # Imposta la directory di lavoro all'interno del container
 WORKDIR /app
@@ -18,7 +18,7 @@ ENV VITE_PUBLIC_POSTHOG_KEY=$VITE_PUBLIC_POSTHOG_KEY
 # pnpm usa 'pnpm-lock.yaml' invece di 'package-lock.json'.
 COPY package.json pnpm-lock.yaml ./
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10
 
 # 2. Esegui 'pnpm install' con --frozen-lockfile.
 # garantisce che vengano installate solo le versioni specificate nel lock file.

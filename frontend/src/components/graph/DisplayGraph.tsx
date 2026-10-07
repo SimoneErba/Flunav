@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { SigmaContainer } from "@react-sigma/core";
 import { NodeSquareProgram } from "@sigma/node-square";
-import "@react-sigma/core/lib/react-sigma.min.css";
+import "@react-sigma/core/lib/style.css";
 
 import { DisplayRuleColorResult, GraphData } from "../../api-client/api";
 import type { ClockReader } from "./hooks/useSimulationClock";

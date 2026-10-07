@@ -73,7 +73,7 @@ export class NodeTriangleProgram extends NodeProgram<(typeof UNIFORMS)[number]> 
     array[startIndex++] = data.y;
     array[startIndex++] = data.size;
     array[startIndex++] = floatColor(data.color);
-    array[startIndex++] = nodeIndex;
+    array[startIndex] = nodeIndex;
   }
 
   setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo): void {

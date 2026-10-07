@@ -111,7 +111,7 @@ export class NodeBorderedSquareProgram extends NodeProgram<(typeof UNIFORMS)[num
     array[startIndex++] = floatColor(data.color);
     array[startIndex++] = floatColor(borderColor);
     array[startIndex++] = borderSize;
-    array[startIndex++] = nodeIndex;
+    array[startIndex] = nodeIndex;
   }
 
   setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo): void {

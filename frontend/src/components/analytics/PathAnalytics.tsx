@@ -240,7 +240,7 @@ export const PathAnalytics = ({ className = '' }: PathAnalyticsProps) => {
           />
           <YAxis fontSize={12} allowDecimals={false} />
           <Tooltip
-            labelFormatter={(v) => new Date(v).toLocaleString()}
+            labelFormatter={(v) => typeof v === 'string' || typeof v === 'number' ? new Date(v).toLocaleString() : v}
             formatter={(value, name) => {
               if (name === 'itemsEntered') return [value, 'Entered'];
               if (name === 'itemsExited') return [value, 'Exited'];
