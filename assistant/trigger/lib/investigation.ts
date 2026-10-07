@@ -194,10 +194,10 @@ export function isKnownOperation(operation: SemanticOperation): boolean {
 }
 
 export async function runOperation(operation: SemanticOperation, scope: InvestigationScope): Promise<Evidence> {
-  const baseUrl = required("FLUMEN_BACKEND_URL").replace(/\/$/, "");
+  const baseUrl = required("FLUNAV_BACKEND_URL").replace(/\/$/, "");
   const url = new URL(`/api/analytics/investigation${operation.path}`, baseUrl);
   for (const [key, value] of Object.entries(operation.params ?? {})) url.searchParams.set(key, String(value));
-  const headers: Record<string, string> = { "X-Flumen-Service-Token": required("FLUMEN_SERVICE_TOKEN") };
+  const headers: Record<string, string> = { "X-Flunav-Service-Token": required("FLUNAV_SERVICE_TOKEN") };
   if (scope.simulationId) headers["X-Simulation-ID"] = scope.simulationId;
   try {
     const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
@@ -210,9 +210,9 @@ export async function runOperation(operation: SemanticOperation, scope: Investig
 }
 
 export async function validateSemanticAccess(scope: InvestigationScope): Promise<AssistantRuntimeDiagnostic> {
-  const baseUrl = required("FLUMEN_BACKEND_URL").replace(/\/$/, "");
+  const baseUrl = required("FLUNAV_BACKEND_URL").replace(/\/$/, "");
   const url = new URL("/api/analytics/investigation/system/summary", baseUrl);
-  const headers: Record<string, string> = { "X-Flumen-Service-Token": required("FLUMEN_SERVICE_TOKEN") };
+  const headers: Record<string, string> = { "X-Flunav-Service-Token": required("FLUNAV_SERVICE_TOKEN") };
   if (scope.simulationId) headers["X-Simulation-ID"] = scope.simulationId;
   try {
     const response = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
@@ -241,7 +241,7 @@ export function composeVisualAnswer(question: string, strategy: InvestigationStr
     id: `visual-answer-${Date.now()}`,
     title: template.title,
     question,
-    verdict: succeeded ? `Based on ${succeeded} validated read-only Flumen semantic operation${succeeded === 1 ? "" : "s"}.` : "No semantic evidence could be retrieved for this scope.",
+    verdict: succeeded ? `Based on ${succeeded} validated read-only Flunav semantic operation${succeeded === 1 ? "" : "s"}.` : "No semantic evidence could be retrieved for this scope.",
     generatedAt: new Date().toISOString(),
     simulationId: scope.simulationId,
     strategy,
@@ -262,7 +262,7 @@ export function composeVisualAnswer(question: string, strategy: InvestigationStr
 }
 
 export function evidencePrompt(answer: VisualAnswerDocument, evidence: Evidence[]): string {
-  return `You are Flumen's read-only conveyor investigation assistant. Answer in two concise paragraphs. Use only this evidence. Separate observed facts from possible causes, do not invent values or claim a change was applied. Cite operation ids in brackets.\nQuestion: ${answer.question}\nStrategy: ${answer.strategy}\nEvidence: ${JSON.stringify(evidence)}`;
+  return `You are Flunav's read-only conveyor investigation assistant. Answer in two concise paragraphs. Use only this evidence. Separate observed facts from possible causes, do not invent values or claim a change was applied. Cite operation ids in brackets.\nQuestion: ${answer.question}\nStrategy: ${answer.strategy}\nEvidence: ${JSON.stringify(evidence)}`;
 }
 
 function unwrapData(value: unknown): unknown {
@@ -289,7 +289,7 @@ function required(name: string): string {
 
 function diagnosticMessage(status: number): string {
   if (status === 401 || status === 403) {
-    return "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN in the assistant worker.";
+    return "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUNAV_SERVICE_TOKEN or FLUNAV_ASSISTANT_SERVICE_TOKEN in the assistant worker.";
   }
   return `Semantic endpoint returned HTTP ${status}`;
 }

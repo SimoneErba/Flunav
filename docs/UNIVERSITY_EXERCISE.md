@@ -1,6 +1,6 @@
 # Reproducible conveyor experiments
 
-Run the normal Flumen stack with Java 21, OrientDB, Redis, ClickHouse and RabbitMQ. Use an ADMIN or SUPERADMIN account to create projects and experiments; authenticated viewers can read them. The external Java simulator is unnecessary for teaching templates. Open **Scenarios** from the graph toolbar or **Setup → Scenario library**.
+Run the normal Flunav stack with Java 21, OrientDB, Redis, ClickHouse and RabbitMQ. Use an ADMIN or SUPERADMIN account to create projects and experiments; authenticated viewers can read them. The external Java simulator is unnecessary for teaching templates. Open **Scenarios** from the graph toolbar or **Setup → Scenario library**.
 
 ## Exercise
 

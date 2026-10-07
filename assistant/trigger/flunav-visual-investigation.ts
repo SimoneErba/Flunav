@@ -23,23 +23,23 @@ const widgets = ["metric-card", "cartesian-chart", "topology-graph", "alarm-time
 
 /** Standalone workflow: answer a read-only question with typed evidence. */
 export const answerUserQuestion = task({
-  id: "flumen.answer-user-question",
+  id: "flunav.answer-user-question",
   run: async (input: InvestigationInput) => investigate(input),
 });
 
 export const listVisualWidgets = task({
-  id: "flumen.list-visual-widgets",
+  id: "flunav.list-visual-widgets",
   run: async () => ({ widgets, readOnly: true }),
 });
 
 /** Kept as a dashboard-visible provider diagnostic without exposing credentials. */
 export const modelCompletion = task({
-  id: "flumen.model-completion",
+  id: "flunav.model-completion",
   run: async ({ prompt }: { prompt: string }) => ({ prompt: prompt.slice(0, 8000), configured: Boolean(process.env.GROQ_API_KEY) }),
 });
 
 export const chooseBackendOperations = task({
-  id: "flumen.choose-backend-operations",
+  id: "flunav.choose-backend-operations",
   run: async (input: InvestigationInput) => {
     const context = resolveContext(requireQuestion(input.question), input);
     const strategy = classifyStrategy(input.question, context);
@@ -48,7 +48,7 @@ export const chooseBackendOperations = task({
 });
 
 export const classifyAnswerTemplate = task({
-  id: "flumen.classify-answer-template",
+  id: "flunav.classify-answer-template",
   run: async (input: InvestigationInput) => {
     const context = resolveContext(requireQuestion(input.question), input);
     return { strategy: classifyStrategy(input.question, context), context };
@@ -56,7 +56,7 @@ export const classifyAnswerTemplate = task({
 });
 
 export const chooseVisualWidgets = task({
-  id: "flumen.choose-visual-widgets",
+  id: "flunav.choose-visual-widgets",
   run: async (input: InvestigationInput) => {
     const investigation = await investigate(input);
     return { strategy: investigation.strategy, widgets: investigation.widgets.map(widget => ({ id: widget.id, kind: widget.kind, evidenceIds: widget.evidenceIds })) };
@@ -64,14 +64,14 @@ export const chooseVisualWidgets = task({
 });
 
 export const fetchWidgetData = task({
-  id: "flumen.fetch-widget-data",
+  id: "flunav.fetch-widget-data",
   run: async ({ operations, simulationId }: { operations: SemanticOperation[]; simulationId?: string }) => Promise.all(
     operations.filter(isKnownOperation).map(operation => runOperation(operation, scope(simulationId))),
   ),
 });
 
 export const planInvestigation = task({
-  id: "flumen.plan-investigation",
+  id: "flunav.plan-investigation",
   run: async (input: InvestigationInput) => {
     const context = resolveContext(requireQuestion(input.question), input);
     const strategy = classifyStrategy(input.question, context);
@@ -80,12 +80,12 @@ export const planInvestigation = task({
 });
 
 export const composeAnswer = task({
-  id: "flumen.compose-answer",
+  id: "flunav.compose-answer",
   run: async (input: InvestigationInput) => investigate(input),
 });
 
 export const progressiveVisualAnswer = task({
-  id: "flumen.progressive-visual-answer",
+  id: "flunav.progressive-visual-answer",
   run: async (input: InvestigationInput) => investigate(input),
 });
 

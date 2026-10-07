@@ -36,8 +36,8 @@ export const loginAsSuperadmin = async (
 
 export const installAuthSession = async (page: Page, session: AuthSession) => {
   await page.addInitScript((auth) => {
-    window.localStorage.setItem("flumen_token", auth.token);
-    window.localStorage.setItem("flumen_refresh_token", auth.refreshToken);
-    window.localStorage.setItem("flumen_user", JSON.stringify(auth.user));
+    window.localStorage.setItem("flunav_token", auth.token);
+    window.localStorage.setItem("flunav_refresh_token", auth.refreshToken);
+    window.localStorage.setItem("flunav_user", JSON.stringify(auth.user));
   }, session);
 };

@@ -1,4 +1,4 @@
-# AGENTS.md - Flumen Agent Guidelines
+# AGENTS.md - Flunav Agent Guidelines
 
 This repository is a real-time digital twin for conveyor and sorting systems. Treat it as an event-driven simulation platform, not as a CRUD app. The important design constraint is that the system must be able to derive live state, historical state, and future simulation state from the same event model without letting those states leak into each other.
 

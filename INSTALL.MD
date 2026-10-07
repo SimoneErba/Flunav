@@ -14,7 +14,7 @@ Use `docker-compose.dev.yaml` when you run the backend and frontend locally:
 docker compose -f docker-compose.dev.yaml up -d
 ```
 
-That stack starts OrientDB, ClickHouse, RabbitMQ, Redis, Redis Commander, Vector, and the local Trigger.dev services. It does not start backend, frontend, or nginx. Its Flumen infrastructure ports and credentials match `backend/src/main/resources/application.properties`.
+That stack starts OrientDB, ClickHouse, RabbitMQ, Redis, Redis Commander, Vector, and the local Trigger.dev services. It does not start backend, frontend, or nginx. Its Flunav infrastructure ports and credentials match `backend/src/main/resources/application.properties`.
 
 Then start the apps from the host:
 

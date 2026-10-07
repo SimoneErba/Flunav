@@ -7,16 +7,16 @@ configure({
 });
 
 const port = Number(process.env.PORT ?? 8090);
-const backendUrl = (process.env.FLUMEN_BACKEND_URL ?? "http://backend:8080").replace(/\/$/, "");
+const backendUrl = (process.env.FLUNAV_BACKEND_URL ?? "http://backend:8080").replace(/\/$/, "");
 const triggerPublicUrl = (process.env.TRIGGER_PUBLIC_URL ?? "http://localhost:8030").replace(/\/$/, "");
-const serviceToken = process.env.FLUMEN_SERVICE_TOKEN ?? process.env.FLUMEN_ASSISTANT_SERVICE_TOKEN ?? "";
-const agentId = "flumen-investigation-agent";
+const serviceToken = process.env.FLUNAV_SERVICE_TOKEN ?? process.env.FLUNAV_ASSISTANT_SERVICE_TOKEN ?? "";
+const agentId = "flunav-investigation-agent";
 
 createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "http://assistant-gateway");
     if (request.headers["x-forwarded-proto"] === "https" && !triggerPublicUrl.startsWith("https://")) {
-      return json(response, 503, { error: "TRIGGER_PUBLIC_URL must use HTTPS when Flumen is served over HTTPS" });
+      return json(response, 503, { error: "TRIGGER_PUBLIC_URL must use HTTPS when Flunav is served over HTTPS" });
     }
     if (request.method === "GET" && url.pathname === "/health") return health(response);
     const user = await authenticate(request);
@@ -100,11 +100,11 @@ async function health(response) {
 
 async function semanticDiagnostic() {
   if (!serviceToken.trim()) {
-    return { ok: false, error: "FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN is required for assistant semantic access" };
+    return { ok: false, error: "FLUNAV_SERVICE_TOKEN or FLUNAV_ASSISTANT_SERVICE_TOKEN is required for assistant semantic access" };
   }
   try {
     const semanticResponse = await fetch(`${backendUrl}/api/analytics/investigation/system/summary`, {
-      headers: { "X-Flumen-Service-Token": serviceToken },
+      headers: { "X-Flunav-Service-Token": serviceToken },
       signal: AbortSignal.timeout(3000),
     });
     await semanticResponse.arrayBuffer().catch(() => undefined);
@@ -113,7 +113,7 @@ async function semanticDiagnostic() {
       return {
         ok: false,
         status: semanticResponse.status,
-        error: "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN.",
+        error: "Semantic endpoint rejected the assistant service token. Align APP_ASSISTANT_SERVICE_TOKEN on the backend with FLUNAV_SERVICE_TOKEN or FLUNAV_ASSISTANT_SERVICE_TOKEN.",
       };
     }
     return { ok: false, status: semanticResponse.status, error: `Semantic endpoint returned HTTP ${semanticResponse.status}` };

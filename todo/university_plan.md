@@ -2,7 +2,7 @@
 
 ## Goal and priorities
 
-Make Flumen usable by professors, students, and researchers who build conveyor models on individual installations, exchange models, and compare alternatives through reproducible experiments.
+Make Flunav usable by professors, students, and researchers who build conveyor models on individual installations, exchange models, and compare alternatives through reproducible experiments.
 
 The primary workflow is: **choose a template → edit an isolated scenario → export or import it → create alternatives → run repeated experiments → compare and export results**.
 
@@ -39,7 +39,7 @@ The version 1 document contains:
 
 | Section | Contents |
 | --- | --- |
-| Manifest | Format identifier, schema version, scenario name/description, export time, Flumen release/commit when available, model semantics version, input-generator version, and units. |
+| Manifest | Format identifier, schema version, scenario name/description, export time, Flunav release/commit when available, model semantics version, input-generator version, and units. |
 | Baseline | Graph topology, sensor mappings, optional initial items, and an explicit virtual start timestamp. |
 | Configuration | Routing/destination configuration and display rules needed to reproduce behavior and presentation. Use explicitly supported typed payloads; export effective state rather than an arbitrary event log. |
 | Experiment | Optional existing multi-simulation input configuration, duration, replication count, and resolved base seed. |

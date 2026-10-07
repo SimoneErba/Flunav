@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-container_name="${TRIGGER_WEBAPP_CONTAINER:-flumen-assistant-trigger-webapp-1}"
+container_name="${TRIGGER_WEBAPP_CONTAINER:-flunav-assistant-trigger-webapp-1}"
 
 echo "Waiting for the next Trigger magic link from ${container_name}."
 echo "Submit the email form at http://localhost:8030, then this command will print the link and exit."

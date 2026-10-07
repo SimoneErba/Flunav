@@ -220,7 +220,7 @@
 						</platforms>
 					</from>
 					<to>
-						<image>flumen-backend:latest</image>
+						<image>flunav-backend:latest</image>
 					</to>
 					<container>
 						<ports>

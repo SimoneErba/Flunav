@@ -51,7 +51,7 @@ public class AssistantGatewayController {
 
     /**
      * Proxies assistant health through the backend so the frontend can use the same
-     * API base URL for core Flumen and assistant requests.
+     * API base URL for core Flunav and assistant requests.
      */
     @GetMapping("/health")
     public ResponseEntity<String> health(HttpServletRequest servletRequest) {

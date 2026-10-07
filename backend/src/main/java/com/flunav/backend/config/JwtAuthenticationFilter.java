@@ -73,7 +73,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } else if (isValidAssistantServiceRequest(request)
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    "flumen-assistant", null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_VIEWER")));
+                    "flunav-assistant", null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_VIEWER")));
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
         } else if (demoMode && SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -92,7 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 || assistantServiceToken == null || assistantServiceToken.isBlank()) {
             return false;
         }
-        String supplied = request.getHeader("X-Flumen-Service-Token");
+        String supplied = request.getHeader("X-Flunav-Service-Token");
         return supplied != null && MessageDigest.isEqual(
                 assistantServiceToken.getBytes(StandardCharsets.UTF_8),
                 supplied.getBytes(StandardCharsets.UTF_8));

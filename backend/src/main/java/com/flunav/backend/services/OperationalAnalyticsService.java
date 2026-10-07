@@ -78,7 +78,7 @@ public class OperationalAnalyticsService {
     }
 
     /**
-     * Flumen defines recirculation operationally as a changed reassignment after an
+     * Flunav defines recirculation operationally as a changed reassignment after an
      * initial path exists; it does not require the item to traverse a physical loop.
      */
     public void recordRecirculation(String itemId, List<String> previousPath, List<String> newPath, Instant timestamp) {

@@ -1,7 +1,7 @@
 import { defineConfig } from "@trigger.dev/sdk";
 
 export default defineConfig({
-  project: process.env.TRIGGER_PROJECT_REF ?? "flumen-assistant",
+  project: process.env.TRIGGER_PROJECT_REF ?? "flunav-assistant",
   dirs: ["./trigger"],
   maxDuration: 300,
   retries: {

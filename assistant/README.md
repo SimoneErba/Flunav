@@ -1,11 +1,11 @@
-# Flumen Assistant
+# Flunav Assistant
 
-The assistant is optional. The core Flumen stack does not depend on these services.
+The assistant is optional. The core Flunav stack does not depend on these services.
 
 Required secrets must be supplied through the environment; none are exposed to the
 browser:
 
-- `FLUMEN_ASSISTANT_SERVICE_TOKEN` (also configured on the backend)
+- `FLUNAV_ASSISTANT_SERVICE_TOKEN` (also configured on the backend)
 - `ASSISTANT_TRIGGER_SECRET_KEY`
 - `ASSISTANT_TRIGGER_ACCESS_TOKEN`
 - `GROQ_API_KEY`
@@ -14,14 +14,14 @@ browser:
   `docker-compose.yaml`
 
 Set `ASSISTANT_TRIGGER_PUBLIC_URL` to the externally reachable Trigger URL. It must
-use HTTPS whenever Flumen is served over HTTPS.
+use HTTPS whenever Flunav is served over HTTPS.
 
 When running the backend outside Docker, export one matching token before starting
 Spring:
 
 ```bash
-export FLUMEN_SERVICE_TOKEN="${FLUMEN_SERVICE_TOKEN:-flumen-local-assistant-service-token}"
-export APP_ASSISTANT_SERVICE_TOKEN="$FLUMEN_SERVICE_TOKEN"
+export FLUNAV_SERVICE_TOKEN="${FLUNAV_SERVICE_TOKEN:-flunav-local-assistant-service-token}"
+export APP_ASSISTANT_SERVICE_TOKEN="$FLUNAV_SERVICE_TOKEN"
 ```
 
 Restart `trigger-dev` after changing these values so the worker receives the

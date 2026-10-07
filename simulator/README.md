@@ -1,4 +1,4 @@
-# Flumen Simulator
+# Flunav Simulator
 
 Install the shared event artifact before building or running the simulator:
 
@@ -74,7 +74,7 @@ A rerun removes this scenario's previous items before starting its timer.
 
 Use the repository's `scripts/clear-demo.sh` for a fresh local demo without deleting
 database volumes or users. It clears **all graph/items, simulation clones and runtime
-state, ClickHouse events/snapshots/analytics, and Flumen RabbitMQ queues** in the selected
+state, ClickHouse events/snapshots/analytics, and Flunav RabbitMQ queues** in the selected
 local stack. Deletion is permanent. Users, login tokens, display rules, routing settings,
 logs, and schemas remain. The scenario itself still publishes its own display/routing rules.
 

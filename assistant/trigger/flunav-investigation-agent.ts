@@ -18,31 +18,31 @@ import {
   type VisualAnswerDocument,
 } from "./lib/investigation.js";
 
-type FlumenDataParts = {
+type FlunavDataParts = {
   "agent-progress": AgentProgress;
   "visual-answer": VisualAnswerDocument;
   "assistant-error": AssistantErrorData;
 };
 
-type FlumenChatMessage = UIMessage<unknown, FlumenDataParts>;
+type FlunavChatMessage = UIMessage<unknown, FlunavDataParts>;
 type AssistantErrorData = {
   source: "semantic" | "model";
   message: string;
 };
 
-const scopeLocal = chat.local<InvestigationScope>({ id: "flumen-investigation-scope" });
-const retainedContextLocal = chat.local<{ entityIds: string[]; selectedTimestamp?: string }>({ id: "flumen-investigation-context" });
-const MODEL_TIMEOUT_MS = Number(process.env.FLUMEN_ASSISTANT_MODEL_TIMEOUT_MS ?? 20_000);
+const scopeLocal = chat.local<InvestigationScope>({ id: "flunav-investigation-scope" });
+const retainedContextLocal = chat.local<{ entityIds: string[]; selectedTimestamp?: string }>({ id: "flunav-investigation-context" });
+const MODEL_TIMEOUT_MS = Number(process.env.FLUNAV_ASSISTANT_MODEL_TIMEOUT_MS ?? 20_000);
 
 /**
  * Runs read-only investigations from a session-bound scope so browser-provided
  * selections cannot redirect semantic requests into another user's simulation.
  */
-export const flumenInvestigationAgent = chat
-  .withUIMessage<FlumenChatMessage>({ streamOptions: { sendReasoning: false } })
+export const flunavInvestigationAgent = chat
+  .withUIMessage<FlunavChatMessage>({ streamOptions: { sendReasoning: false } })
   .withClientData({ schema: chatClientDataSchema })
   .agent({
-    id: "flumen-investigation-agent",
+    id: "flunav-investigation-agent",
     maxTurns: 8,
     turnTimeout: "5m",
     uiMessageStreamOptions: {
@@ -238,7 +238,7 @@ function progress(
 }
 
 function debug(event: string, data?: Record<string, unknown>) {
-  console.info(`[flumen-assistant] ${event}`, JSON.stringify(data ?? {}));
+  console.info(`[flunav-assistant] ${event}`, JSON.stringify(data ?? {}));
 }
 
 function summarizeContent(content: ModelMessage["content"]): unknown {
@@ -250,7 +250,7 @@ function summarizeContent(content: ModelMessage["content"]): unknown {
 }
 
 function fallbackTextStream(text: string) {
-  return createUIMessageStream<FlumenChatMessage>({
+  return createUIMessageStream<FlunavChatMessage>({
     execute: ({ writer }) => {
       const id = `fallback-${Date.now()}`;
       writer.write({ type: "text-start", id });
@@ -280,7 +280,7 @@ function semanticFailureMessage(evidence: Array<{ error?: string }>): string | u
   const errors = evidence.map(entry => entry.error).filter((error): error is string => Boolean(error));
   if (!errors.length) return undefined;
   if (errors.some(error => /HTTP 40[13]/.test(error))) {
-    return "Semantic endpoint rejected the assistant service token. Align backend APP_ASSISTANT_SERVICE_TOKEN with FLUMEN_SERVICE_TOKEN or FLUMEN_ASSISTANT_SERVICE_TOKEN, then restart trigger-dev.";
+    return "Semantic endpoint rejected the assistant service token. Align backend APP_ASSISTANT_SERVICE_TOKEN with FLUNAV_SERVICE_TOKEN or FLUNAV_ASSISTANT_SERVICE_TOKEN, then restart trigger-dev.";
   }
   if (errors.length === evidence.length) {
     return "No semantic evidence could be retrieved for this investigation. Check backend availability and assistant service-token configuration.";

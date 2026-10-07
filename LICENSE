@@ -1,0 +1,68 @@
+Flunav Personal, Academic, and Research License
+Version 1.0
+
+Copyright (c) 2026 Simone Erba and contributors.
+
+1. Scope
+
+This license applies to the original Flunav software and accompanying
+documentation in this repository (the "Software"). Third-party components
+remain subject to their own licenses. Rights not expressly granted below
+are reserved.
+
+2. Free permitted use
+
+Permission is granted, free of charge, to use, copy, study, modify, and
+redistribute the Software, in source or compiled form, solely for:
+
+  a. Personal, noncommercial use by individuals; or
+  b. Noncommercial research, education, and learning by individuals,
+     universities, and nonprofit research or educational institutions.
+
+Public research funding and ordinary university tuition do not, by
+themselves, make research or teaching commercial. Work performed for a
+company, or intended to develop a commercial product or service, requires
+a separate commercial license.
+
+3. Company and commercial use
+
+Use by or on behalf of a for-profit company requires a separate commercial
+license, even for internal use, evaluation, or research.
+
+Any use intended for commercial advantage or monetary compensation also
+requires a separate commercial license, regardless of whether the user is
+an individual or an organization. This includes selling the Software or
+derivatives, providing paid hosting or services, paid consulting using the
+Software, and incorporating it into commercial products or business
+operations.
+
+Before any such use, contact Simone Erba through
+https://github.com/SimoneErba and obtain a separate written commercial
+license. Contacting the author alone does not grant permission.
+
+4. Copies and modifications
+
+All copies and substantial portions of the Software must retain this
+license and applicable copyright notices. Modified versions must clearly
+identify that they have been changed. Redistribution is permitted only
+without a fee and under these same terms; it does not grant recipients
+company or commercial-use rights. These restrictions also apply to
+modified versions and derivatives of the Software.
+
+5. Termination
+
+The permissions granted by this license terminate automatically if you
+violate its terms. Upon termination, you must stop using, copying,
+modifying, and distributing the Software unless the copyright holder
+provides written permission to resume. This license does not limit rights
+available under applicable law independently of this license.
+
+6. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE MAXIMUM
+EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHORS AND COPYRIGHT HOLDERS SHALL
+NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

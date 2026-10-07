@@ -17,7 +17,7 @@ Public contracts, replay timestamp tie ordering, simulation namespaces, RabbitMQ
 - A failed-test subset on the archived pre-extraction commit `ab118ce`: **17 tests, 9 failures, zero errors**. The same nine functional failures reproduce on the changed code: nanosecond/millisecond timestamp expectations (four), snapshot optional defaults, recirculation routing, timed-node routing, sensor alias precedence, and checkpoint entry timestamp. The checkpoint test had encountered heap admission rejection in the full run before reaching its baseline assertion.
 - Full-suite anomaly timing, stress time budgets, heap admission rejections, and simulation timeouts depend on suite order/load. Anomaly and both stress tests pass in focused runs. The full suite remains an unsuccessful gate; these results do not establish a clean full-suite regression baseline.
 
-Local logs: `/tmp/flumen-final-focused-tests.log`, `/tmp/flumen-full-backend-tests.log`, and `/tmp/flumen-baseline-backend-tests.log`.
+Local logs: `/tmp/flunav-final-focused-tests.log`, `/tmp/flunav-full-backend-tests.log`, and `/tmp/flunav-baseline-backend-tests.log`.
 
 ## Frontend
 
@@ -26,7 +26,7 @@ Local logs: `/tmp/flumen-final-focused-tests.log`, `/tmp/flumen-full-backend-tes
 - Application TypeScript checking still reports **23 diagnostics** in untouched files. All match diagnostics from the archived `ab118ce` baseline, which reports 55; there are no new diagnostic messages. This check remains unsuccessful.
 - **13 distinct Chromium checks passed** across two production test-build runs: reconnect reconciliation, live WebSocket-created edges/items, workspace URL/navigation transitions, clock lag visibility (two cases), speed updates, stop condition, conveyor activation, chute empty, staged FIFO release, simulation pause/speed/What If isolation, and the many-item trace. The first run's clock assertion differed by one floating-point ULP; after using a position tolerance, the corrected test passed with a real successful speed PATCH response.
 
-Local logs: `/tmp/flumen-final-browser-tests.log`, `/tmp/flumen-final-browser-recheck.log`, `/tmp/flumen-frontend-build.log`, `/tmp/flumen-tsc-current.out`, and `/tmp/flumen-baseline-tsc.out`.
+Local logs: `/tmp/flunav-final-browser-tests.log`, `/tmp/flunav-final-browser-recheck.log`, `/tmp/flunav-frontend-build.log`, `/tmp/flunav-tsc-current.out`, and `/tmp/flunav-baseline-tsc.out`.
 
 ## Animation comparison
 

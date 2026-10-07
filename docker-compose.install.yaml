@@ -38,7 +38,7 @@ services:
       - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB}
       - CLICKHOUSE_USERNAME=${CLICKHOUSE_USER}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-      - LOG_PATH=/var/log/flumen
+      - LOG_PATH=/var/log/flunav
       - APPLICATION_NAME=backend
       - APPLICATION_ENVIRONMENT=docker
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0
@@ -47,9 +47,9 @@ services:
       - SIMULATION_CAPACITY_MAX_ACTIVE_ITEMS=10000
       - SIMULATION_CAPACITY_MIN_FREE_MEMORY_BYTES=536870912
       - APP_ASSISTANT_GATEWAY_URL=http://assistant-gateway:8090
-      - APP_ASSISTANT_SERVICE_TOKEN=${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
+      - APP_ASSISTANT_SERVICE_TOKEN=${FLUNAV_SERVICE_TOKEN:-${FLUNAV_ASSISTANT_SERVICE_TOKEN:-}}
     volumes:
-      - backend-logs:/var/log/flumen
+      - backend-logs:/var/log/flunav
     networks:
       - app-network
 
@@ -63,9 +63,9 @@ services:
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
     volumes:
       - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
-      - backend-logs:/var/log/flumen:ro
-      - ./logs:/var/log/flumen-host:ro
-      - ./backend/logs:/var/log/flumen-backend-host:ro
+      - backend-logs:/var/log/flunav:ro
+      - ./logs:/var/log/flunav-host:ro
+      - ./backend/logs:/var/log/flunav-backend-host:ro
       - vector-data:/var/lib/vector
     command: ["--config", "/etc/vector/vector.yaml"]
     networks:
@@ -294,7 +294,7 @@ services:
     profiles: ["assistant"]
     image: busybox:1.37
     environment:
-      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
+      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flunav-trigger-realtime}
     command:
       - sh
       - -c
@@ -398,20 +398,20 @@ services:
       OBJECT_STORE_ACCESS_KEY_ID: ${ASSISTANT_MINIO_USER:-admin}
       OBJECT_STORE_SECRET_ACCESS_KEY: ${ASSISTANT_MINIO_PASSWORD:-Flun4v!Minio}
       REALTIME_STREAMS_DEFAULT_VERSION: v2
-      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flumen-trigger-realtime}
+      REALTIME_STREAMS_S2_BASIN: ${ASSISTANT_S2_BASIN:-flunav-trigger-realtime}
       REALTIME_STREAMS_S2_ACCESS_TOKEN: "ignored"
       REALTIME_STREAMS_S2_ENDPOINT: http://assistant-s2/v1
       REALTIME_STREAMS_S2_SKIP_ACCESS_TOKENS: "true"
-      SESSION_SECRET: ${ASSISTANT_SESSION_SECRET:-flumen-session-secret-0000000000}
-      MAGIC_LINK_SECRET: ${ASSISTANT_MAGIC_LINK_SECRET:-flumen-magiclink-secret-00000000}
-      ENCRYPTION_KEY: ${ASSISTANT_ENCRYPTION_KEY:-flumen-encryption-key-0000000000}
-      PROVIDER_SECRET: ${ASSISTANT_PROVIDER_SECRET:-flumen-provider-secret-000000000}
-      COORDINATOR_SECRET: ${ASSISTANT_COORDINATOR_SECRET:-flumen-coordinator-secret-000000}
-      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-flumen-worker-secret-00000000000}
+      SESSION_SECRET: ${ASSISTANT_SESSION_SECRET:-flunav-session-secret-0000000000}
+      MAGIC_LINK_SECRET: ${ASSISTANT_MAGIC_LINK_SECRET:-flunav-magiclink-secret-00000000}
+      ENCRYPTION_KEY: ${ASSISTANT_ENCRYPTION_KEY:-flunav-encryption-key-0000000000}
+      PROVIDER_SECRET: ${ASSISTANT_PROVIDER_SECRET:-flunav-provider-secret-000000000}
+      COORDINATOR_SECRET: ${ASSISTANT_COORDINATOR_SECRET:-flunav-coordinator-secret-000000}
+      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-flunav-worker-secret-00000000000}
       DEPLOY_REGISTRY_HOST: assistant-registry:5000
-      DEPLOY_REGISTRY_NAMESPACE: flumen-trigger
+      DEPLOY_REGISTRY_NAMESPACE: flunav-trigger
       TRIGGER_BOOTSTRAP_ENABLED: 1
-      TRIGGER_BOOTSTRAP_WORKER_GROUP_NAME: flumen-bootstrap
+      TRIGGER_BOOTSTRAP_WORKER_GROUP_NAME: flunav-bootstrap
       TRIGGER_BOOTSTRAP_WORKER_TOKEN_PATH: /home/node/shared/worker_token
       TRIGGER_TELEMETRY_DISABLED: 1
     user: root
@@ -441,16 +441,16 @@ services:
     environment:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_WORKER_TOKEN: file:///home/node/shared/worker_token
-      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-flumen-worker-secret-00000000000}
+      MANAGED_WORKER_SECRET: ${ASSISTANT_MANAGED_WORKER_SECRET:-flunav-worker-secret-00000000000}
       DOCKER_HOST: tcp://assistant-socket-proxy:2375
       TRIGGER_WORKLOAD_API_DOMAIN: assistant-trigger-supervisor
       TRIGGER_WORKLOAD_API_PORT_EXTERNAL: 8020
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
-      DOCKER_RUNNER_NETWORKS: flumen-assistant,flumen-app
+      DOCKER_RUNNER_NETWORKS: flunav-assistant,flunav-app
       DOCKER_REGISTRY_URL: assistant-registry:5000
       DOCKER_AUTOREMOVE_EXITED_CONTAINERS: 1
-      FLUMEN_BACKEND_URL: http://backend:8080
-      FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
+      FLUNAV_BACKEND_URL: http://backend:8080
+      FLUNAV_SERVICE_TOKEN: ${FLUNAV_SERVICE_TOKEN:-${FLUNAV_ASSISTANT_SERVICE_TOKEN:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_SMALL_MODEL: ${GROQ_SMALL_MODEL:-openai/gpt-oss-20b}
@@ -478,8 +478,8 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: 8090
-      FLUMEN_BACKEND_URL: http://backend:8080
-      FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
+      FLUNAV_BACKEND_URL: http://backend:8080
+      FLUNAV_SERVICE_TOKEN: ${FLUNAV_SERVICE_TOKEN:-${FLUNAV_ASSISTANT_SERVICE_TOKEN:-}}
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_PUBLIC_URL: ${ASSISTANT_TRIGGER_PUBLIC_URL:-http://localhost:8030}
       TRIGGER_SECRET_KEY: ${ASSISTANT_TRIGGER_SECRET_KEY:-}
@@ -502,7 +502,7 @@ services:
     environment:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
-      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
+      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flunav-assistant}
     command: ["sh", "-c", "npm ci && npm run deploy"]
     restart: "no"
     depends_on:
@@ -518,9 +518,9 @@ services:
     environment:
       TRIGGER_API_URL: http://assistant-trigger-webapp:3000
       TRIGGER_ACCESS_TOKEN: ${ASSISTANT_TRIGGER_ACCESS_TOKEN:-}
-      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flumen-assistant}
-      FLUMEN_BACKEND_URL: http://backend:8080
-      FLUMEN_SERVICE_TOKEN: ${FLUMEN_SERVICE_TOKEN:-${FLUMEN_ASSISTANT_SERVICE_TOKEN:-}}
+      TRIGGER_PROJECT_REF: ${ASSISTANT_TRIGGER_PROJECT_REF:-flunav-assistant}
+      FLUNAV_BACKEND_URL: http://backend:8080
+      FLUNAV_SERVICE_TOKEN: ${FLUNAV_SERVICE_TOKEN:-${FLUNAV_ASSISTANT_SERVICE_TOKEN:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     command: ["sh", "-c", "npm ci && npm run dev"]
@@ -530,10 +530,10 @@ services:
 
 networks:
   app-network:
-    name: flumen-app
+    name: flunav-app
     driver: bridge
   assistant-network:
-    name: flumen-assistant
+    name: flunav-assistant
     driver: bridge
 
 volumes:

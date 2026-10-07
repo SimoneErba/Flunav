@@ -47,7 +47,7 @@ class LoggingConfigurationTests {
                 .log("processed event {}", "event-1");
         logger.error("failed event {}", "event-2", new IllegalStateException("failure"));
 
-        Path logFile = logDirectory.resolve("flumen.json");
+        Path logFile = logDirectory.resolve("flunav.json");
         for (int attempt = 0; attempt < 20 && Files.size(logFile) == 0; attempt++) {
             Thread.sleep(50);
         }

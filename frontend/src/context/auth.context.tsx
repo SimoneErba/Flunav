@@ -48,9 +48,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    const storedToken = localStorage.getItem("flumen_token");
-    const storedRefreshToken = localStorage.getItem("flumen_refresh_token");
-    const storedUser = localStorage.getItem("flumen_user");
+    const storedToken = localStorage.getItem("flunav_token");
+    const storedRefreshToken = localStorage.getItem("flunav_refresh_token");
+    const storedUser = localStorage.getItem("flunav_user");
 
     if (storedToken && storedUser) {
       setToken(storedToken);
@@ -70,20 +70,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setRefreshToken(newRefreshToken);
     setUser(newUser);
     
-    localStorage.setItem("flumen_token", newToken);
-    localStorage.setItem("flumen_refresh_token", newRefreshToken);
-    localStorage.setItem("flumen_user", JSON.stringify(newUser));
+    localStorage.setItem("flunav_token", newToken);
+    localStorage.setItem("flunav_refresh_token", newRefreshToken);
+    localStorage.setItem("flunav_user", JSON.stringify(newUser));
   };
 
   // Clear in-memory and persisted auth before forcing navigation to the public login route.
   const logout = useCallback(() => {
-    const assistantPrefix = user?.username ? `flumen_assistant:${user.username}:` : null;
+    const assistantPrefix = user?.username ? `flunav_assistant:${user.username}:` : null;
     setToken(null);
     setRefreshToken(null);
     setUser(null);
-    localStorage.removeItem("flumen_token");
-    localStorage.removeItem("flumen_refresh_token");
-    localStorage.removeItem("flumen_user");
+    localStorage.removeItem("flunav_token");
+    localStorage.removeItem("flunav_refresh_token");
+    localStorage.removeItem("flunav_user");
     if (assistantPrefix) {
       Object.keys(localStorage)
         .filter(key => key.startsWith(assistantPrefix))
@@ -130,11 +130,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
             if (newToken) {
               setToken(newToken);
-              localStorage.setItem("flumen_token", newToken);
+              localStorage.setItem("flunav_token", newToken);
 
               if (newRefreshToken) {
                 setRefreshToken(newRefreshToken);
-                localStorage.setItem("flumen_refresh_token", newRefreshToken);
+                localStorage.setItem("flunav_refresh_token", newRefreshToken);
               }
 
               originalRequest.headers.Authorization = `Bearer ${newToken}`;

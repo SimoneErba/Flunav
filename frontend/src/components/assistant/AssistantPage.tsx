@@ -30,7 +30,7 @@ export const AssistantPage = () => {
   const [triggerPublicUrl, setTriggerPublicUrl] = useState<string>();
   const [prompt, setPrompt] = useState('');
   const scope = activeSimulation?.id ?? 'live';
-  const storageKey = useMemo(() => `flumen_assistant:${user?.username ?? 'anonymous'}:${scope}`, [scope, user?.username]);
+  const storageKey = useMemo(() => `flunav_assistant:${user?.username ?? 'anonymous'}:${scope}`, [scope, user?.username]);
   const [chatId, setChatId] = useState(() => loadChat(storageKey).chatId);
   const [history, setHistory] = useState<PersistedMessage[]>(() => loadChat(storageKey).history);
   const [answer, setAnswer] = useState<VisualAnswerDocument | undefined>(() => loadChat(storageKey).answer);
@@ -62,19 +62,19 @@ export const AssistantPage = () => {
     inheritedContext: answer ? { entityIds: answer.context.entityIds, selectedTimestamp: answer.context.selectedTimestamp } : undefined,
   }), [answer]);
   const transport = useTriggerChatTransport({
-    task: 'flumen-investigation-agent',
+    task: 'flunav-investigation-agent',
     baseURL: triggerPublicUrl ?? import.meta.env.VITE_TRIGGER_PUBLIC_URL ?? 'http://localhost:8030',
     clientData,
     sessions,
     fetch: async (url, init, context) => {
-      console.info('[flumen-assistant-ui] trigger fetch', {
+      console.info('[flunav-assistant-ui] trigger fetch', {
         endpoint: context.endpoint,
         url,
         method: init.method,
         body: typeof init.body === 'string' ? init.body : undefined,
       });
       const response = await fetch(url, init);
-      console.info('[flumen-assistant-ui] trigger response', {
+      console.info('[flunav-assistant-ui] trigger response', {
         endpoint: context.endpoint,
         url,
         status: response.status,
@@ -83,7 +83,7 @@ export const AssistantPage = () => {
       return response;
     },
     onEvent: event => {
-      console.info('[flumen-assistant-ui] transport', event);
+      console.info('[flunav-assistant-ui] transport', event);
     },
     onSessionChange: (sessionChatId, session) => {
       setSessions(previous => {
@@ -121,7 +121,7 @@ export const AssistantPage = () => {
   const latest = latestParts(messages);
 
   useEffect(() => {
-    console.info('[flumen-assistant-ui] chat state', {
+    console.info('[flunav-assistant-ui] chat state', {
       chatId,
       status,
       messages: messages.map(message => ({

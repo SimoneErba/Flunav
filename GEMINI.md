@@ -1,6 +1,6 @@
-# FLUMEN Project Technical Summary
+# FLUNAV Project Technical Summary
 
-This document provides a technical overview of the FLUMEN project, intended for an AI coding agent.
+This document provides a technical overview of the FLUNAV project, intended for an AI coding agent.
 
 ## 1. Project Overview
 

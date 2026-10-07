@@ -2,11 +2,11 @@
 
 Assessment date: 2026-09-19. Code inspected at commit `d3fcb0b`.
 
-This document assesses the current implementation and proposes the core logic needed to use Flumen for airport baggage sorting. It covers destination correctness, tracking, recovery, deadlines, congestion, equipment interaction, and replay. It is a source review and implementation roadmap; the existing tests were inspected, not executed for this assessment. Proposed behavior below is not implemented by this document.
+This document assesses the current implementation and proposes the core logic needed to use Flunav for airport baggage sorting. It covers destination correctness, tracking, recovery, deadlines, congestion, equipment interaction, and replay. It is a source review and implementation roadmap; the existing tests were inspected, not executed for this assessment. Proposed behavior below is not implemented by this document.
 
 ## 1. Answers to the main questions
 
-Flumen has useful routing, capacity, simulation, and event-processing foundations. It does not yet provide the lifecycle and confirmation logic needed to account for every bag through an airport operation.
+Flunav has useful routing, capacity, simulation, and event-processing foundations. It does not yet provide the lifecycle and confirmation logic needed to account for every bag through an airport operation.
 
 | Question | What the code does today | Readiness gap |
 | --- | --- | --- |
@@ -200,19 +200,19 @@ Each operational instruction needs a stable command ID, bag and assignment revis
 
 Track accepted, rejected, expired, executed, and physically confirmed outcomes. An acknowledgement that a controller received a command is distinct from a downstream scan showing the bag actually took the branch. Missing acknowledgement, missed diversion, wrong-chute detection, and disconnected controllers must feed recovery logic.
 
-Define a clear ownership boundary: Flumen owns routing intent, eligibility, and reconciliation; equipment controllers own real-time actuation and local interlocks. Agree on a safe local behavior when supervisory commands are late or unavailable.
+Define a clear ownership boundary: Flunav owns routing intent, eligibility, and reconciliation; equipment controllers own real-time actuation and local interlocks. Agree on a safe local behavior when supervisory commands are late or unavailable.
 
 Keep simulated/predicted movement separate from physical evidence. `LiveSystemScheduler` currently feeds projected position events into live event processing. For an airport control mode, prediction can drive expected-arrival timers and visualization, but must not by itself confirm location, custody, or aircraft loading. Separate these semantics explicitly instead of relying only on `simulation.manage-logic` or broadcast flags.
 
 ### 4.8 Handoff and reconciliation
 
-Introduce confirmed milestones: correct sortation exit, makeup handoff, container/cart association where used, aircraft loading, and offload/return. Consume authoritative loading and reconciliation outcomes from the responsible systems if Flumen does not own that part of the process.
+Introduce confirmed milestones: correct sortation exit, makeup handoff, container/cart association where used, aircraft loading, and offload/return. Consume authoritative loading and reconciliation outcomes from the responsible systems if Flunav does not own that part of the process.
 
 On chute arrival, compare actual location with the active assignment and flight allocation. Wrong-chute arrival opens a misroute exception. Chute clearing releases capacity but does not automatically prove that every bag was loaded. A batch handoff needs an explicit membership list and evidence; repeated messages must not count twice.
 
-IATA identifies acceptance, loading, transfer, and arrival as the four core baggage tracking points. That supports a custody-oriented event model extending beyond conveyor positions. The system boundary should state which points Flumen records and which it receives from partners. [IATA baggage tracking](https://www.iata.org/en/programs/ops-infra/baggage/baggage-tracking/).
+IATA identifies acceptance, loading, transfer, and arrival as the four core baggage tracking points. That supports a custody-oriented event model extending beyond conveyor positions. The system boundary should state which points Flunav records and which it receives from partners. [IATA baggage tracking](https://www.iata.org/en/programs/ops-infra/baggage/baggage-tracking/).
 
-Loading evidence and passenger/baggage reconciliation are distinct concerns in IATA's implementation guidance. Flumen should consume the applicable authoritative permission and offload decisions, rather than infer them from a generic flight property. [IATA Resolution 753 implementation guide](https://www.iata.org/contentassets/5c4aa8b8b3b1432697d2bf3301450684/reso753-implementation-guide---2023_issue-4.0.pdf).
+Loading evidence and passenger/baggage reconciliation are distinct concerns in IATA's implementation guidance. Flunav should consume the applicable authoritative permission and offload decisions, rather than infer them from a generic flight property. [IATA Resolution 753 implementation guide](https://www.iata.org/contentassets/5c4aa8b8b3b1432697d2bf3301450684/reso753-implementation-guide---2023_issue-4.0.pdf).
 
 ### 4.9 Event durability, recovery, and replay
 

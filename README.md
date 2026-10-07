@@ -1,150 +1,87 @@
 <p align="center">
-  <img src="logo.svg" alt="Flunav Logo" width="350"/>
-</p>
-<p align="center">
-  A real-time digital twin engine for tracking and simulating complex logistical systems.
+  <img src="logo.svg" alt="Flunav logo" width="350"/>
 </p>
 
----
+# Flunav
 
-> ⚠️ **Work in Progress**
->
-> This project is under active development. The backend architecture and core functionalities are largely complete, while the frontend UI is undergoing further refinement.
+Flunav is a digital twin for conveyor and sorting systems: a virtual view of a facility that shows how items move, helps explain past problems, and lets you explore changes before trying them in the real world.
 
-## What is Flunav?
+![Flunav running an isolated airport routing simulation, with moving bags and a stopped Gate A conveyor](docs/screenshots/simulation.png)
 
-Flunav is a backend platform and visualization tool designed to create a **digital twin** of systems with moving assets, such as conveyor-based sorting facilities or production lines. It ingests event data from external control systems (e.g., PLCs), maintains a real-time graph model of the system's state, and provides tools for historical analysis and simulation.
+An airport What If simulation: bags reroute or recirculate when Gate A's exit conveyor stops. The top bar shows playback controls and operational counts.
 
-The core purpose is to transform discrete sensor data into a continuous, understandable, and actionable view of the entire operation.
+## Main features
 
-<p align="center">
-  <!-- A GIF or screenshot of the UI would be effective here -->
-  <img src="https://i.imgur.com/your-demo-gif.gif" alt="Flunav in action"/>
-</p>
+- **Live:** Follow items in real time, monitor conveyor status, and spot queues, bottlenecks, and alarms.
+- **Simulation:** Replay past activity or jump into the future to see the system's predicted state. Pause, resume, and slow down or speed up playback to inspect the flow at your own pace.
+- **What If:** Try changes to the layout, conveyor speeds, or routing rules in a separate scenario without affecting the live system.
+- **Multi-simulation:** Run repeated experiments with different item arrivals and conveyor failures, then compare results to understand performance and variability.
+- **Routing logic:** Decide where items should go with destination rules based on their attributes, and use priorities to balance faster delivery with available capacity.
+- **Anomaly detection:** Automatically flag unusual item movement and flow patterns to help identify operational problems.
+- **AI assistant:** Ask questions in plain language to explore system data and investigate issues with an optional AI assistant.
 
-## Core Concepts
+You can also edit facility layouts visually, inspect item histories, and save and share scenarios for research and teaching.
 
-- **Dynamic Graph Model:** The entire physical layout of the system is represented as a graph. Users can visually design and modify this layout directly from the frontend.
-- **Nodes as Tracks:** Unlike traditional graphs, nodes themselves can represent physical tracks (like a conveyor belt) with properties like `length` and `speed`. This enables realistic, time-based animations of items moving *across* a node.
-- **Live System Status:** The visual appearance of every component in the graph dynamically changes to reflect its real-world state, such as `OPERATIONAL`, `STOPPED`, `FULL`, or `ERROR`.
+Flunav is under active development.
 
-## Key Features
+## How Flunav works
 
-- **Real-time Visualization & Control:**
-    - **Live Asset Tracking:** See items move across the facility in real-time.
-    - **Dynamic Status Updates:** Instantly identify system-wide issues by watching conveyors stop, items queue up at bottlenecks, or chutes become full.
-    - **Interactive Graph Editor:** Design, build, and modify your entire facility layout directly in the user interface.
+Flunav connects live monitoring, historical replay, and future experiments through the same model of your facility. Its layout describes where items can travel, while timestamped events describe what happens along the way.
 
-- **Predictive Path Simulation:**
-    - When an item receives a destination, the system calculates the most likely physical path.
-    - The frontend animates the item along this predicted route, providing a forward-looking view of the operation.
-    - **State Correction ("Teleport"):** If a sensor reports an item in a location that deviates from its predicted path, the UI immediately corrects its position, instantly highlighting operational anomalies.
+### Discrete-event simulation engine (DSE)
 
-- **Historical Analysis & "Time Travel":**
-    - **High-Fidelity Playback:** Replay past operational periods to analyze specific incidents with frame-by-frame accuracy. See exactly when a conveyor stopped and how that caused a cascading failure upstream.
-    - **Complete Item History:** Select any item, past or present, and instantly see its entire event history: every location it visited, every decision point it passed through, and the full timeline of its journey.
-    - **"What-If" Analysis:** Create a fork of a historical state in an isolated environment to test the impact of new business rules using historical event data, allowing for data-driven process optimization.
+The engine advances the system through events: an item arrives, a conveyor stops, a route changes, or an item reaches its next location. Between events, item movement is calculated from conveyor speed and elapsed time, giving the visual view a continuous flow.
 
----
+The same movement and routing logic powers both live tracking and simulations. A virtual clock lets you pause, slow down, speed up, or jump into the future. Changing playback speed changes how quickly you watch the simulation; changing conveyor speed in What If changes how the facility behaves.
 
-## Architecture
+### Historical replay and future projection
 
-Flunav's architecture is designed for resilience, scalability, and data fidelity by separating concerns and using specialized data stores.
+Flunav keeps a timestamped history of live events. To restore a moment in time, it loads the latest saved snapshot before that moment and replays the events that follow, reconstructing the facility's state.
 
-For a code-oriented map of event reduction, simulations, destination mappings,
-priority routing, and item movement, see [Backend Core Flows](docs/backend-core-flows.md).
+Recorded sensor events and predicted movement are processed in time order, with recorded events taking priority when their timestamps match. Beyond the present, the engine continues with projected movement based on the known state. Future views are predictions based on available information.
 
-### 1. Event Sourcing
-The system's source of truth is not the current state, but an immutable log of all domain events (`ItemCreated`, `PositionChanged`, etc.). This provides a complete audit trail and enables all historical features.
+Each simulation has its own state, so replaying history or testing a What If scenario leaves the live facility unaffected. Multi-simulation builds on this approach to repeat experiments and compare outcomes across different arrivals and failures.
 
-### 2. Polyglot Persistence
-We use different databases for their specialized strengths:
-- **OrientDB (Graph Database):** Stores the *current state* of the digital twin. Its graph structure is optimized for pathfinding algorithms and querying complex relationships between system components.
-- **ClickHouse (Columnar Database):** The **event store**. Built for extremely high-throughput ingestion of time-series data and fast analytical queries required for state reconstruction.
+![Airport simulation paused for inspection, with playback speed controls visible](docs/screenshots/simulation-paused.png)
 
-### 3. Asynchronous & Decoupled Ingestion
-- **RabbitMQ (Message Queue):** The API layer is decoupled from the state processing logic. Incoming events are published to a queue, allowing the API to remain fast and responsive under high load and ensuring data durability. The core system processes events from this queue.
+### Routing logic, destinations, and priorities
 
-### 4. Isolated In-Memory Simulations
-- **On-Demand Environments:** Historical simulations do not run against the live production database. When a user requests a historical view, a new, dedicated **in-memory OrientDB database** is created instantly.
-- **"Golden Template" Pattern:** To avoid slow schema creation, new in-memory databases are cloned in milliseconds from a pre-configured, schema-ready in-memory template that is created once at application startup. This ensures that analytical workloads are fully isolated from the live operational system.
+Configure destination rules that match item attributes and assign where each item should go. Logical destinations can map to one or more physical exits, giving the routing engine alternatives when choosing a path. Rules can have validity periods and rush windows that temporarily raise an item's priority.
 
-## How Simulations Work
+Routing considers usable conveyors, travel time, exit occupancy, and capacity already assigned to incoming items. Normal-priority items favor less occupied exits; higher-priority items favor faster routes, with intermediate priorities balancing both. At decision points, routes can be reconsidered as equipment availability and capacity change.
 
-Simulations are isolated forks of the live event model. A simulation starts from a requested restore timestamp, builds an independent graph state, and then advances through the same domain events that power the live system. Live state, historical state, and future projected state all use the same event semantics, but they run in separate storage contexts so one mode cannot leak into another.
+You can test destination rules, priorities, and routing changes in What If before applying them to the live system.
 
-When a simulation is created, the backend creates an in-memory OrientDB database for topology and entity state, and Redis stores hot item state under simulation-specific keys. `DatabaseContextHolder` carries the active simulation id through the processing path, so the same repositories and event processors can operate on either live storage or the simulation namespace.
+### Real-time updates with WebSockets
 
-Historical restoration is built from ClickHouse. The backend restores the latest available snapshot before the requested timestamp, replays ClickHouse events after that snapshot, and then processes any generated internal movement events needed to project item state up to the restore point. ClickHouse remains the immutable event store; simulation replay does not write projected events back as live history.
+WebSockets keep the browser connected to the backend so item changes, conveyor status, alarms, and playback updates appear without refreshing the page. Updates carry timestamps, allowing the visual view to follow either real time or the active simulation's clock.
 
-Playback combines two event streams:
+### Anomaly detection
 
-- **External events** are persisted domain events from ClickHouse, such as item creation, sensor position updates, conveyor changes, and topology changes.
-- **Internal events** are scheduled movement events generated by the simulation logic, such as an item reaching the end of a conveyor when no real sensor event has arrived yet.
+Flunav checks item movement and flow for signs of trouble, including persistent congestion, skipped sensors, unexpected paths, unusually slow journeys, growing queues, and unstable throughput. It combines checks against the facility layout and capacity with statistical comparisons against observed operating patterns.
 
-During playback, `HistoricalEventPlayer` loads external events only up to physical now, while internal events can continue beyond physical now for future projection. Events are processed in timestamp order. If an external event and an internal event have the same timestamp, the external ClickHouse event wins so real history can replace a prediction before it fires.
+Findings retain their timing and supporting measurements to help you investigate what happened. Related pressure findings can be grouped into incidents, and detection can run within simulations using their virtual time and separate state.
 
-The simulation clock is persisted as `lastProcessedTimestamp`. Playback advances in small windows and only checkpoints a window after that simulation time is actually due. This keeps pause, resume, and speed changes anchored to the real backend playback position instead of a future preloaded window.
+### AI-assisted investigation
 
-Playback speed changes are rescheduled through the same pause/resume cancellation path. When speed changes while a simulation is `PLAYING`, the backend cancels the active playback worker as an internal reschedule, keeps the simulation status as `PLAYING`, checkpoints active conveyor items at the current playback anchor, recalculates item movement schedules, and starts a new playback worker from the same timestamp with the new speed. When speed changes while the simulation is `READY`, `PAUSED`, or `STOPPED`, the backend only stores and broadcasts the new speed; it does not start playback.
+The optional AI assistant lets you ask questions about the operation in plain language. It retrieves system evidence to help explain activity and investigate issues, keeping observed facts separate from possible causes. Its investigation tools are read-only.
 
-## Running
+## Getting started
 
-For installation or packaged deployment, start the complete Docker stack:
+With Docker and Docker Compose installed, configure the deployment environment, then start the application from the repository root:
 
 ```bash
 docker compose -f docker-compose.install.yaml up -d
 ```
 
-For local development, start the backing services and Trigger.dev without backend, frontend, or nginx:
+Open [localhost](http://localhost) once the services are ready.
 
-```bash
-docker compose -f docker-compose.dev.yaml up -d
-```
+For more detail, see the [research and teaching exercise](docs/UNIVERSITY_EXERCISE.md) or the [technical overview](docs/backend-core-flows.md).
 
-Then run the backend and frontend from the host:
+## License
 
-```bash
-cd backend
-./mvnw spring-boot:run
-cd ../frontend
-pnpm run dev
-```
+Flunav is free to use and modify for personal, noncommercial projects and noncommercial research, university teaching, and learning.
 
-## Logging
+**Companies and anyone using Flunav to make money must contact [Simone Erba](https://github.com/SimoneErba) and obtain a separate commercial license before use**, including internal business use, paid services, and commercial products.
 
-The backend emits JSON logs to the console and writes `INFO+` records asynchronously to `LOG_PATH` (`logs` by default). Vector buffers records on disk and forwards them to `default.logs` in ClickHouse, where operational logs are retained for 30 days.
-
-Docker Compose watches three log locations:
-
-- `/var/log/flumen/*.json` from the `backend-logs` volume used by the Docker backend.
-- `logs/*.json` for a backend started from the repository root.
-- `backend/logs/*.json` for a backend started from the `backend` directory.
-
-The two host directories are mounted read-only into Vector. Vector reads existing files from the beginning on first discovery and stores file checkpoints plus its ClickHouse sink buffer in the `vector-data` volume, so recreating the container does not normally duplicate acknowledged records.
-
-Useful ingestion diagnostics:
-
-```bash
-docker compose -f docker-compose.install.yaml config
-docker compose -f docker-compose.install.yaml exec vector vector validate /etc/vector/vector.yaml
-docker compose -f docker-compose.install.yaml logs --tail=100 vector
-docker compose -f docker-compose.install.yaml exec clickhouse sh -c 'clickhouse-client \
-  --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
-  --query "SELECT count(), min(timestamp), max(timestamp) FROM default.logs"'
-docker compose -f docker-compose.install.yaml exec clickhouse sh -c 'clickhouse-client \
-  --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
-  --query "SELECT timestamp, level, environment, logger, message FROM default.logs ORDER BY timestamp DESC LIMIT 20"'
-```
-
-The default levels are `WARN` globally and `INFO` for `com.flunav`. To isolate EventProcessor logs at startup:
-
-```text
-LOGGING_LEVEL_ROOT=OFF
-LOGGING_LEVEL_COM_FLUNAV=OFF
-LOGGING_LEVEL_EVENTPROCESSOR=DEBUG
-```
-
-The `eventprocessor` group maps to `com.flunav.backend.services.EventProcessor`. Configure any other exact logger name through `SPRING_APPLICATION_JSON`, because environment variable names cannot preserve arbitrary class-name punctuation reliably.
-
-### AI Docs [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SimoneErba/Flunav)
+See [LICENSE](LICENSE) for the full terms.

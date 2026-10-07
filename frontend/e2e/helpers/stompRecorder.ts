@@ -12,7 +12,7 @@ export type RecordedSocketEvent = {
 
 type RecorderWindow = Window &
   typeof globalThis & {
-    __flumenStompRecorder?: {
+    __flunavStompRecorder?: {
       events: RecordedSocketEvent[];
       stop: () => void;
     };
@@ -25,7 +25,7 @@ export const startStompRecorder = async (page: Page, backendUrl: string, topics:
     ({ topics: destinations, wsUrl: websocketUrl }) =>
       new Promise<void>((resolve, reject) => {
         const recorderWindow = window as RecorderWindow;
-        recorderWindow.__flumenStompRecorder?.stop();
+        recorderWindow.__flunavStompRecorder?.stop();
 
         const events: RecordedSocketEvent[] = [];
         const socket = new WebSocket(websocketUrl);
@@ -135,7 +135,7 @@ export const startStompRecorder = async (page: Page, backendUrl: string, topics:
           }
         };
 
-        recorderWindow.__flumenStompRecorder = {
+        recorderWindow.__flunavStompRecorder = {
           events,
           stop: () => socket.close(),
         };
@@ -147,13 +147,13 @@ export const startStompRecorder = async (page: Page, backendUrl: string, topics:
 export const getRecordedSocketEvents = async (page: Page): Promise<RecordedSocketEvent[]> =>
   page.evaluate(() => {
     const recorderWindow = window as RecorderWindow;
-    return recorderWindow.__flumenStompRecorder?.events ?? [];
+    return recorderWindow.__flunavStompRecorder?.events ?? [];
   });
 
 export const stopStompRecorder = async (page: Page) => {
   await page.evaluate(() => {
     const recorderWindow = window as RecorderWindow;
-    recorderWindow.__flumenStompRecorder?.stop();
-    delete recorderWindow.__flumenStompRecorder;
+    recorderWindow.__flunavStompRecorder?.stop();
+    delete recorderWindow.__flunavStompRecorder;
   });
 };

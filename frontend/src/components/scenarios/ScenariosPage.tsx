@@ -26,7 +26,7 @@ export const ScenariosPage = () => {
   const [saved, setSaved] = useState<SavedScenario[]>([]);
   const [templates, setTemplates] = useState<ScenarioDocument[]>([]);
   const [studies, setStudies] = useState<SimulationComparison[]>([]);
-  const [selectedId, setSelectedId] = useState(localStorage.getItem('flumen_scenario_id') ?? '');
+  const [selectedId, setSelectedId] = useState(localStorage.getItem('flunav_scenario_id') ?? '');
   const [name, setName] = useState('My scenario');
   const [includeItems, setIncludeItems] = useState(false);
   const [referenceId, setReferenceId] = useState('');
@@ -70,7 +70,7 @@ export const ScenariosPage = () => {
     finally { setBusy(false); }
   };
   const remember = (value: SavedScenario) => {
-    setSelectedId(value.id!); localStorage.setItem('flumen_scenario_id', value.id!); setName(value.name ?? 'Scenario');
+    setSelectedId(value.id!); localStorage.setItem('flunav_scenario_id', value.id!); setName(value.name ?? 'Scenario');
   };
   const open = async (value: SavedScenario) => {
     const runtime = (await scenariosApi.openScenario(value.id!, value.revision)).data;
@@ -142,7 +142,7 @@ export const ScenariosPage = () => {
           <label className={`${libraryLabel} min-w-0 flex-1 sm:min-w-64`}>Scenario name<input aria-label="Scenario name" className={`${input} mt-2 font-normal normal-case tracking-normal`} value={name} onChange={event => setName(event.target.value)} /></label>
           <label className="flex min-h-10 items-center gap-2 text-sm"><input className={libraryCheckbox} type="checkbox" checked={includeItems} onChange={event => setIncludeItems(event.target.checked)} /> Include initial items</label>
           <button className={librarySave} disabled={busy || !canEdit} onClick={() => void action(capture)}>Save {selectedId ? 'new revision' : 'current model'}</button>
-          <button className={button} onClick={() => { setSelectedId(''); localStorage.removeItem('flumen_scenario_id'); }}>Save as new project</button>
+          <button className={button} onClick={() => { setSelectedId(''); localStorage.removeItem('flunav_scenario_id'); }}>Save as new project</button>
         </div>
         <div className="grid gap-3 md:grid-cols-3">{saved.map(value => <article key={value.id} className={`${libraryPanel} space-y-3 border-t-2 border-t-blue-500 p-5`}>
           <h2 className="font-semibold">{value.name} · revision {value.revision}</h2><p className="text-sm">{value.description}</p>
