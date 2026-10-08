@@ -8,8 +8,6 @@ Flunav is a digital twin for conveyor and sorting systems: a virtual view of a f
 
 ![Flunav running an isolated airport routing simulation, with moving bags and a stopped Gate A conveyor](docs/screenshots/simulation.png)
 
-An airport What If simulation: bags reroute or recirculate when Gate A's exit conveyor stops. The top bar shows playback controls and operational counts.
-
 ## Main features
 
 - **Live:** Follow items in real time, monitor conveyor status, and spot queues, bottlenecks, and alarms.
