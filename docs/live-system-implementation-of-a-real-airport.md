@@ -6,10 +6,12 @@ This document records the production baggage-sorting behavior examined in the su
 
 | Source | Responsibility |
 | --- | --- |
-| [SortingBase.cs](SortingBase.cs) | Common sorting workflow, identification, flight allocation handling, timing, destination selection, instructions, and result processing |
-| [SortingCDG.cs](SortingCDG.cs) | Charles de Gaulle operating modes, security behavior, relabeling, and recirculation overrides |
-| [SortingDB.cs](SortingDB.cs) | SQL Server data access implementing `ISortingDAL`, using Dapper, views, stored procedures, and configuration caches |
-| [intermediate_destinations.sql](intermediate_destinations.sql) | SQL definition of `Sorting_GetIntermediateTargets` |
+| [source-01.cs.enc](source-01.cs.enc) | Common sorting workflow, identification, flight allocation handling, timing, destination selection, instructions, and result processing |
+| [source-02.cs.enc](source-02.cs.enc) | Charles de Gaulle operating modes, security behavior, relabeling, and recirculation overrides |
+| [source-03.cs.enc](source-03.cs.enc) | SQL Server data access implementing `ISortingDAL`, using Dapper, views, stored procedures, and configuration caches |
+| [source-04.sql.enc](source-04.sql.enc) | SQL definition of `Sorting_GetIntermediateTargets` |
+
+These source files are encrypted. See [the docs README](README.md) for the restore commands.
 
 The source was examined on 29 September 2026. Missing workers, models, services, SQL definitions, and equipment protocol documentation limit some conclusions. No production database or equipment was accessed. The Java comparison describes the repository code examined at that time.
 

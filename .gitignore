@@ -64,6 +64,12 @@ Icon?
 !/backend/logs/.gitkeep
 *.log.*
 
+# Restored private docs sources
+/docs/SortingBase.cs
+/docs/SortingCDG.cs
+/docs/SortingDB.cs
+/docs/intermediate_destinations.sql
+
 # === Test Reports ===
 **/test-output/
 **/surefire-reports/
